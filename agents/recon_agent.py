@@ -171,25 +171,74 @@ class ReconSuperAgent:
             return ""
 
 
-    # ================= STAGE 1: PASSIVE & DNS RECON =================
+    # ================= STAGE 1: MULTI-SOURCE PASSIVE OSINT & DNS =================
     def _stage1_crtsh(self, project_id: int, domain: str, scope: ScopeGuard, log_fn):
-        log_fn(f"[Stage 1] CRT.sh Certificate Transparency qidiruvi: {domain}")
-        url = f"https://crt.sh/?q=%25.{domain}&output=json"
-        try:
-            resp = self.session.get(url, timeout=15)
-            if resp.status_code == 200:
-                entries = resp.json()
-                count = 0
-                for item in entries:
-                    for sub in str(item.get("name_value", "")).splitlines():
-                        sub = sub.strip().lower().lstrip("*.")
-                        ok, _ = scope.is_in_scope(sub)
-                        if ok and "." in sub:
-                            self.db.upsert_domain(project_id, sub, source="crt.sh")
-                            count += 1
-                log_fn(f"[Stage 1] CRT.sh orqali {count} ta yozuv tekshirildi.")
-        except Exception as e:
-            log_fn(f"[Stage 1] CRT.sh ogohlantirish: {e}")
+        log_fn(f"[SPECTRE Stage 1] 5 ta Global OSINT Baza (CRT.sh, AlienVault OTX, HackerTarget, URLScan, Anubis) parallel qidiruvi: {domain}")
+        discovered = set()
+
+        def fetch_crtsh():
+            try:
+                r = self.session.get(f"https://crt.sh/?q=%25.{domain}&output=json", timeout=12)
+                if r.status_code == 200:
+                    for item in r.json():
+                        for sub in str(item.get("name_value", "")).splitlines():
+                            discovered.add((sub.strip().lower().lstrip("*."), "crt.sh"))
+            except Exception:
+                pass
+
+        def fetch_otx():
+            try:
+                r = self.session.get(f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns", timeout=12)
+                if r.status_code == 200:
+                    for row in r.json().get("passive_dns", []):
+                        h = str(row.get("hostname", "")).strip().lower()
+                        if h:
+                            discovered.add((h, "alienvault_otx"))
+            except Exception:
+                pass
+
+        def fetch_hackertarget():
+            try:
+                r = self.session.get(f"https://api.hackertarget.com/hostsearch/?q={domain}", timeout=10)
+                if r.status_code == 200 and "error" not in r.text.lower():
+                    for line in r.text.splitlines():
+                        parts = line.split(",")
+                        if parts and "." in parts[0]:
+                            discovered.add((parts[0].strip().lower(), "hackertarget"))
+            except Exception:
+                pass
+
+        def fetch_urlscan():
+            try:
+                r = self.session.get(f"https://urlscan.io/api/v1/search/?q=domain:{domain}&size=100", timeout=10)
+                if r.status_code == 200:
+                    for res in r.json().get("results", []):
+                        d_val = str(res.get("page", {}).get("domain", "")).strip().lower()
+                        if d_val:
+                            discovered.add((d_val, "urlscan.io"))
+            except Exception:
+                pass
+
+        def fetch_anubis():
+            try:
+                r = self.session.get(f"https://jonlu.ca/anubis/subdomains/{domain}", timeout=10)
+                if r.status_code == 200 and isinstance(r.json(), list):
+                    for sub in r.json():
+                        discovered.add((str(sub).strip().lower(), "anubis_db"))
+            except Exception:
+                pass
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
+            futures = [ex.submit(fn) for fn in (fetch_crtsh, fetch_otx, fetch_hackertarget, fetch_urlscan, fetch_anubis)]
+            concurrent.futures.wait(futures, timeout=16)
+
+        added = 0
+        for sub, src in sorted(discovered):
+            if "." in sub and scope.is_in_scope(sub)[0]:
+                self.db.upsert_domain(project_id, sub, source=src)
+                added += 1
+        log_fn(f"  [+] Passive OSINT Mesh yakunlandi: {added} ta in-scope subdomen bazaga qo'shildi.")
+
 
     def _stage1_dns_enum(self, project_id: int, base_domain: str, scope: ScopeGuard, log_fn):
         apex_domain = ScopeGuard.extract_apex_domain(base_domain)
@@ -241,6 +290,18 @@ class ReconSuperAgent:
                     pass
             if cand not in (base_domain, apex_domain) and ip_val and ip_val in wildcard_ips:
                 return
+            if cname_val and not ip_val:
+                takeover_sigs = ("github.io", "herokuapp.com", "s3.amazonaws.com", "azurewebsites.net", "vercel.app", "netlify.app", "digitaloceanspaces.com", "trafficmanager.net")
+                if any(sig in cname_val.lower() for sig in takeover_sigs):
+                    self.db.upsert_finding(
+                        project_id, "SPECTRE-Agent1 (Takeover)", f"Potential Subdomain Takeover (Dangling CNAME: {cand})",
+                        "Subdomain Takeover", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:N",
+                        "CWE-350", "A05:2021 - Security Misconfiguration", cand,
+                        f"Subdomain: {cand} -> CNAME: {cname_val} (No A Record / NXDOMAIN)",
+                        "Subdomen CNAME yozuvi tashqi bulutli servisga yo'naltirilgan, ammo u yerda resurs o'chirilgan.",
+                        "DNS zonasidan eskirgan CNAME yozuvini o'chiring yoki tashqi servisda nomni band qiling.",
+                    )
+                    log_fn(f"  [🚨 TAKEOVER] Dangling CNAME aniqlandi: {cand} -> {cname_val}")
             if records:
                 cdn = "Cloudflare" if any("cloudflare" in str(v).lower() for v in records.values()) else ""
                 self.db.upsert_domain(project_id, cand, ip=ip_val, cname=cname_val, records=records, cdn_waf=cdn, source="dns_enum")
@@ -249,6 +310,47 @@ class ReconSuperAgent:
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=15) as ex:
             list(ex.map(check_candidate, sorted(candidates)))
+
+    def _stage2_shodan_internetdb(self, project_id: int, scope: ScopeGuard, log_fn):
+        domains = self.db.get_project_bundle(project_id).get("domains", [])
+        ip_to_hosts: dict[str, list[str]] = {}
+        for d in domains:
+            ip = d.get("ip", "").strip()
+            if ip:
+                ip_to_hosts.setdefault(ip, []).append(d["domain"])
+
+        if not ip_to_hosts:
+            return
+        log_fn(f"[SPECTRE Stage 2] Shodan InternetDB orqali {len(ip_to_hosts)} ta noyob IP (portlar, CPE va CVE) tekshirilmoqda...")
+        for ip, hosts in ip_to_hosts.items():
+            try:
+                r = self.session.get(f"https://internetdb.shodan.io/{ip}", timeout=8)
+                if r.status_code != 200:
+                    continue
+                data = r.json()
+                ports = data.get("ports", [])
+                cpes = data.get("cpes", [])
+                vulns = data.get("vulns", [])
+                hostnames = data.get("hostnames", [])
+                primary_h = hosts[0]
+                for p in ports:
+                    self.db.upsert_port(project_id, primary_h, int(p), "tcp", ip=ip, service="shodan-port", version=", ".join(cpes[:2]), source="shodan_internetdb")
+                for hn in hostnames:
+                    if scope.is_in_scope(hn)[0]:
+                        self.db.upsert_domain(project_id, hn, ip=ip, source="shodan_rdns")
+                if vulns:
+                    self.db.upsert_finding(
+                        project_id, "SPECTRE-Agent1 (ShodanCVE)", f"Known CVEs on Host IP {ip} ({len(vulns)} CVEs)",
+                        "Vulnerable Components (CVE)", "High", 8.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+                        "CWE-1104", "A06:2021 - Vulnerable and Outdated Components", f"{primary_h} ({ip})",
+                        f"CVEs: {', '.join(vulns[:10])} | CPEs: {', '.join(cpes[:4])}",
+                        "Shodan InternetDB ma'lumotlariga ko'ra ushbu IP dagi servis versiyalarida ma'lum CVE zaifliklar mavjud.",
+                        "Servis versiyalarini yangilang va tashqi portlarni Firewall orqali cheklang.",
+                    )
+                log_fn(f"  [+] Shodan InternetDB ({ip}): Ports={ports} | CPEs={len(cpes)} | CVEs={len(vulns)}")
+            except Exception:
+                pass
+
 
 
 
@@ -338,6 +440,23 @@ class ReconSuperAgent:
                 "Access-Control-Allow-Origin": headers_l.get("access-control-allow-origin", ""),
                 "Access-Control-Allow-Credentials": headers_l.get("access-control-allow-credentials", ""),
             }
+
+            # SPECTRE CSP & Header Infrastructure Miner
+            header_blob = " ".join(f"{k}: {v}" for k, v in headers.items())
+            for cand_host in re.findall(r"(?:[a-zA-Z0-9\-]+\.)+[a-zA-Z]{2,10}", header_blob):
+                ch_low = cand_host.lower().strip(".")
+                if scope.is_in_scope(ch_low)[0]:
+                    self.db.upsert_domain(project_id, ch_low, source="http_header_csp")
+            for priv_ip in re.findall(r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})\b", header_blob):
+                self.db.upsert_finding(
+                    project_id, "SPECTRE-Agent1 (HeaderMiner)", f"Internal Private IP Leaked in HTTP Headers ({priv_ip})",
+                    "Information Disclosure", "Low", 3.7, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                    "CWE-200", "A05:2021 - Security Misconfiguration", url,
+                    f"Leaked RFC1918 Private IP in Response Header: {priv_ip}",
+                    "HTTP javob headerlarida ichki tarmoq IP manzili oshkor qilingan.",
+                    "Reverse-proxy (Nginx/HAProxy) da X-Upstream, Via va X-Backend-Server headerlarini tozalang.",
+                )
+
 
             cookies_list = []
             raw_set_cookie = resp.raw.headers.getlist("Set-Cookie") if hasattr(resp.raw, "headers") and hasattr(resp.raw.headers, "getlist") else []
@@ -591,10 +710,29 @@ class ReconSuperAgent:
                     if "{param}" in ep and "id" not in ep_params:
                         ep_params.append("id")
                     self._record_discovered_url(project_id, ep, base_url, scope, "js_intelligence", extra_params=ep_params)
+
+                # SourceMap (.js.map) Hunter
+                map_url = js_url + ".map"
+                try:
+                    rm = self.session.get(map_url, timeout=5, verify=False)
+                    if rm.status_code == 200 and '"sources"' in rm.text[:600] and '"mappings"' in rm.text[:2000]:
+                        self.db.upsert_finding(
+                            project_id, "SPECTRE-Agent1 (SourceMap)", f"Exposed JavaScript SourceMap ({map_url.split('/')[-1]})",
+                            "Source Code Disclosure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                            "CWE-540", "A05:2021 - Security Misconfiguration", map_url,
+                            f"SourceMap file accessible ({len(rm.content)} bytes) containing original unminified source tree.",
+                            "Production serverda .js.map (SourceMap) fayli ochiq qoldirilgan — bu orqali asl frontend kodni to'liq tiklash mumkin.",
+                            "Production build jarayonida generateSourceMap ni o'chiring yoki Nginx da *.map fayllarga kirishni bloklang.",
+                        )
+                        log_fn(f"  [🚨 SOURCEMAP] Ochiq .js.map topildi: {map_url}")
+                except Exception:
+                    pass
+
                 if sorted_eps or sinks or secrets:
                     log_fn(f"  [+] JS Bundle ({js_url.split('/')[-1]}): {len(sorted_eps)} API route, {len(extracted_params)} param, {len(sinks)} sink, {len(secrets)} config.")
             except Exception:
                 pass
+
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
             list(ex.map(analyze_one_js, clean_js_urls[:40]))
@@ -643,46 +781,68 @@ class ReconSuperAgent:
 
         # Stage 2
         tls_info = self._stage2_tls_inspect(project_id, primary_host, scope, log_fn)
+        self._stage2_shodan_internetdb(project_id, scope, log_fn)
         if "nmap" in active_ids and self._find_binary("nmap") and project_id not in self.abort_flags:
-            log_fn(f"[Stage 2] Nmap Service & Port Scan (Top 100 ports): {primary_host}")
+            log_fn(f"[SPECTRE Stage 2] Nmap Service & Port Scan (Top 100 ports): {primary_host}")
             xml_out = self._run_cli(f"nmap -Pn -sV -T4 --top-ports 100 -oX - {safe_host}", log_fn, timeout=90, project_id=project_id)
             self._parse_nmap_xml(project_id, primary_host, xml_out, log_fn)
-            self.db.log_task(project_id, "Agent-1 (Recon)", "nmap", "COMPLETED", f"nmap -Pn -sV --top-ports 100 {primary_host}", "XML Parsed")
+            self.db.log_task(project_id, "SPECTRE-Agent1", "nmap", "COMPLETED", f"nmap -Pn -sV --top-ports 100 {primary_host}", "XML Parsed")
 
-        # Stage 3, 4, 5, 6
-        domains = [d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", []) if d.get("ip") or d.get("cname") or d["domain"] == primary_host]
-        if primary_host not in domains:
-            domains.insert(0, primary_host)
-
-        for dom in domains[:8]:
-            if project_id in self.abort_flags:
+        # Stage 3, 4, 5, 6 (with Recursive Discovery Loop)
+        probed_domains = set()
+        for pass_num in (1, 2):
+            domains = [d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", []) if d.get("ip") or d.get("cname") or d["domain"] == primary_host or pass_num == 2]
+            if primary_host not in domains:
+                domains.insert(0, primary_host)
+            new_batch = [d for d in domains if d not in probed_domains][:8]
+            if not new_batch:
                 break
-            for scheme in ("https", "http"):
-                url = f"{scheme}://{dom}"
-                safe_url = shlex.quote(url)
-                html = self._stage3_http_probe(project_id, url, tls_info if dom == primary_host else {}, scope, log_fn)
-                if html:
-                    if "whatweb" in active_ids and self._find_binary("whatweb") and dom == primary_host:
-                        ww = self._run_cli(f"whatweb --color=never -a 1 {safe_url}", log_fn, timeout=25, project_id=project_id)
-                        self.db.log_task(project_id, "Agent-1 (Recon)", "whatweb", "COMPLETED", f"whatweb {url}", ww[:200])
-                    if "wafw00f" in active_ids and self._find_binary("wafw00f") and dom == primary_host:
-                        wf = self._run_cli(f"wafw00f {safe_url}", log_fn, timeout=25, project_id=project_id)
-                        self.db.log_task(project_id, "Agent-1 (Recon)", "wafw00f", "COMPLETED", f"wafw00f {url}", wf[:200])
-                    js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)
-                    if "katana" in active_ids and self._find_binary("katana") and dom == primary_host:
-                        kt_out = self._run_cli(f"katana -u {safe_url} -d 2 -jc -silent", log_fn, timeout=40, project_id=project_id)
-                        for k_url in kt_out.splitlines():
-                            u = self._record_discovered_url(project_id, k_url, url, scope, "katana")
-                            if u and u.endswith(".js"):
-                                js_list.append(u)
-                    self._stage5_openapi_discovery(project_id, url, scope, log_fn)
-                    self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
+            if pass_num == 2:
+                log_fn(f"[SPECTRE Recursive Loop] 2-to'lqinda topilgan {len(new_batch)} ta yangi subdomen tekshirilmoqda: {', '.join(new_batch)}")
+                self._stage1_dns_enum(project_id, primary_host, scope, log_fn)
+                self._stage2_shodan_internetdb(project_id, scope, log_fn)
+
+            for dom in new_batch:
+                probed_domains.add(dom)
+                if project_id in self.abort_flags:
                     break
+                for scheme in ("https", "http"):
+                    url = f"{scheme}://{dom}"
+                    safe_url = shlex.quote(url)
+                    html = self._stage3_http_probe(project_id, url, tls_info if dom == primary_host else {}, scope, log_fn)
+                    if html:
+                        if "whatweb" in active_ids and self._find_binary("whatweb") and dom == primary_host:
+                            ww = self._run_cli(f"whatweb --color=never -a 1 {safe_url}", log_fn, timeout=25, project_id=project_id)
+                            self.db.log_task(project_id, "SPECTRE-Agent1", "whatweb", "COMPLETED", f"whatweb {url}", ww[:200])
+                        if "wafw00f" in active_ids and self._find_binary("wafw00f") and dom == primary_host:
+                            wf = self._run_cli(f"wafw00f {safe_url}", log_fn, timeout=25, project_id=project_id)
+                            self.db.log_task(project_id, "SPECTRE-Agent1", "wafw00f", "COMPLETED", f"wafw00f {url}", wf[:200])
+                        js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)
+                        if "katana" in active_ids and self._find_binary("katana") and dom == primary_host:
+                            kt_out = self._run_cli(f"katana -u {safe_url} -d 2 -jc -silent", log_fn, timeout=40, project_id=project_id)
+                            for k_url in kt_out.splitlines():
+                                u = self._record_discovered_url(project_id, k_url, url, scope, "katana")
+                                if u and u.endswith(".js"):
+                                    js_list.append(u)
+                        self._stage5_openapi_discovery(project_id, url, scope, log_fn)
+                        self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
+                        break
 
-
+        b_final = self.db.get_project_bundle(project_id)
+        unique_ips = sorted({d["ip"] for d in b_final["domains"] if d.get("ip")})
+        api_eps = [e["url"] for e in b_final["endpoints"] if e.get("category") in ("api_endpoint", "high_value_endpoint")]
+        log_fn("╔══════════════════════════════════════════════════════════════════════════╗")
+        log_fn(f"║ 🧠 SPECTRE TACTICAL BRIEFING ({apex_domain})                             ")
+        log_fn(f"║ • Subdomenlar: {len(b_final['domains'])} ta | Noyob IP/Serverlar: {len(unique_ips)} ta ({', '.join(unique_ips[:4])})")
+        log_fn(f"║ • Ochiq Portlar: {len(b_final['ports'])} ta | Faol Web Servislar: {len(b_final['http_services'])} ta")
+        log_fn(f"║ • Jami Endpointlar: {len(b_final['endpoints'])} ta | Yuqori qiymatli API'lar: {len(api_eps)} ta | JS Fayllar: {len(b_final['js_assets'])} ta")
+        if api_eps:
+            log_fn(f"║ • Birinchi navbatda tekshiriladigan API'lar: {', '.join(api_eps[:3])}")
+        log_fn("╚══════════════════════════════════════════════════════════════════════════╝")
 
         self.db.update_project_status(project_id, "RECON_COMPLETED")
-        log_fn("═══ ✅ 1-SUPERAGENT: RECON VA ATTACK SURFACE XARITASI YAKUNLANDI ═══")
+        log_fn("═══ ✅ SPECTRE 1-SUPERAGENT: DEEP RECON YAKUNLANDI ═══")
+
 
 
 

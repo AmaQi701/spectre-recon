@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="ui/apex-icon.svg" width="110" alt="APEX-ASM Logo" />
+<img src="ui/apex-icon.svg" width="110" alt="SPECTRE Logo" />
 
-# 🛡️ APEX-ASM & Audit Studio v2.0
+# 👻 SPECTRE (`spectre-recon`) v3.0
 
-**Autonomous Attack Surface Management, Deep JS/API Intelligence, Vulnerability Assessment, Bug Chaining & Pentest Reporting Studio for Linux (Native GTK3 + Web UI)**
+**Autonomous Cyber-Reconnaissance, OSINT Mesh, Shodan InternetDB CVE Intelligence, Deep SPA/JS/SourceMap Deconstruction & Attack Surface Platform for Linux (Native GTK3 + Web UI)**
 
-[![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Kali%20%7C%20Debian-0ea5e9?style=for-the-badge&logo=linux)](https://github.com/AmaQi701/apex-asm-studio)
+[![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Kali%20%7C%20Debian-0ea5e9?style=for-the-badge&logo=linux)](https://github.com/AmaQi701/spectre-recon)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-10b981?style=for-the-badge&logo=python)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/Desktop%20GUI-Native%20GTK3%20%2B%20Dark%20Mode-6366f1?style=for-the-badge&logo=gnome)](https://gtk.org/)
 [![License](https://img.shields.io/badge/License-MIT-f59e0b?style=for-the-badge)](LICENSE)
@@ -17,9 +17,10 @@
 
 ## ⚡ Overview
 
-**APEX-ASM & Audit Studio** is an open-source, modular **Multi-Agent Security Assessment & Attack Surface Management (ASM)** desktop platform engineered for professional penetration testers, AppSec engineers, and red-team auditors.
+**SPECTRE (`spectre-recon`)** is an open-source, JARVIS-inspired **Autonomous Reconnaissance & Attack Surface Management (ASM)** desktop platform engineered for professional penetration testers, AppSec engineers, and red-team auditors.
 
-Unlike brittle bash wrappers or browser-bound dashboards, **APEX-ASM Studio** provides a **100% Native Ubuntu/Linux GTK3 Dark-Mode Desktop GUI** backed by a persistent **SQLite WAL Asset Graph** and a **Dynamic YAML Tool Registry**.
+Unlike brittle bash wrappers or browser-bound dashboards, **SPECTRE** provides a **100% Native Ubuntu/Linux GTK3 Dark-Mode Desktop GUI** backed by a persistent **SQLite WAL Asset Graph**, a **Recursive Discovery Loop**, and a **Dynamic YAML Tool Registry**.
+
 
 ---
 
@@ -46,16 +47,16 @@ Unlike brittle bash wrappers or browser-bound dashboards, **APEX-ASM Studio** pr
 ### Option 1: Build & Install Official `.deb` Package (Recommended)
 
 ```bash
-git clone https://github.com/AmaQi701/apex-asm-studio.git
-cd apex-asm-studio
+git clone https://github.com/AmaQi701/spectre-recon.git
+cd spectre-recon
 chmod +x build_deb.sh
 ./build_deb.sh
-sudo dpkg -i dist/apex-asm-studio_2.0_all.deb
+sudo dpkg -i dist/spectre-recon_3.0_all.deb
 ```
 
-Launch **APEX-ASM Pentest Studio** from your Ubuntu Applications Menu or terminal:
+Launch **SPECTRE Recon Studio** from your Ubuntu Applications Menu or terminal:
 ```bash
-apex-asm-studio
+spectre-recon
 ```
 
 ### Option 2: Run Directly from Source
@@ -64,8 +65,8 @@ apex-asm-studio
 sudo apt update
 sudo apt install -y python3 python3-gi gir1.2-gtk-3.0 python3-requests python3-yaml python3-dnspython python3-bs4 python3-flask nmap whois dnsutils
 
-git clone https://github.com/AmaQi701/apex-asm-studio.git
-cd apex-asm-studio
+git clone https://github.com/AmaQi701/spectre-recon.git
+cd spectre-recon
 ./launch_apex.sh
 ```
 

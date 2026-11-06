@@ -48,9 +48,9 @@ button:hover { background-color: #0369a1; }
 
 class ApexNativeWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="APEX-ASM & Audit Studio v2.0 (Native Ubuntu Desktop)")
+        super().__init__(title="SPECTRE Recon & Attack Surface Studio v3.0 (Native Ubuntu Desktop)")
         self.set_default_size(1460, 900)
-        self.set_wmclass("apex-asm-studio", "APEX-ASM Pentest Studio")
+        self.set_wmclass("spectre-recon", "SPECTRE Recon Studio")
         icon_path = BASE_DIR / "ui" / "apex-icon.svg"
         if icon_path.exists():
             try:
@@ -109,8 +109,8 @@ class ApexNativeWindow(Gtk.Window):
         # HeaderBar
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
-        hb.props.title = "🛡️ APEX-ASM & Audit Studio v2.0"
-        hb.props.subtitle = "Autonomous Recon • Vuln Assessment • Bug Chaining • Report Studio"
+        hb.props.title = "👻 SPECTRE Recon & Attack Surface Studio v3.0"
+        hb.props.subtitle = "Autonomous OSINT Mesh • Shodan CVE • Deep JS/SourceMap • Bug Chaining"
         self.set_titlebar(hb)
 
         self.proj_combo = Gtk.ComboBoxText()
@@ -273,7 +273,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_editable(False)
         self.term_view.set_monospace(True)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[APEX-ASM NATIVE GTK3 STUDIO] Mahalliy Ubuntu Desktop dasturi ishga tushdi.\n")
+        self.term_buf.set_text("[SPECTRE v3.0 NATIVE GTK3 STUDIO] Mahalliy Ubuntu kiber-razvedka platformasi ishga tushdi.\n")
         term_scroll.add(self.term_view)
         vpaned.pack2(term_scroll, False, False)
 
