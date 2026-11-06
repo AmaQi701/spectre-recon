@@ -1,0 +1,21 @@
+# OPSEC: Never commit real engagement databases or audit reports
+workspaces/*.db
+workspaces/*.db-shm
+workspaces/*.db-wal
+reports/*.md
+reports/*.html
+reports/*.pdf
+
+# Keep empty directories
+!workspaces/.gitkeep
+!reports/.gitkeep
+
+# Python & OS artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+*.deb
+.DS_Store

@@ -1,0 +1,161 @@
+version: "2.0"
+description: "APEX-ASM Autonomous Recon & Security Audit Tool Registry"
+
+tools:
+  # STAGE 1: PASSIVE & DNS RECON
+  - id: crtsh_builtin
+    name: "CRT.sh Certificate Transparency (Built-in)"
+    stage: "1_passive_dns"
+    binary: "builtin"
+    enabled: true
+    description: "SSL/TLS sertifikatlar reestridan subdomenlarni passiv yig'ish"
+    command_template: "builtin:crtsh {domain}"
+
+  - id: dns_enum_builtin
+    name: "DNS Resolver & Zone Analyzer (Built-in dnspython)"
+    stage: "1_passive_dns"
+    binary: "builtin"
+    enabled: true
+    description: "A, AAAA, CNAME, MX, TXT, NS, SOA yozuvlarini va keng tarqalgan subdomenlarni aniqlash"
+    command_template: "builtin:dns_enum {domain}"
+
+  - id: subfinder
+    name: "Subfinder"
+    stage: "1_passive_dns"
+    binary: "subfinder"
+    enabled: true
+    description: "Passiv manbalar orqali subdomenlarni tezkor qidirish"
+    command_template: "subfinder -d {domain} -silent"
+
+  - id: amass
+    name: "OWASP Amass (Passive)"
+    stage: "1_passive_dns"
+    binary: "amass"
+    enabled: false
+    description: "Chuqur passiv subdomen va ASN razvedkasi"
+    command_template: "amass enum -passive -d {domain} -timeout 2"
+
+  - id: dig
+    name: "Dig DNS Lookup"
+    stage: "1_passive_dns"
+    binary: "dig"
+    enabled: true
+    description: "DNS A, CNAME, TXT va MX yozuvlarini tekshirish"
+    command_template: "dig +short {domain} ANY"
+
+  - id: whois
+    name: "Whois Domain Intelligence"
+    stage: "1_passive_dns"
+    binary: "whois"
+    enabled: true
+    description: "Domen registratori, NS serverlar va tashkilot ma'lumotlari"
+    command_template: "whois {domain}"
+
+  # STAGE 2: NETWORK, PORT & TLS MAPPING
+  - id: tls_inspector_builtin
+    name: "TLS/SSL SAN & Cipher Inspector (Built-in)"
+    stage: "2_network_port"
+    binary: "builtin"
+    enabled: true
+    description: "SSL sertifikat ichidagi Subject Alternative Names (SAN), muddati va TLS versiyasini tekshirish"
+    command_template: "builtin:tls_inspect {domain}"
+
+  - id: nmap
+    name: "Nmap Service & Port Scanner"
+    stage: "2_network_port"
+    binary: "nmap"
+    enabled: true
+    description: "Asosiy portlar va servis versiyalarini XML formatda aniqlash"
+    command_template: "nmap -Pn -sV -T4 --top-ports 100 -oX - {domain}"
+
+  - id: naabu
+    name: "Naabu Fast Port Scanner"
+    stage: "2_network_port"
+    binary: "naabu"
+    enabled: true
+    description: "Tezkor port skaneri"
+    command_template: "naabu -host {domain} -top-ports 100 -silent"
+
+  # STAGE 3: WEB PROBING & TECH FINGERPRINTING
+  - id: http_prober_builtin
+    name: "HTTP/HTTPS Deep Prober & Header Auditor (Built-in)"
+    stage: "3_web_probe"
+    binary: "builtin"
+    enabled: true
+    description: "Status code, Title, Tech Stack, Security Headers, Cookies va CORS konfiguratsiyasini yig'ish"
+    command_template: "builtin:http_probe {target_url}"
+
+  - id: whatweb
+    name: "WhatWeb Tech Fingerprinter"
+    stage: "3_web_probe"
+    binary: "whatweb"
+    enabled: true
+    description: "Veb-sayt CMS, framework, server va kutubxonalarini aniqlash"
+    command_template: "whatweb --color=never -a 1 {target_url}"
+
+  - id: wafw00f
+    name: "Wafw00f WAF Detector"
+    stage: "3_web_probe"
+    binary: "wafw00f"
+    enabled: true
+    description: "Web Application Firewall (Cloudflare, Imperva, ModSecurity va b.) mavjudligini tekshirish"
+    command_template: "wafw00f -a {target_url}"
+
+  - id: httpx
+    name: "ProjectDiscovery HTTPX"
+    stage: "3_web_probe"
+    binary: "httpx"
+    enabled: true
+    description: "HTTP servislar, texnologiyalar va status kodlarni aniqlash"
+    command_template: "httpx -u {target_url} -silent -title -tech-detect -status-code -json"
+
+  # STAGE 4: CRAWLING & HISTORICAL URLS
+  - id: katana
+    name: "Katana Web Crawler"
+    stage: "4_crawling"
+    binary: "katana"
+    enabled: true
+    description: "Zamonaviy veb-sayt va JS fayllarni chuqur crawl qilish"
+    command_template: "katana -u {target_url} -d 2 -jc -silent -ef woff,css,png,jpg,svg,ico"
+
+  - id: wayback_builtin
+    name: "Wayback Machine Archive Collector (Built-in)"
+    stage: "4_crawling"
+    binary: "builtin"
+    enabled: true
+    description: "Web.archive.org orqali tarixiy endpoint, API va JS manzillarini passiv olish"
+    command_template: "builtin:wayback {domain}"
+
+  # STAGE 5: CONTENT, API & SCHEMA DISCOVERY
+  - id: openapi_swagger_builtin
+    name: "OpenAPI / Swagger / GraphQL / Well-Known Discovery (Built-in)"
+    stage: "5_api_content"
+    binary: "builtin"
+    enabled: true
+    description: "API hujjatlari (swagger.json, openapi.yaml, graphql, actuator, .well-known) va sxemalarini tahlil qilish"
+    command_template: "builtin:openapi_discovery {target_url}"
+
+  - id: ffuf
+    name: "FFUF Web Fuzzer (Safe Discovery)"
+    stage: "5_api_content"
+    binary: "ffuf"
+    enabled: false
+    description: "Yashirin katalog va API yo'llarini qidirish"
+    command_template: "ffuf -u {target_url}/FUZZ -w {wordlist} -mc 200,204,301,302,307,401,403 -t 20 -s"
+
+  - id: gobuster
+    name: "Gobuster Directory Scanner"
+    stage: "5_api_content"
+    binary: "gobuster"
+    enabled: false
+    description: "Katalog va fayllarni qidirish"
+    command_template: "gobuster dir -u {target_url} -w {wordlist} -q --no-error"
+
+  # STAGE 6: JS INTELLIGENCE & SAST
+  - id: js_intelligence_builtin
+    name: "Deep JS AST/Regex Endpoint, Parameter & Sink Extractor (Built-in)"
+    stage: "6_js_intelligence"
+    binary: "builtin"
+    enabled: true
+    description: "JS fayllardan API route'lar, GET/POST parametrlar, DOM XSS sinklar va kalit patternlarni ajratish"
+    command_template: "builtin:js_analyzer {target_url}"

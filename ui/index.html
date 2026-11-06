@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <title>APEX-ASM & Audit Studio — Autonomous Pentest Platform</title>
+  <style>
+    :root {
+      --bg: #090d16; --panel: #111827; --border: #1f2937; --text: #e5e7eb;
+      --muted: #9ca3af; --accent: #0ea5e9; --green: #10b981; --amber: #f59e0b; --red: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+    .sidebar { width: 270px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 14px; gap: 10px; }
+    .brand { font-size: 17px; font-weight: 800; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+    .nav-btn { background: transparent; color: var(--text); border: 1px solid transparent; text-align: left; padding: 9px 11px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
+    .nav-btn:hover, .nav-btn.active { background: #1e293b; border-color: var(--accent); color: #38bdf8; }
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .topbar { background: var(--panel); border-bottom: 1px solid var(--border); padding: 10px 18px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .btn { background: var(--accent); color: #fff; border: none; padding: 7px 12px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px; }
+    .btn-green { background: var(--green); } .btn-amber { background: var(--amber); color: #000; } .btn-red { background: var(--red); }
+    .content { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+    .stat-num { font-size: 22px; font-weight: 800; color: #38bdf8; margin-top: 4px; }
+    input, textarea, select { width: 100%; background: #0b1120; border: 1px solid #374151; color: var(--text); padding: 7px 10px; border-radius: 6px; font-size: 13px; margin-top: 4px; margin-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    th, td { border-bottom: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { color: #38bdf8; background: #0f172a; }
+    .badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; display: inline-block; margin: 1px; }
+    .b-High { background: rgba(239,68,68,0.2); color: #f87171; border: 1px solid #ef4444; }
+    .b-Med { background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid #f59e0b; }
+    .b-Low { background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid #10b981; }
+    .terminal { height: 175px; background: #05080f; border-top: 1px solid var(--border); padding: 10px 14px; font-family: monospace; font-size: 12px; color: #34d399; overflow-y: auto; white-space: pre-wrap; }
+    .tab-pane { display: none; } .tab-pane.active { display: block; }
+    code { color: #f472b6; background: #090d16; padding: 2px 5px; border-radius: 4px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <div class="brand">🛡️ APEX-ASM STUDIO v2</div>
+    <div style="font-size:12px;color:var(--muted)">Faol Audit Loyihasi:</div>
+    <select id="projectSelect" onchange="loadProjectBundle()"></select>
+    <button class="nav-btn active" onclick="switchTab('tab-scope', this)">🎯 0. Target & Scope (RoE)</button>
+    <button class="nav-btn" onclick="switchTab('tab-recon', this)">🛰️ 1. Recon & Attack Surface</button>
+    <button class="nav-btn" onclick="switchTab('tab-endpoints', this)">🗂️ 2. Endpoints, API & JS</button>
+    <button class="nav-btn" onclick="switchTab('tab-vulns', this)">🔍 3. Vuln Audit & SAST</button>
+    <button class="nav-btn" onclick="switchTab('tab-chains', this)">🔗 4. Triage & Bug Chains</button>
+    <button class="nav-btn" onclick="switchTab('tab-report', this)">📄 5. Manual PoC & Report</button>
+    <button class="nav-btn" onclick="switchTab('tab-tools', this)">⚙️ Tool Registry & JWT</button>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <strong id="activeProjTitle">Loyiha tanlanmagan</strong>
+        <span id="activeProjStatus" class="badge b-Low" style="margin-left:8px">READY</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input id="greyboxAuth" placeholder="Auth (Cookie: sid=... / Authorization: Bearer ...)" style="width:250px;margin:0" />
+        <button class="btn" onclick="runAgent('recon')">🛰️ 1-Agent</button>
+        <button class="btn btn-amber" onclick="runAgent('vuln')">🔍 2-Agent</button>
+        <button class="btn btn-green" onclick="runAgent('triage')">🔗 3-Agent</button>
+        <button class="btn" style="background:#6366f1" onclick="runAgent('all')">🚀 FULL AUTO</button>
+        <button class="btn btn-red" onclick="abortRun()">🛑 STOP</button>
+      </div>
+    </div>
+    <div class="content">
+      <div class="grid-4">
+        <div class="card"><div>Subdomenlar & IP</div><div class="stat-num" id="stDomains">0</div></div>
+        <div class="card"><div>Ochiq Portlar & HTTP</div><div class="stat-num" id="stHttp">0</div></div>
+        <div class="card"><div>API / Web Endpointlar</div><div class="stat-num" id="stEndpoints">0</div></div>
+        <div class="card"><div>Topilmalar & Zanjirlar</div><div class="stat-num" id="stFindings">0</div></div>
+      </div>
+      <div id="tab-scope" class="tab-pane active card">
+        <h3>🎯 Yangi Audit Loyihasi va Scope (RoE)</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+          <div><label>Loyiha Nomi</label><input id="pName" placeholder="Bank-Portal Audit Q4" /></div>
+          <div><label>Asosiy Nishon (Primary Target)</label><input id="pTarget" placeholder="example.com" /></div>
+          <div><label>In-Scope</label><textarea id="pInScope" rows="3" placeholder="example.com&#10;*.example.com"></textarea></div>
+          <div><label>Out-of-Scope</label><textarea id="pOutScope" rows="3" placeholder="payment.example.com"></textarea></div>
+          <div style="grid-column:span 2"><label>White-box Source Code Papkasi (SAST)</label><input id="pCodePath" placeholder="/home/amaqi/projects/target-src" /></div>
+        </div>
+        <button class="btn btn-green" onclick="createProject()">➕ Loyihani Yaratish va Faollashtirish</button>
+      </div>
+      <div id="tab-recon" class="tab-pane card">
+        <h3>🛰️ 1-SuperAgent: Web Servislar, Subdomenlar va Portlar</h3>
+        <table><thead><tr><th>URL</th><th>Status</th><th>Title / Server</th><th>Tech Stack & WAF</th><th>Security Headers</th></tr></thead><tbody id="tbHttp"></tbody></table>
+        <h4 style="margin:12px 0 6px;color:#38bdf8">Subdomenlar va Ochiq Portlar</h4>
+        <table><thead><tr><th>Domen / Host</th><th>IP / CNAME</th><th>Manba / Portlar</th></tr></thead><tbody id="tbDomains"></tbody></table>
+      </div>
+      <div id="tab-endpoints" class="tab-pane card">
+        <h3>🗂️ Topilgan API Endpointlar va Burp Suite Ko‘prigi</h3>
+        <table><thead><tr><th>Method & URL</th><th>Parametrlar</th><th>Kategoriya & Xavf Teglari</th><th>Burp / Terminal</th></tr></thead><tbody id="tbEndpoints"></tbody></table>
+        <h4 style="margin:16px 0 6px;color:#38bdf8">📦 JavaScript Bundle Intelligence (SPA API Routes, Params, DOM Sinks & Secrets)</h4>
+        <table><thead><tr><th>JS Fayl</th><th>Topilgan API Route / URL’lar</th><th>Parametrlar</th><th>DOM Sinks & Config/Keys</th></tr></thead><tbody id="tbJsAssets"></tbody></table>
+      </div>
+      <div id="tab-vulns" class="tab-pane card">
+        <h3>🔍 2-SuperAgent: Zaifliklar, Manual Tekshiruv Nuqtalari va SAST</h3>
+        <table><thead><tr><th>Severity / CVSS</th><th>Zaiflik / CWE / OWASP</th><th>Nishon & Dalil</th><th>Remediation</th><th>Triage</th></tr></thead><tbody id="tbFindings"></tbody></table>
+      </div>
+      <div id="tab-chains" class="tab-pane card">
+        <h3>🔗 3-SuperAgent: Bug Chaining (Zaifliklar Zanjiri)</h3>
+        <table><thead><tr><th>Zanjir Nomi & CVSS</th><th>Bosqichlar</th><th>Hujum Ssenariysi va Impact</th><th>Remediation</th></tr></thead><tbody id="tbChains"></tbody></table>
+      </div>
+      <div id="tab-report" class="tab-pane card">
+        <h3>📄 5-SuperAgent: Manual PoC va Hisobot Generatsiyasi</h3>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px">
+          <input id="mTitle" placeholder="Zaiflik nomi" />
+          <select id="mSev"><option>Critical</option><option selected>High</option><option>Medium</option><option>Low</option></select>
+          <input id="mCvss" value="8.2" placeholder="CVSS" />
+          <input id="mAsset" placeholder="URL yoki Fayl:Qator" />
+          <input id="mEvid" placeholder="PoC dalili" />
+          <input id="mRem" placeholder="Remediation (Patch)" />
+        </div>
+        <button class="btn btn-amber" onclick="addManualFinding()">➕ Manual PoC Qo‘shish</button>
+        <button class="btn btn-green" style="margin-left:8px" onclick="generateReport()">📥 Markdown & HTML Hisobot</button>
+        <pre id="reportPreview" style="margin-top:10px;background:#05080f;padding:10px;border-radius:6px;max-height:220px;overflow:auto;font-size:12px"></pre>
+      </div>
+      <div id="tab-tools" class="tab-pane card">
+        <h3>⚙️ Dynamic Tool Registry & JWT Auditor</h3>
+        <div style="display:flex;gap:8px;margin:8px 0">
+          <input id="jwtInput" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." style="margin:0" />
+          <button class="btn" onclick="auditJwt()">🔐 JWT Tekshirish</button>
+        </div>
+        <pre id="jwtOutput" style="background:#05080f;padding:8px;border-radius:6px;font-size:12px;margin-bottom:10px"></pre>
+        <table><thead><tr><th>Yoqish</th><th>Tool Nomi</th><th>Bosqich</th><th>Holati</th><th>Command Shabloni</th></tr></thead><tbody id="tbTools"></tbody></table>
+      </div>
+    </div>
+    <div class="terminal" id="liveTerminal">[APEX-ASM STUDIO] Tizim tayyor...</div>
+  </div>
+  <script src="/ui/app.js"></script>
+</body>
+</html>
+
