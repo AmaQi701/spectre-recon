@@ -15,7 +15,7 @@ from pathlib import Path
 import dns.resolver
 import requests
 import yaml
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment
 
 from core.database import DatabaseManager
 from core.scope_guard import ScopeGuard
@@ -286,8 +286,26 @@ class ReconSuperAgent:
                             mx_host = mx_v.split()[-1].rstrip(".").lower()
                             if scope.is_in_scope(mx_host)[0]:
                                 self.db.upsert_domain(project_id, mx_host, source="dns_mx")
+                    elif rtype == "TXT":
+                        for txt_v in vals:
+                            if "v=spf1" in txt_v.lower():
+                                spf_ips = re.findall(r"ip4:([0-9./]+)", txt_v)
+                                spf_inc = re.findall(r"include:([a-zA-Z0-9.\-_]+)", txt_v)
+                                if spf_ips or spf_inc:
+                                    self.db.upsert_finding(
+                                        project_id, "SPECTRE-Agent1 (SPF-Intel)", f"SPF Network & Mail Infrastructure Intelligence ({cand})",
+                                        "Infrastructure Intelligence", "Low", 2.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                                        "CWE-200", "A05:2021 - Security Misconfiguration", cand,
+                                        f"SPF IPs/Subnets: {', '.join(spf_ips) or 'None'} | Includes: {', '.join(spf_inc) or 'None'} | Raw: {txt_v[:140]}",
+                                        "DNS TXT (SPF) yozuvi orqali tashkilotning rasmiy pochta va server tarmoqlari aniqlandi.",
+                                        "SPF yozuvida eskirgan yoki ichki test IP diapazonlari qolib ketmaganini tekshiring.",
+                                    )
+                                for inc_h in spf_inc:
+                                    if scope.is_in_scope(inc_h)[0]:
+                                        self.db.upsert_domain(project_id, inc_h, source="dns_spf")
                 except Exception:
                     pass
+
             if cand not in (base_domain, apex_domain) and ip_val and ip_val in wildcard_ips:
                 return
             if cname_val and not ip_val:
@@ -310,6 +328,20 @@ class ReconSuperAgent:
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=15) as ex:
             list(ex.map(check_candidate, sorted(candidates)))
+
+        # Smart Subdomain Permutation Pass (like alterx / dnsgen)
+        active_subs = [d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", []) if d.get("ip") and d["domain"] != apex_domain]
+        perm_candidates = set()
+        for sub in active_subs[:10]:
+            prefix = sub.replace("." + apex_domain, "").split(".")[0]
+            if prefix and prefix not in ("www", "mail"):
+                for mut in (f"{prefix}-dev", f"{prefix}-stage", f"{prefix}-test", f"{prefix}-v2", f"dev-{prefix}", f"old-{prefix}", f"admin-{prefix}"):
+                    perm_candidates.add(f"{mut}.{apex_domain}")
+        if perm_candidates:
+            log_fn(f"[SPECTRE Smart Mutator] Topilgan faol subdomenlar asosida {len(perm_candidates)} ta mutatsiya (dev/stage/v2/old) tekshirilmoqda...")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=15) as ex:
+                list(ex.map(check_candidate, sorted(perm_candidates)))
+
 
     def _stage2_shodan_internetdb(self, project_id: int, scope: ScopeGuard, log_fn):
         domains = self.db.get_project_bundle(project_id).get("domains", [])
@@ -577,10 +609,30 @@ class ReconSuperAgent:
                 method = (form.get("method") or "GET").upper()
                 inputs = [inp.get("name") for inp in form.find_all(["input", "select", "textarea"]) if inp.get("name")]
                 self._record_discovered_url(project_id, action, base_url, scope, "html_form", method=method, extra_params=inputs)
+
+            # Hidden Input Miner
+            hidden_inputs = [inp.get("name") for inp in soup.find_all("input", {"type": "hidden"}) if inp.get("name")]
+            if hidden_inputs:
+                self._record_discovered_url(project_id, base_url, base_url, scope, "hidden_inputs", method="POST", extra_params=hidden_inputs)
+
+            # HTML Comment Intelligence Miner
+            comments = [str(c).strip() for c in soup.find_all(string=lambda text: isinstance(text, Comment))]
+            interesting_comments = [c[:140] for c in comments if any(k in c.lower() for k in ("todo", "fixme", "api", "admin", "debug", "token", "key", "http", "dev", "password")) and len(c.strip()) > 6]
+            if interesting_comments:
+                self.db.upsert_finding(
+                    project_id, "SPECTRE-Agent1 (HTML-Miner)", f"Developer Comments / Hints in HTML Source ({domain})",
+                    "Information Disclosure", "Low", 3.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                    "CWE-615", "A05:2021 - Security Misconfiguration", base_url,
+                    f"Comments: {' | '.join(interesting_comments[:4])}",
+                    "HTML sahifa kodida dasturchi izohlari yoki yashirin texnik ma'lumotlar qoldirilgan.",
+                    "Production sahifalardan barcha HTML izohlarni (<!-- ... -->) olib tashlang.",
+                )
+
             for sc in soup.find_all("script", src=True):
                 u = self._record_discovered_url(project_id, sc["src"], base_url, scope, "script_tag")
                 if u and u.endswith(".js"):
                     js_urls.add(u)
+
 
         wb_url = f"http://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=json&fl=original&collapse=urlkey&limit=80"
         try:
@@ -650,6 +702,26 @@ class ReconSuperAgent:
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
             list(ex.map(probe_path, self.API_DOC_PATHS))
 
+        # Safe GraphQL Introspection Check
+        for gql_path in ("/graphql", "/api/graphql"):
+            gql_url = urllib.parse.urljoin(base_url, gql_path)
+            try:
+                rg = self.session.post(gql_url, json={"query": "{__schema{types{name}}}"}, timeout=5, verify=False)
+                if rg.status_code == 200 and '"__schema"' in rg.text:
+                    types_list = [t.get("name", "") for t in rg.json().get("data", {}).get("__schema", {}).get("types", []) if not str(t.get("name", "")).startswith("__")]
+                    self.db.upsert_finding(
+                        project_id, "SPECTRE-Agent1 (GraphQL)", f"GraphQL Introspection Enabled ({gql_url})",
+                        "API Schema Exposure", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                        "CWE-200", "A05:2021 - Security Misconfiguration", gql_url,
+                        f"Discovered {len(types_list)} GraphQL types: {', '.join(types_list[:10])}",
+                        "GraphQL endpointda Introspection ochiq qoldirilgan — barcha sxema va mutatsiyalarni o'qish mumkin.",
+                        "Production muhitida GraphQL Introspection so'rovlarini o'chirib qo'ying.",
+                    )
+                    log_fn(f"  [🚨 GRAPHQL] Introspection ochiq: {gql_url} ({len(types_list)} types)")
+            except Exception:
+                pass
+
+
 
 
     def _stage6_js_analyzer(self, project_id: int, js_urls: list[str], base_url: str, scope: ScopeGuard, log_fn):
@@ -668,12 +740,29 @@ class ReconSuperAgent:
 
         log_fn(f"[Stage 6] {len(clean_js_urls[:40])} ta JavaScript bundle fayllarini chuqur dekonstruksiya qilish boshlandi...")
 
+        # Unlinked Webpack/Vite Lazy-Chunk Hunter + HTTP Method Pairing
+        chunk_regex = re.compile(r"""['"`]((?:assets/|/assets/|static/js/)[a-zA-Z0-9_\-\.]+\.js)['"`]""")
+        method_ep_regex = re.compile(r"""(?i)\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]{3,120})['"`]""")
+        discovered_chunks = set()
+
         def analyze_one_js(js_url: str):
             try:
                 r = self.session.get(js_url, timeout=10, verify=False)
                 if r.status_code != 200 or "html" in r.headers.get("Content-Type", "").lower():
                     return
                 content = r.text[:500000]
+                for ch in chunk_regex.findall(content):
+                    ch_full = urllib.parse.urljoin(base_url, "/" + ch.lstrip("/")).replace("/assets/assets/", "/assets/")
+                    if ch_full not in clean_js_urls:
+                        discovered_chunks.add(ch_full)
+
+                method_map: dict[str, str] = {}
+                for m_verb, m_path in method_ep_regex.findall(content):
+                    clean_mp = re.sub(r"\$\{[^}]+\}", "{param}", m_path).rstrip(".,;)'\"`")
+                    if clean_mp.startswith("/") or clean_mp.startswith("http"):
+                        method_map[clean_mp] = m_verb.upper()
+
+
                 raw_eps = ep_regex.findall(content)
                 eps = set()
                 for ep in raw_eps:
@@ -702,6 +791,7 @@ class ReconSuperAgent:
 
                 sinks = sorted(set(sink_regex.findall(content)))
                 secrets = sorted({s[:120] for s in secret_regex.findall(content)})
+                eps.update(method_map.keys())
                 sorted_eps = sorted(eps)
 
                 self.db.upsert_js_asset(project_id, js_url, endpoints=sorted_eps, params=sorted(extracted_params), sinks=sinks, secrets_hints=secrets)
@@ -709,7 +799,8 @@ class ReconSuperAgent:
                     ep_params = sorted(extracted_params)[:12] if ("/api" in ep or "{param}" in ep or "?" in ep) else []
                     if "{param}" in ep and "id" not in ep_params:
                         ep_params.append("id")
-                    self._record_discovered_url(project_id, ep, base_url, scope, "js_intelligence", extra_params=ep_params)
+                    http_m = method_map.get(ep, "GET")
+                    self._record_discovered_url(project_id, ep, base_url, scope, "js_intelligence", method=http_m, extra_params=ep_params)
 
                 # SourceMap (.js.map) Hunter
                 map_url = js_url + ".map"
@@ -733,9 +824,16 @@ class ReconSuperAgent:
             except Exception:
                 pass
 
-
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
             list(ex.map(analyze_one_js, clean_js_urls[:40]))
+
+        if discovered_chunks:
+            new_chunks = sorted(discovered_chunks - set(clean_js_urls))[:20]
+            if new_chunks:
+                log_fn(f"[SPECTRE Chunk Hunter] JS ichidan {len(new_chunks)} ta yashirin (unlinked) JS chunk topildi, tahlil qilinmoqda...")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                    list(ex.map(analyze_one_js, new_chunks))
+
 
 
 
