@@ -408,16 +408,29 @@ class ApexNativeWindow(Gtk.Window):
             self.current_project_id = int(aid)
             self.load_bundle()
 
+    @staticmethod
+    def _esc(val: str) -> str:
+        return GLib.markup_escape_text(str(val or ""))
+
+    @classmethod
+    def _color_sev(cls, sev: str) -> str:
+        s = str(sev or "")
+        if s in ("Critical", "High"):
+            return f"<span foreground='#f87171' weight='bold'>● {cls._esc(s)}</span>"
+        if s == "Medium":
+            return f"<span foreground='#fbbf24' weight='bold'>● {cls._esc(s)}</span>"
+        return f"<span foreground='#34d399' weight='bold'>● {cls._esc(s)}</span>"
+
     def on_domain_selected(self, tree):
         if not self.current_project_id:
             return
         sel = tree.get_selection()
         model, treeiter = sel.get_selected()
         if treeiter is not None:
-            dom_name = model[treeiter][0]
+            import re as _re
+            dom_name = _re.sub(r"<[^>]+>", "", model[treeiter][0])
             dossier_txt = spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, dom_name)
             self.dossier_view.get_buffer().set_text(dossier_txt)
-
 
     def _periodic_refresh(self):
         if self.current_project_id:
@@ -436,10 +449,10 @@ class ApexNativeWindow(Gtk.Window):
         finds = b.get("findings", [])
         chains = b.get("bug_chains", [])
 
-        self.lbl_stat_dom.set_text(f"Subdomenlar: {len(doms)}")
-        self.lbl_stat_http.set_text(f"Portlar: {len(ports)} | Web: {len(https)}")
-        self.lbl_stat_ep.set_text(f"Endpointlar: {len(eps)} | JS: {len(js_list)}")
-        self.lbl_stat_find.set_text(f"Topilmalar: {len(finds)} | Zanjirlar: {len(chains)}")
+        self.lbl_stat_dom.set_text(f"{len(doms)} ta subdomen")
+        self.lbl_stat_http.set_text(f"{len(ports)} port  •  {len(https)} web")
+        self.lbl_stat_ep.set_text(f"{len(eps)} route  •  {len(js_list)} JS")
+        self.lbl_stat_find.set_text(f"{len(finds)} topilma  •  {len(chains)} zanjir")
 
         q = (self.search_entry.get_text() or "").strip().lower() if hasattr(self, "search_entry") else ""
 
@@ -448,48 +461,95 @@ class ApexNativeWindow(Gtk.Window):
             tech = ", ".join(json.loads(s.get("tech_stack") or "[]"))
             sec = json.loads(s.get("security_headers_json") or "{}")
             miss = ", ".join([k for k, v in sec.items() if not v])
-            row_h = [s["url"], str(s["status_code"]), s["title"], f"{s['server']} ({tech})", s["waf"] or "-", miss or "OK"]
-            if not q or any(q in str(x).lower() for x in row_h):
-                self.store_http.append(row_h)
+            code = int(s.get("status_code") or 0)
+            c_col = "#34d399" if code == 200 else ("#fbbf24" if code in (301, 302, 401, 403) else "#f87171")
+            raw_str = f"{s['url']} {code} {s['title']} {s['server']} {tech} {miss}".lower()
+            if not q or q in raw_str:
+                self.store_http.append([
+                    f"<span foreground='#38bdf8' weight='bold'>{self._esc(s['url'])}</span>",
+                    f"<span foreground='{c_col}' weight='bold'>{code}</span>",
+                    self._esc(s["title"] or "-"),
+                    self._esc(f"{s['server']} ({tech})"),
+                    self._esc(s["waf"] or "-"),
+                    self._esc(miss or "OK"),
+                ])
 
         ports_map = {}
         for pt in ports:
-            ports_map.setdefault(pt["host"], []).append(f"{pt['port']}/{pt['protocol']} ({pt['service']} {pt['version']})")
+            ports_map.setdefault(pt["host"], []).append(f"{pt['port']}/{pt['protocol']}")
         self.store_dom.clear()
         for d in doms:
             p_str = ", ".join(ports_map.get(d["domain"], []))
-            row_d = [d["domain"], d["ip"] or "-", d["cname"] or "-", d["source"], p_str or "-"]
-            if not q or any(q in str(x).lower() for x in row_d):
-                self.store_dom.append(row_d)
+            raw_str = f"{d['domain']} {d['ip']} {d['cname']} {d['source']} {p_str}".lower()
+            if not q or q in raw_str:
+                self.store_dom.append([
+                    f"<span foreground='#38bdf8' weight='bold'>{self._esc(d['domain'])}</span>",
+                    f"<span foreground='#a78bfa'>{self._esc(d['ip'] or '-')}</span>",
+                    self._esc(d["cname"] or "-"),
+                    f"<span foreground='#34d399'>{self._esc(d['source'])}</span>",
+                    self._esc(p_str or "-"),
+                ])
+
 
         self.store_ep.clear()
         for e in eps:
             prm = ", ".join(json.loads(e.get("params_json") or "[]"))
             rsk = ", ".join(json.loads(e.get("risk_tags_json") or "[]"))
-            row_e = [e["method"], e["url"], prm or "-", f"{e['category']} ({e['source']})", rsk or "-"]
-            if not q or any(q in str(x).lower() for x in row_e):
-                self.store_ep.append(row_e)
+            raw_str = f"{e['method']} {e['url']} {prm} {e['category']} {rsk}".lower()
+            if not q or q in raw_str:
+                m_col = "#34d399" if e["method"] == "GET" else "#fbbf24"
+                rsk_markup = f"<span foreground='#f87171' weight='bold'>{self._esc(rsk)}</span>" if rsk else "-"
+                self.store_ep.append([
+                    f"<span foreground='{m_col}' weight='bold'>{self._esc(e['method'])}</span>",
+                    f"<span foreground='#38bdf8'>{self._esc(e['url'])}</span>",
+                    self._esc(prm or "-"),
+                    self._esc(f"{e['category']} ({e['source']})"),
+                    rsk_markup,
+                ])
 
         self.store_js.clear()
         for j in js_list:
             jeps = ", ".join(json.loads(j.get("endpoints_json") or "[]")[:10])
             jprm = ", ".join(json.loads(j.get("params_json") or "[]")[:12])
             jsnk = ", ".join(json.loads(j.get("sinks_json") or "[]") + json.loads(j.get("secrets_hints_json") or "[]"))
-            row_j = [j["js_url"].split("/")[-1], jeps or "-", jprm or "-", jsnk or "-"]
-            if not q or any(q in str(x).lower() for x in row_j):
-                self.store_js.append(row_j)
+            raw_str = f"{j['js_url']} {jeps} {jprm} {jsnk}".lower()
+            if not q or q in raw_str:
+                self.store_js.append([
+                    f"<span foreground='#38bdf8' weight='bold'>{self._esc(j['js_url'].split('/')[-1])}</span>",
+                    self._esc(jeps or "-"),
+                    self._esc(jprm or "-"),
+                    f"<span foreground='#f87171'>{self._esc(jsnk)}</span>" if jsnk else "-",
+                ])
 
         self.store_find.clear()
         for f in finds:
-            row_f = [f["id"], f["severity"], str(f["cvss_score"]), f["title"], f"{f['cwe']} | {f['owasp']}", f["asset"], f["evidence"], f["remediation"], f["triage_status"]]
-            if not q or any(q in str(x).lower() for x in row_f):
-                self.store_find.append(row_f)
-
+            raw_str = f"{f['severity']} {f['title']} {f['cwe']} {f['asset']} {f['evidence']}".lower()
+            if not q or q in raw_str:
+                t_col = "#34d399" if f["triage_status"] == "Verified" else ("#fbbf24" if f["triage_status"] == "Manual-Review" else "#64748b")
+                self.store_find.append([
+                    f["id"],
+                    self._color_sev(f["severity"]),
+                    f"<b>{f['cvss_score']}</b>",
+                    f"<b>{self._esc(f['title'])}</b>",
+                    self._esc(f"{f['cwe']} | {f['owasp']}"),
+                    f"<span foreground='#38bdf8'>{self._esc(f['asset'])}</span>",
+                    self._esc(f["evidence"]),
+                    self._esc(f["remediation"]),
+                    f"<span foreground='{t_col}' weight='bold'>{self._esc(f['triage_status'])}</span>",
+                ])
 
         self.store_chain.clear()
         for c in chains:
             nodes = " ➔ ".join(json.loads(c.get("nodes_json") or "[]"))
-            self.store_chain.append([c["severity"], str(c["cvss_score"]), c["chain_title"], nodes, f"{c['attack_scenario']} | Impact: {c['impact']}", c["remediation"]])
+            self.store_chain.append([
+                self._color_sev(c["severity"]),
+                f"<b>{c['cvss_score']}</b>",
+                f"<b>{self._esc(c['chain_title'])}</b>",
+                f"<span foreground='#38bdf8'>{self._esc(nodes)}</span>",
+                self._esc(f"{c['attack_scenario']} | Impact: {c['impact']}"),
+                self._esc(c["remediation"]),
+            ])
+
 
     def on_create_project(self, _btn):
         name = self.ent_pname.get_text().strip() or "Audit Project"
