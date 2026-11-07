@@ -89,6 +89,7 @@ class ApexNativeWindow(Gtk.Window):
         )
 
         self.db = DatabaseManager(str(BASE_DIR / "workspaces" / "apex_state.db"))
+        self.db.reset_stale_running_projects()
         self.recon_agent = ReconSuperAgent(self.db, str(BASE_DIR / "config" / "tools_registry.yaml"))
         self.vuln_agent = VulnAssessmentSuperAgent(self.db)
         self.triage_agent = TriageAndChainSuperAgent(self.db, str(BASE_DIR / "reports"))
@@ -198,6 +199,7 @@ class ApexNativeWindow(Gtk.Window):
         self.proj_combo = Gtk.ComboBoxText()
         self.proj_combo.connect("changed", self.on_project_changed)
         cmd_bar.pack_start(self.proj_combo, False, False, 0)
+        cmd_bar.pack_start(self._make_btn("🗑️", "btn-red", self.on_delete_project), False, False, 0)
 
 
         self.auth_entry = Gtk.Entry()
@@ -417,7 +419,20 @@ class ApexNativeWindow(Gtk.Window):
         aid = combo.get_active_id()
         if aid:
             self.current_project_id = int(aid)
+            self._last_data_sig = None
             self.load_bundle()
+
+    def on_delete_project(self, _btn):
+        if not self.current_project_id:
+            return
+        old_id = self.current_project_id
+        self.db.delete_project(old_id)
+        self.current_project_id = None
+        self._last_data_sig = None
+        self.refresh_projects()
+        self.load_bundle()
+        self.log_msg(f"[DELETE] 🗑️ Loyiha #{old_id} bazadan o'chirildi.")
+
 
     @staticmethod
     def _esc(val: str) -> str:
@@ -493,12 +508,18 @@ class ApexNativeWindow(Gtk.Window):
                     self._esc(miss or "OK"),
                 ])
 
-        ports_map = {}
+        ports_by_host = {}
+        ports_by_ip = {}
         for pt in ports:
-            ports_map.setdefault(pt["host"], []).append(f"{pt['port']}/{pt['protocol']}")
+            p_tag = f"{pt['port']}/{pt['protocol']}"
+            if pt.get("host"):
+                ports_by_host.setdefault(pt["host"], set()).add(p_tag)
+            if pt.get("ip"):
+                ports_by_ip.setdefault(pt["ip"], set()).add(p_tag)
         self.store_dom.clear()
         for d in doms:
-            p_str = ", ".join(ports_map.get(d["domain"], []))
+            combined_ports = sorted(ports_by_host.get(d["domain"], set()) | ports_by_ip.get(d.get("ip", ""), set()), key=lambda x: int(x.split("/")[0]))
+            p_str = ", ".join(combined_ports)
             raw_str = f"{d['domain']} {d['ip']} {d['cname']} {d['source']} {p_str}".lower()
             if not q or q in raw_str:
                 self.store_dom.append([
@@ -508,6 +529,7 @@ class ApexNativeWindow(Gtk.Window):
                     f"<span foreground='#34d399'>{self._esc(d['source'])}</span>",
                     self._esc(p_str or "-"),
                 ])
+
 
 
         self.store_ep.clear()

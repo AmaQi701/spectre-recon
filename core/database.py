@@ -182,6 +182,17 @@ class DatabaseManager:
         with self._lock, self._get_conn() as conn:
             conn.execute("UPDATE projects SET status = ? WHERE id = ?", (status, project_id))
 
+    def reset_stale_running_projects(self):
+        with self._lock, self._get_conn() as conn:
+            conn.execute("UPDATE projects SET status = 'READY' WHERE status LIKE 'RUNNING%'")
+
+    def delete_project(self, project_id: int):
+        with self._lock, self._get_conn() as conn:
+            for tbl in ("domains", "ports", "http_services", "endpoints", "js_assets", "findings", "bug_chains", "task_logs"):
+                conn.execute(f"DELETE FROM {tbl} WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+
     def upsert_domain(self, project_id: int, domain: str, ip: str = "", cname: str = "", records: dict | None = None, cdn_waf: str = "", source: str = "recon"):
         domain = domain.strip().lower().rstrip(".")
         if not domain:

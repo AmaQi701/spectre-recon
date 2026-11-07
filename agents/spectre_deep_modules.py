@@ -249,15 +249,34 @@ def hunt_cloud_and_storage_buckets(db, session, project_id: int, apex_domain: st
 
 
 
-# ================= #5 BADSECRETS & CROSS-SUBDOMAIN COOKIE SCOPE =================
-WEAK_SECRETS = ["secret", "123456", "password", "admin", "jwt_secret", "changeme", "key", "supersecret", "laravel", "django"]
+# ================= #5 BADSECRETS (JWT/HMAC CRACKER) & CROSS-SUBDOMAIN COOKIE SCOPE =================
+WEAK_SECRETS = [
+    "secret", "123456", "12345678", "password", "admin", "jwt_secret", "changeme",
+    "key", "supersecret", "laravel", "django", "secretkey", "mysecret", "test", "dev", "default"
+]
+
+
+def verify_jwt_weak_secret(token: str) -> str | None:
+    parts = token.strip().split(".")
+    if len(parts) != 3:
+        return None
+    signing_input = f"{parts[0]}.{parts[1]}".encode("utf-8")
+    sig = parts[2]
+    for sec in WEAK_SECRETS:
+        digest = hmac.new(sec.encode("utf-8"), signing_input, hashlib.sha256).digest()
+        calc = base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
+        if hmac.compare_digest(calc, sig):
+            return sec
+    return None
 
 
 def analyze_badsecrets_and_cookies(db, project_id: int, apex_domain: str, log_fn):
     http_svcs = db.get_project_bundle(project_id).get("http_services", [])
+    jwt_regex = re.compile(r"eyJ[a-zA-Z0-9_\-]{10,}\.eyJ[a-zA-Z0-9_\-]{10,}\.[a-zA-Z0-9_\-]{10,}")
     for svc in http_svcs:
         url = svc["url"]
         cookies = json.loads(svc.get("cookies_json") or "[]")
+        headers_blob = svc.get("headers_json") or "{}"
         for ck in cookies:
             raw = ck.get("raw", "")
             if f"domain=.{apex_domain}" in raw.lower() or f"domain={apex_domain}" in raw.lower():
@@ -266,10 +285,24 @@ def analyze_badsecrets_and_cookies(db, project_id: int, apex_domain: str, log_fn
                     "Session Management / Subdomain Risk", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
                     "CWE-565", "A07:2021 - Identification and Authentication Failures", url,
                     f"Cookie shared across all *.{apex_domain} subdomains: {raw[:140]}",
-                    f"Cookie Domain=.{apex_domain} qilib belgilangani sababli barcha 30+ subdomenlarga yuboriladi — zaif subdomendagi XSS asosiy sessiyani xavf ostiga qo'yadi.",
+                    f"Cookie Domain=.{apex_domain} qilib belgilangani sababli barcha subdomenlarga yuboriladi.",
                     "Sessiya cookie'larida Domain atributini faqat aniq host uchun cheklang (HostOnly cookie).",
                 )
                 log_fn(f"  [!] Wildcard Cookie Scope (.{apex_domain}) aniqlandi: {url}")
+
+        for cand_jwt in jwt_regex.findall(headers_blob):
+            cracked = verify_jwt_weak_secret(cand_jwt)
+            if cracked:
+                db.upsert_finding(
+                    project_id, "SPECTRE-Agent1 (BadSecrets)", f"JWT Signed with Weak Default Secret ('{cracked}')",
+                    "Cryptographic Failure (BadSecrets)", "Critical", 9.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                    "CWE-798", "A02:2021 - Cryptographic Failures", url,
+                    f"Cracked HMAC-SHA256 Secret: '{cracked}' | Token: {cand_jwt[:60]}...",
+                    "JWT token ma'lum standart/zaif kalit bilan imzolangan — har qanday foydalanuvchi nomidan token yasash (Account Takeover) mumkin.",
+                    "Kamida 256-bitli kriptografik tasodifiy kalit yoki RS256/ES256 asimmetrik kalit juftligidan foydalaning.",
+                )
+                log_fn(f"  [🚨 BADSECRETS] JWT zaif kaliti topildi ({url}): '{cracked}'!")
+
 
 
 # ================= #8 CUSTOM WORDLIST & PARAMETER MINER =================

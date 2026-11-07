@@ -700,8 +700,10 @@ class ReconSuperAgent:
             except Exception:
                 pass
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
-            list(ex.map(probe_path, self.API_DOC_PATHS))
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+        futs = [ex.submit(probe_path, p) for p in self.API_DOC_PATHS]
+        concurrent.futures.wait(futs, timeout=14.0)
+        ex.shutdown(wait=False, cancel_futures=True)
 
         # Safe GraphQL Introspection Check
         for gql_path in ("/graphql", "/api/graphql"):
@@ -825,15 +827,19 @@ class ReconSuperAgent:
             except Exception:
                 pass
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-            list(ex.map(analyze_one_js, clean_js_urls[:40]))
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+        futs = [ex.submit(analyze_one_js, u) for u in clean_js_urls[:40]]
+        concurrent.futures.wait(futs, timeout=18.0)
+        ex.shutdown(wait=False, cancel_futures=True)
 
         if discovered_chunks:
             new_chunks = sorted(discovered_chunks - set(clean_js_urls))[:20]
             if new_chunks:
                 log_fn(f"[SPECTRE Chunk Hunter] JS ichidan {len(new_chunks)} ta yashirin (unlinked) JS chunk topildi, tahlil qilinmoqda...")
-                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-                    list(ex.map(analyze_one_js, new_chunks))
+                ex2 = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+                futs2 = [ex2.submit(analyze_one_js, u) for u in new_chunks]
+                concurrent.futures.wait(futs2, timeout=12.0)
+                ex2.shutdown(wait=False, cancel_futures=True)
 
 
 
