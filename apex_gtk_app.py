@@ -94,10 +94,12 @@ class ApexNativeWindow(Gtk.Window):
         self.triage_agent = TriageAndChainSuperAgent(self.db, str(BASE_DIR / "reports"))
         self.current_project_id = None
 
+        self.is_running_job = False
+        self._last_data_sig = None
         self._build_ui()
         self.refresh_projects()
         self.refresh_tools()
-        GLib.timeout_add(3000, self._periodic_refresh)
+        GLib.timeout_add(2500, self._periodic_refresh)
 
     def _make_btn(self, label: str, css_cls: str = "act-btn", callback=None) -> Gtk.Button:
         btn = Gtk.Button(label=label)
@@ -166,18 +168,17 @@ class ApexNativeWindow(Gtk.Window):
         self.nav_buttons = []
 
         nav_items = [
-            ("p_recon", "🛰️  1. Recon & Target Dossier"),
-            ("p_endpoints", "🗂️  2. Endpoints, API & JS"),
-            ("p_vulns", "🔍  3. Vuln Audit & SAST"),
-            ("p_chains", "🔗  4. Triage & Bug Chains"),
-            ("p_report", "📄  5. Manual PoC & Report"),
-            ("p_tools", "⚙️  6. Tool Registry & JWT"),
-            ("p_scope", "🎯  0. New Target & Scope"),
+            ("p_scope", "➕  1. Yangi Target & Scope"),
+            ("p_recon", "🛰️  2. Recon & Target Dossier"),
+            ("p_endpoints", "🗂️  3. Endpoints, API & JS"),
+            ("p_vulns", "🔍  4. Vuln Audit & SAST"),
+            ("p_chains", "🔗  5. Triage & Bug Chains"),
+            ("p_report", "📄  6. Manual PoC & Report"),
+            ("p_tools", "⚙️  7. Tool Registry & JWT"),
         ]
         for idx, (pname, plabel) in enumerate(nav_items):
             b = Gtk.Button(label=plabel)
-            b.set_alignment(0.0, 0.5)
-            b.get_style_context().add_class("nav-btn-active" if idx == 0 else "nav-btn")
+            b.get_style_context().add_class("nav-btn-active" if idx == 1 else "nav-btn")
             b.connect("clicked", lambda btn, n=pname: self._switch_page(n, btn))
             self.nav_buttons.append(b)
             sidebar.pack_start(b, False, False, 0)
@@ -193,9 +194,11 @@ class ApexNativeWindow(Gtk.Window):
         # Top Command & Filter Toolbar
         cmd_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         cmd_bar.get_style_context().add_class("toolbar-bar")
+        cmd_bar.pack_start(self._make_btn("➕ Yangi Target", "btn-green", lambda _: self._switch_page("p_scope", self.nav_buttons[0])), False, False, 0)
         self.proj_combo = Gtk.ComboBoxText()
         self.proj_combo.connect("changed", self.on_project_changed)
         cmd_bar.pack_start(self.proj_combo, False, False, 0)
+
 
         self.auth_entry = Gtk.Entry()
         self.auth_entry.set_placeholder_text("🔑 Grey-box Auth (Cookie: ... / Authorization: Bearer ...)")
@@ -244,28 +247,36 @@ class ApexNativeWindow(Gtk.Window):
         vpaned.pack1(self.stack, True, False)
 
 
-        # TAB 0: Target & Scope
-        tab0 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        tab0.set_margin_top(12); tab0.set_margin_start(12); tab0.set_margin_end(12)
-        grid0 = Gtk.Grid(column_spacing=12, row_spacing=10)
-        self.ent_pname = Gtk.Entry(); self.ent_pname.set_placeholder_text("Masalan: Enterprise Security Audit Q4")
-        self.ent_ptarget = Gtk.Entry(); self.ent_ptarget.set_placeholder_text("example.com")
-        self.ent_pinscope = Gtk.Entry(); self.ent_pinscope.set_placeholder_text("example.com, *.example.com")
-        self.ent_poutscope = Gtk.Entry(); self.ent_poutscope.set_placeholder_text("out-of-scope.example.com")
-        self.ent_pcode = Gtk.Entry(); self.ent_pcode.set_placeholder_text("/home/amaqi/projects/source-code (SAST uchun)")
+        # TAB 0: Target & Scope (Quick + Full Creation Card)
+        tab0 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        tab0.get_style_context().add_class("panel-box")
+        tab0.set_margin_top(8); tab0.set_margin_start(8); tab0.set_margin_end(8)
+        hdr0 = Gtk.Label(xalign=0)
+        hdr0.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>🎯 Yangi Nishon (Target) va Audit Loyihasi Qo'shish</span>\n<span foreground='#94a3b8'>Domen yoki IP manzilni kiriting (masalan: target.uz). In-Scope bo'sh qolsa avtomatik ravishda target.uz va *.target.uz olinadi.</span>")
+        tab0.pack_start(hdr0, False, False, 4)
+        grid0 = Gtk.Grid(column_spacing=14, row_spacing=12)
+        self.ent_pname = Gtk.Entry(); self.ent_pname.set_placeholder_text("Masalan: MyTarget Audit")
+        self.ent_ptarget = Gtk.Entry(); self.ent_ptarget.set_placeholder_text("Masalan: target.uz yoki https://www.target.uz")
+        self.ent_pinscope = Gtk.Entry(); self.ent_pinscope.set_placeholder_text("Bo'sh qoldirsangiz avtomatik target.uz, *.target.uz olinadi")
+        self.ent_poutscope = Gtk.Entry(); self.ent_poutscope.set_placeholder_text("Taqiqlangan subdomenlar (ixtiyoriy)")
+        self.ent_pcode = Gtk.Entry(); self.ent_pcode.set_placeholder_text("/home/amaqi/projects/source-code (White-box SAST uchun ixtiyoriy)")
         for r_idx, (title_txt, widget) in enumerate([
-            ("Loyiha Nomi:", self.ent_pname),
-            ("Asosiy Nishon (Primary Target):", self.ent_ptarget),
-            ("In-Scope (Ruxsat berilgan domen/IP):", self.ent_pinscope),
-            ("Out-of-Scope (Taqiqlangan manzillar):", self.ent_poutscope),
-            ("White-box Kod Papkasi (SAST):", self.ent_pcode),
+            ("1. Loyiha Nomi:", self.ent_pname),
+            ("2. Asosiy Nishon (Domain / URL / IP):", self.ent_ptarget),
+            ("3. In-Scope (Ruxsat berilgan doira):", self.ent_pinscope),
+            ("4. Out-of-Scope (Taqiqlangan manzillar):", self.ent_poutscope),
+            ("5. White-box Kod Papkasi (SAST):", self.ent_pcode),
         ]):
             lbl = Gtk.Label(label=title_txt, xalign=0)
             widget.set_hexpand(True)
             grid0.attach(lbl, 0, r_idx, 1, 1)
             grid0.attach(widget, 1, r_idx, 1, 1)
-        tab0.pack_start(grid0, False, False, 0)
-        tab0.pack_start(self._make_btn("➕ Yangi Audit Loyihasini Yaratish va Faollashtirish", "btn-green", self.on_create_project), False, False, 6)
+        tab0.pack_start(grid0, False, False, 4)
+        btn_row0 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        btn_row0.pack_start(self._make_btn("➕ Loyihani Yaratish", "btn-green", self.on_create_project), False, False, 0)
+        btn_row0.pack_start(self._make_btn("🚀 Loyihani Yaratish va Darhol 1-Agent (Recon) ni Boshlash!", "btn-purple", lambda b: self.on_create_project(b, auto_start=True)), False, False, 0)
+        tab0.pack_start(btn_row0, False, False, 6)
+
 
         # TAB 1: Recon & Attack Surface + Target Dossier Inspector
         tab1 = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
@@ -433,11 +444,12 @@ class ApexNativeWindow(Gtk.Window):
             self.dossier_view.get_buffer().set_text(dossier_txt)
 
     def _periodic_refresh(self):
-        if self.current_project_id:
-            self.load_bundle()
+        # Faqat orqa fonda skaner ishlayotganda va ma'lumot o'zgargandagina yangilaymiz (tanlangan qator o'chib ketmasligi uchun!)
+        if self.current_project_id and self.is_running_job:
+            self.load_bundle(preserve_if_unchanged=True)
         return True
 
-    def load_bundle(self):
+    def load_bundle(self, preserve_if_unchanged: bool = False):
         if not self.current_project_id:
             return
         b = self.db.get_project_bundle(self.current_project_id)
@@ -448,6 +460,13 @@ class ApexNativeWindow(Gtk.Window):
         js_list = b.get("js_assets", [])
         finds = b.get("findings", [])
         chains = b.get("bug_chains", [])
+
+        q = (self.search_entry.get_text() or "").strip().lower() if hasattr(self, "search_entry") else ""
+        sig = (self.current_project_id, len(doms), len(ports), len(https), len(eps), len(js_list), len(finds), len(chains), q)
+        if preserve_if_unchanged and sig == self._last_data_sig:
+            return
+        self._last_data_sig = sig
+
 
         self.lbl_stat_dom.set_text(f"{len(doms)} ta subdomen")
         self.lbl_stat_http.set_text(f"{len(ports)} port  •  {len(https)} web")
@@ -551,26 +570,32 @@ class ApexNativeWindow(Gtk.Window):
             ])
 
 
-    def on_create_project(self, _btn):
-        name = self.ent_pname.get_text().strip() or "Audit Project"
+    def on_create_project(self, _btn, auto_start: bool = False):
         target = self.ent_ptarget.get_text().strip()
-        in_sc = self.ent_pinscope.get_text().strip() or target
+        if not target:
+            self.log_msg("[ERR] ⚠️ Asosiy nishon (Domain / IP) kiritilishi shart!")
+            return
+        name = self.ent_pname.get_text().strip() or target
+        in_sc = self.ent_pinscope.get_text().strip() or f"{target}\n*.{target.lstrip('www.')}"
         out_sc = self.ent_poutscope.get_text().strip()
         code_p = self.ent_pcode.get_text().strip()
-        if not target:
-            self.log_msg("[ERR] Asosiy nishon (Primary Target) kiritilishi shart!")
-            return
         pid = self.db.create_project(name, target, in_sc, out_sc, code_p)
         self.current_project_id = pid
+        self._last_data_sig = None
         self.refresh_projects()
         self.load_bundle()
-        self.log_msg(f"[INIT] Yangi loyiha #{pid} yaratildi: {name} ({target})")
+        self._switch_page("p_recon", self.nav_buttons[1])
+        self.log_msg(f"[INIT] ✅ Yangi loyiha #{pid} yaratildi va faollashtirildi: {name} ({target})")
+        if auto_start:
+            self.on_run_agent("recon")
 
     def on_run_agent(self, agent_type: str):
         if not self.current_project_id:
             self.log_msg("[ERR] Avval loyiha yarating yoki tanlang!")
             return
         pid = self.current_project_id
+        self.is_running_job = True
+        self._switch_page("p_recon", self.nav_buttons[1])
         auth = self.auth_entry.get_text().strip()
         if auth:
             if ":" in auth:
@@ -580,16 +605,21 @@ class ApexNativeWindow(Gtk.Window):
                 self.recon_agent.session.headers["Cookie"] = auth
 
         def worker():
-            if agent_type in ("recon", "all"):
-                self.recon_agent.run_full_recon(pid, None, self.log_msg)
-            if agent_type in ("vuln", "all"):
-                self.vuln_agent.run_assessment(pid, self.log_msg)
-            if agent_type in ("triage", "all"):
-                self.triage_agent.run_triage_and_chaining(pid, self.log_msg)
-            GLib.idle_add(self.refresh_projects)
-            GLib.idle_add(self.load_bundle)
+            try:
+                if agent_type in ("recon", "all"):
+                    self.recon_agent.run_full_recon(pid, None, self.log_msg)
+                if agent_type in ("vuln", "all"):
+                    self.vuln_agent.run_assessment(pid, self.log_msg)
+                if agent_type in ("triage", "all"):
+                    self.triage_agent.run_triage_and_chaining(pid, self.log_msg)
+            finally:
+                self.is_running_job = False
+                self._last_data_sig = None
+                GLib.idle_add(self.refresh_projects)
+                GLib.idle_add(self.load_bundle)
 
         threading.Thread(target=worker, daemon=True).start()
+
 
     def on_abort(self):
         if self.current_project_id:
@@ -600,6 +630,8 @@ class ApexNativeWindow(Gtk.Window):
     def on_copy_curl(self, _btn):
         sel = self.tree_ep.get_selection()
         model, treeiter = sel.get_selected()
+        if treeiter is None and len(model) > 0:
+            treeiter = model.get_iter_first()
         if treeiter is not None:
             import re as _re
             method = _re.sub(r"<[^>]+>", "", model[treeiter][0])
@@ -609,17 +641,24 @@ class ApexNativeWindow(Gtk.Window):
             cmd = f'curl -i -s -k -X {method}{h_flag} "{url}"'
             clip = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
             clip.set_text(cmd, -1)
-            self.log_msg(f"[CLIPBOARD] cURL nusxalandi: {cmd}")
-
+            self.log_msg(f"[CLIPBOARD] ✅ cURL nusxalandi: {cmd}")
+        else:
+            self.log_msg("[!] Endpointlar jadvali bo'sh yoki qator tanlanmagan.")
 
     def on_set_triage(self, status: str):
         sel = self.tree_find.get_selection()
         model, treeiter = sel.get_selected()
+        if treeiter is None and len(model) > 0:
+            treeiter = model.get_iter_first()
         if treeiter is not None:
             fid = model[treeiter][0]
             self.db.update_finding_triage(int(fid), status)
+            self._last_data_sig = None
             self.load_bundle()
-            self.log_msg(f"[TRIAGE] Topilma #{fid} statusi '{status}' ga o'zgartirildi.")
+            self.log_msg(f"[TRIAGE] ✅ Topilma #{fid} statusi '{status}' ga o'zgartirildi.")
+        else:
+            self.log_msg("[!] Avval Topilmalar jadvalidan qatorni tanlang.")
+
 
     def on_add_manual(self, _btn):
         if not self.current_project_id:
