@@ -27,24 +27,43 @@ from agents import spectre_deep_modules
 from core.database import DatabaseManager
 
 DARK_CSS = b"""
-window, .background { background-color: #090d16; color: #e5e7eb; }
-headerbar { background: #111827; color: #38bdf8; border-bottom: 1px solid #1f2937; }
-notebook, stack { background-color: #0b1120; }
-notebook header { background-color: #111827; border-bottom: 1px solid #1f2937; }
-notebook tab { padding: 8px 14px; color: #9ca3af; font-weight: bold; }
-notebook tab:checked { background-color: #1e293b; color: #38bdf8; border-bottom: 2px solid #0ea5e9; }
-treeview { background-color: #0f172a; color: #e2e8f0; font-size: 12px; }
-treeview:selected { background-color: #0284c7; color: #ffffff; }
-entry, textview, textview text { background-color: #05080f; color: #34d399; border: 1px solid #374151; border-radius: 4px; padding: 4px; }
-button { background-image: none; background-color: #0284c7; color: #ffffff; font-weight: bold; border-radius: 5px; padding: 5px 10px; border: none; }
-button:hover { background-color: #0369a1; }
-.btn-green { background-color: #059669; }
-.btn-amber { background-color: #d97706; }
-.btn-red { background-color: #dc2626; }
-.btn-purple { background-color: #4f46e5; }
-.stat-card { background-color: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 10px; }
-.stat-val { font-size: 18px; font-weight: bold; color: #38bdf8; }
+window, .background { background-color: #090d16; color: #e2e8f0; font-family: "Inter", "Ubuntu", system-ui, sans-serif; }
+headerbar { background-image: none; background-color: #0b1120; color: #f8fafc; border-bottom: 1px solid #1e293b; padding: 4px 10px; }
+headerbar button.titlebutton { background-image: none; background-color: transparent; color: #94a3b8; border: none; box-shadow: none; }
+headerbar button.titlebutton:hover { background-color: #1e293b; color: #ffffff; }
+
+.sidebar { background-color: #0b1120; border-right: 1px solid #1e293b; padding: 10px; }
+.nav-btn { background-image: none; background-color: transparent; color: #94a3b8; border: 1px solid transparent; border-radius: 7px; padding: 9px 12px; font-weight: 600; font-size: 13px; box-shadow: none; }
+.nav-btn:hover { background-color: #111827; color: #e2e8f0; }
+.nav-btn-active { background-image: none; background-color: #1e293b; color: #38bdf8; border: 1px solid #0284c7; border-radius: 7px; padding: 9px 12px; font-weight: 700; font-size: 13px; }
+
+.toolbar-bar { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 8px 12px; }
+.stat-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 12px 16px; }
+.stat-title { font-size: 11px; color: #64748b; font-weight: 700; }
+.stat-val { font-size: 20px; font-weight: 800; color: #38bdf8; }
+
+treeview { background-color: #0b1120; color: #e2e8f0; font-size: 12.5px; border: none; }
+treeview:selected { background-color: #1e3a8a; color: #ffffff; }
+treeview header button { background-image: none; background-color: #111827; color: #94a3b8; font-weight: 700; font-size: 11.5px; border: none; border-bottom: 1px solid #1e293b; border-right: 1px solid #1e293b; padding: 8px 10px; box-shadow: none; }
+treeview header button:hover { background-color: #1e293b; color: #38bdf8; }
+
+entry, combobox button { background-image: none; background-color: #090d16; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 6px 10px; box-shadow: none; }
+entry:focus { border-color: #0ea5e9; }
+textview, textview text { background-color: #070a12; color: #cbd5e1; font-family: "JetBrains Mono", "Ubuntu Mono", monospace; font-size: 12px; }
+.panel-box { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 10px; }
+
+.act-btn { background-image: none; background-color: #0284c7; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 6px; padding: 6px 13px; border: none; box-shadow: none; }
+.act-btn:hover { background-color: #0369a1; }
+.btn-green { background-image: none; background-color: #059669; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 6px; padding: 6px 13px; border: none; box-shadow: none; }
+.btn-green:hover { background-color: #047857; }
+.btn-amber { background-image: none; background-color: #d97706; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 6px; padding: 6px 13px; border: none; box-shadow: none; }
+.btn-amber:hover { background-color: #b45309; }
+.btn-red { background-image: none; background-color: #dc2626; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 6px; padding: 6px 13px; border: none; box-shadow: none; }
+.btn-red:hover { background-color: #b91c1c; }
+.btn-purple { background-image: none; background-color: #4f46e5; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 6px; padding: 6px 13px; border: none; box-shadow: none; }
+.btn-purple:hover { background-color: #4338ca; }
 """
+
 
 
 class ApexNativeWindow(Gtk.Window):
@@ -80,89 +99,150 @@ class ApexNativeWindow(Gtk.Window):
         self.refresh_tools()
         GLib.timeout_add(3000, self._periodic_refresh)
 
-    def _make_btn(self, label: str, css_cls: str = "", callback=None) -> Gtk.Button:
+    def _make_btn(self, label: str, css_cls: str = "act-btn", callback=None) -> Gtk.Button:
         btn = Gtk.Button(label=label)
-        if css_cls:
-            btn.get_style_context().add_class(css_cls)
+        btn.get_style_context().add_class(css_cls or "act-btn")
         if callback:
             btn.connect("clicked", callback)
         return btn
 
-    def _make_tree(self, columns: list[tuple[str, type]]) -> tuple[Gtk.ScrolledWindow, Gtk.ListStore, Gtk.TreeView]:
+    def _make_tree(self, columns: list[tuple[str, type]], use_markup: bool = True) -> tuple[Gtk.ScrolledWindow, Gtk.ListStore, Gtk.TreeView]:
         store = Gtk.ListStore(*[c[1] for c in columns])
         tree = Gtk.TreeView(model=store)
-        tree.set_grid_lines(Gtk.TreeViewGridLines.BOTH)
-        for idx, (col_title, _) in enumerate(columns):
+        tree.set_grid_lines(Gtk.TreeViewGridLines.HORIZONTAL)
+        tree.set_headers_visible(True)
+        for idx, (col_title, col_type) in enumerate(columns):
             renderer = Gtk.CellRendererText()
+            renderer.set_padding(10, 7)
             renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
-            col = Gtk.TreeViewColumn(col_title, renderer, text=idx)
+            if use_markup and col_type == str:
+                col = Gtk.TreeViewColumn(col_title, renderer, markup=idx)
+            else:
+                col = Gtk.TreeViewColumn(col_title, renderer, text=idx)
             col.set_resizable(True)
-            col.set_min_width(90)
-            col.set_expand(True)
+            col.set_min_width(80 if col_type == int else 110)
+            col.set_expand(col_type == str)
             tree.append_column(col)
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
         scroll.set_hexpand(True)
+        scroll.get_style_context().add_class("panel-box")
         scroll.add(tree)
         return scroll, store, tree
 
+    def _switch_page(self, page_name: str, clicked_btn: Gtk.Button):
+        self.stack.set_visible_child_name(page_name)
+        for b in self.nav_buttons:
+            ctx = b.get_style_context()
+            ctx.remove_class("nav-btn-active")
+            ctx.add_class("nav-btn")
+        clicked_btn.get_style_context().remove_class("nav-btn")
+        clicked_btn.get_style_context().add_class("nav-btn-active")
+
+
     def _build_ui(self):
-        # HeaderBar
+        # Clean Minimal HeaderBar (window controls stay sleek & native)
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
-        hb.props.title = "👻 SPECTRE Recon & Attack Surface Studio v3.0"
-        hb.props.subtitle = "Autonomous OSINT Mesh • Shodan CVE • Deep JS/SourceMap • Bug Chaining"
+        hb.props.title = "👻 SPECTRE Recon & Attack Surface Studio v4.1"
+        hb.props.subtitle = "Autonomous OSINT Mesh • Shodan CVE • Deep JS/SourceMap • Pentest Task Tree"
         self.set_titlebar(hb)
 
+        outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        self.add(outer_hbox)
+
+        # Left Modern Sidebar (Obsidian / Caido style)
+        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        sidebar.get_style_context().add_class("sidebar")
+        sidebar.set_size_request(235, -1)
+        brand_lbl = Gtk.Label(xalign=0)
+        brand_lbl.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>👻 SPECTRE v4.1</span>\n<span foreground='#64748b' size='small'>Cyber-Recon &amp; ASM Studio</span>")
+        brand_lbl.set_margin_bottom(10)
+        sidebar.pack_start(brand_lbl, False, False, 4)
+
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.stack.set_transition_duration(120)
+        self.nav_buttons = []
+
+        nav_items = [
+            ("p_recon", "🛰️  1. Recon & Target Dossier"),
+            ("p_endpoints", "🗂️  2. Endpoints, API & JS"),
+            ("p_vulns", "🔍  3. Vuln Audit & SAST"),
+            ("p_chains", "🔗  4. Triage & Bug Chains"),
+            ("p_report", "📄  5. Manual PoC & Report"),
+            ("p_tools", "⚙️  6. Tool Registry & JWT"),
+            ("p_scope", "🎯  0. New Target & Scope"),
+        ]
+        for idx, (pname, plabel) in enumerate(nav_items):
+            b = Gtk.Button(label=plabel)
+            b.set_alignment(0.0, 0.5)
+            b.get_style_context().add_class("nav-btn-active" if idx == 0 else "nav-btn")
+            b.connect("clicked", lambda btn, n=pname: self._switch_page(n, btn))
+            self.nav_buttons.append(b)
+            sidebar.pack_start(b, False, False, 0)
+
+        outer_hbox.pack_start(sidebar, False, False, 0)
+
+        # Right Main Workspace
+        root_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        root_vbox.set_margin_top(10); root_vbox.set_margin_bottom(10)
+        root_vbox.set_margin_start(12); root_vbox.set_margin_end(12)
+        outer_hbox.pack_start(root_vbox, True, True, 0)
+
+        # Top Command & Filter Toolbar
+        cmd_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        cmd_bar.get_style_context().add_class("toolbar-bar")
         self.proj_combo = Gtk.ComboBoxText()
         self.proj_combo.connect("changed", self.on_project_changed)
-        hb.pack_start(self.proj_combo)
+        cmd_bar.pack_start(self.proj_combo, False, False, 0)
 
         self.auth_entry = Gtk.Entry()
-        self.auth_entry.set_placeholder_text("Grey-box Auth (Cookie: ... / Authorization: Bearer ...)")
-        self.auth_entry.set_width_chars(26)
-        hb.pack_start(self.auth_entry)
+        self.auth_entry.set_placeholder_text("🔑 Grey-box Auth (Cookie: ... / Authorization: Bearer ...)")
+        self.auth_entry.set_hexpand(True)
+        cmd_bar.pack_start(self.auth_entry, True, True, 0)
 
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text("🔎 Filter (subdomen, port, api, cve...)")
-        self.search_entry.set_width_chars(22)
+        self.search_entry.set_width_chars(26)
         self.search_entry.connect("search-changed", lambda _: self.load_bundle())
-        hb.pack_start(self.search_entry)
+        cmd_bar.pack_start(self.search_entry, False, False, 0)
 
-        hb.pack_end(self._make_btn("🛑 STOP", "btn-red", lambda _: self.on_abort()))
-        hb.pack_end(self._make_btn("🚀 FULL AUTO", "btn-purple", lambda _: self.on_run_agent("all")))
-        hb.pack_end(self._make_btn("🔗 3-Agent", "btn-green", lambda _: self.on_run_agent("triage")))
-        hb.pack_end(self._make_btn("🔍 2-Agent", "btn-amber", lambda _: self.on_run_agent("vuln")))
-        hb.pack_end(self._make_btn("🛰️ 1-Agent", "", lambda _: self.on_run_agent("recon")))
-
-        root_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        root_vbox.set_margin_top(8)
-        root_vbox.set_margin_bottom(8)
-        root_vbox.set_margin_start(10)
-        root_vbox.set_margin_end(10)
-        self.add(root_vbox)
+        cmd_bar.pack_end(self._make_btn("🛑 STOP", "btn-red", lambda _: self.on_abort()), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("🚀 FULL AUTO", "btn-purple", lambda _: self.on_run_agent("all")), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("🔗 3-Agent", "btn-green", lambda _: self.on_run_agent("triage")), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("🔍 2-Agent", "btn-amber", lambda _: self.on_run_agent("vuln")), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("🛰️ 1-Agent", "act-btn", lambda _: self.on_run_agent("recon")), False, False, 0)
+        root_vbox.pack_start(cmd_bar, False, False, 0)
 
         # Stats Row
         stats_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        self.lbl_stat_dom = Gtk.Label(label="Subdomenlar: 0")
-        self.lbl_stat_http = Gtk.Label(label="Portlar / Web: 0 / 0")
-        self.lbl_stat_ep = Gtk.Label(label="API & Endpointlar: 0")
-        self.lbl_stat_find = Gtk.Label(label="Zaifliklar / Zanjirlar: 0 / 0")
-        for lbl in (self.lbl_stat_dom, self.lbl_stat_http, self.lbl_stat_ep, self.lbl_stat_find):
+        self.lbl_stat_dom = Gtk.Label(label="0", xalign=0)
+        self.lbl_stat_http = Gtk.Label(label="0 / 0", xalign=0)
+        self.lbl_stat_ep = Gtk.Label(label="0 / 0", xalign=0)
+        self.lbl_stat_find = Gtk.Label(label="0 / 0", xalign=0)
+        for title_cap, lbl in [
+            ("🌐 SUBDOMENLAR & DNS", self.lbl_stat_dom),
+            ("🔌 OCHIQ PORTLAR & WEB", self.lbl_stat_http),
+            ("🗂️ ENDPOINTLAR & JS BUNDLES", self.lbl_stat_ep),
+            ("🚨 TOPILMALAR & ZANJIRLAR", self.lbl_stat_find),
+        ]:
+            t_lbl = Gtk.Label(label=title_cap, xalign=0)
+            t_lbl.get_style_context().add_class("stat-title")
             lbl.get_style_context().add_class("stat-val")
-            frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
             frame.get_style_context().add_class("stat-card")
             frame.set_hexpand(True)
-            frame.pack_start(lbl, True, True, 4)
+            frame.pack_start(t_lbl, False, False, 0)
+            frame.pack_start(lbl, False, False, 0)
             stats_box.pack_start(frame, True, True, 0)
         root_vbox.pack_start(stats_box, False, False, 0)
 
         vpaned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         vpaned.set_position(560)
         root_vbox.pack_start(vpaned, True, True, 0)
+        vpaned.pack1(self.stack, True, False)
 
-        notebook = Gtk.Notebook()
-        vpaned.pack1(notebook, True, False)
 
         # TAB 0: Target & Scope
         tab0 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -186,13 +266,12 @@ class ApexNativeWindow(Gtk.Window):
             grid0.attach(widget, 1, r_idx, 1, 1)
         tab0.pack_start(grid0, False, False, 0)
         tab0.pack_start(self._make_btn("➕ Yangi Audit Loyihasini Yaratish va Faollashtirish", "btn-green", self.on_create_project), False, False, 6)
-        notebook.append_page(tab0, Gtk.Label(label="🎯 0. Target & Scope"))
 
         # TAB 1: Recon & Attack Surface + Target Dossier Inspector
         tab1 = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        tab1.set_position(900)
+        tab1.set_position(740)
         tab1_left = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
-        tab1_left.set_position(240)
+        tab1_left.set_position(250)
         sc_http, self.store_http, _ = self._make_tree([("URL", str), ("Status", str), ("Title", str), ("Server / Tech", str), ("WAF", str), ("Missing Headers", str)])
         sc_dom, self.store_dom, self.tree_dom = self._make_tree([("Subdomen / Host", str), ("IP Manzil", str), ("CNAME", str), ("Manba", str), ("Ochiq Portlar va Servislar", str)])
         self.tree_dom.connect("cursor-changed", self.on_domain_selected)
@@ -200,16 +279,20 @@ class ApexNativeWindow(Gtk.Window):
         tab1_left.pack2(sc_dom, True, False)
 
         dossier_scroll = Gtk.ScrolledWindow()
+        dossier_scroll.get_style_context().add_class("panel-box")
         self.dossier_view = Gtk.TextView()
         self.dossier_view.set_editable(False)
         self.dossier_view.set_monospace(True)
+        self.dossier_view.set_left_margin(10); self.dossier_view.set_top_margin(8)
         self.dossier_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         self.dossier_view.get_buffer().set_text("Subdomen ustiga bosing — uning To'liq Texnik Pasporti (Target Dossier & PTT) shu yerda ochiladi...")
         dossier_scroll.add(self.dossier_view)
 
         tab1.pack1(tab1_left, True, False)
         tab1.pack2(dossier_scroll, True, False)
-        notebook.append_page(tab1, Gtk.Label(label="🛰️ 1. Recon & Target Dossier"))
+        self.stack.add_named(tab1, "p_recon")
+        self.stack.add_named(tab0, "p_scope")
+
 
         # TAB 2: Endpoints, API & JS Bundles
         tab2_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -224,7 +307,7 @@ class ApexNativeWindow(Gtk.Window):
         tab2_paned.pack1(sc_ep, True, False)
         tab2_paned.pack2(sc_js, True, False)
         tab2_box.pack_start(tab2_paned, True, True, 0)
-        notebook.append_page(tab2_box, Gtk.Label(label="🗂️ 2. Endpoints, API & JS"))
+        self.stack.add_named(tab2_box, "p_endpoints")
 
         # TAB 3: Vuln Audit & SAST
         tab3_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -240,14 +323,14 @@ class ApexNativeWindow(Gtk.Window):
             ("Remediation (Yechim)", str), ("Triage Holati", str)
         ])
         tab3_box.pack_start(sc_find, True, True, 0)
-        notebook.append_page(tab3_box, Gtk.Label(label="🔍 3. Vuln Audit & SAST"))
+        self.stack.add_named(tab3_box, "p_vulns")
 
         # TAB 4: Bug Chains
         sc_chain, self.store_chain, _ = self._make_tree([
             ("Severity", str), ("CVSS", str), ("Zanjir Nomi (Attack Chain)", str),
             ("Bosqichlar (Nodes)", str), ("Hujum Ssenariysi va Impact", str), ("Remediation", str)
         ])
-        notebook.append_page(sc_chain, Gtk.Label(label="🔗 4. Triage & Bug Chains"))
+        self.stack.add_named(sc_chain, "p_chains")
 
         # TAB 5: Manual PoC & Report Studio
         tab5 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -270,7 +353,7 @@ class ApexNativeWindow(Gtk.Window):
         self.rep_view = Gtk.TextView(); self.rep_view.set_editable(False); self.rep_view.set_monospace(True)
         sc_rep = Gtk.ScrolledWindow(); sc_rep.set_vexpand(True); sc_rep.add(self.rep_view)
         tab5.pack_start(sc_rep, True, True, 0)
-        notebook.append_page(tab5, Gtk.Label(label="📄 5. Manual PoC & Report"))
+        self.stack.add_named(tab5, "p_report")
 
         # TAB 6: Tool Registry & JWT Auditor
         tab6 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -278,7 +361,7 @@ class ApexNativeWindow(Gtk.Window):
         self.ent_jwt = Gtk.Entry(); self.ent_jwt.set_placeholder_text("JWT Token kiriting (eyJhbGciOi...)")
         self.ent_jwt.set_hexpand(True)
         jwt_row.pack_start(self.ent_jwt, True, True, 6)
-        jwt_row.pack_start(self._make_btn("🔐 JWT Tekshirish", "", self.on_audit_jwt), False, False, 6)
+        jwt_row.pack_start(self._make_btn("🔐 JWT Tekshirish", "act-btn", self.on_audit_jwt), False, False, 6)
         jwt_row.pack_start(self._make_btn("🔄 Tanlangan Toolni Yoqish/O'chirish", "btn-amber", self.on_toggle_tool), False, False, 6)
         tab6.pack_start(jwt_row, False, False, 4)
         sc_tools, self.store_tools, self.tree_tools = self._make_tree([
@@ -286,7 +369,8 @@ class ApexNativeWindow(Gtk.Window):
             ("O'rnatilganligi", str), ("Binary Yo'li", str), ("Command Shabloni", str)
         ])
         tab6.pack_start(sc_tools, True, True, 0)
-        notebook.append_page(tab6, Gtk.Label(label="⚙️ 6. Tool Registry & JWT"))
+        self.stack.add_named(tab6, "p_tools")
+
 
         # Bottom Live Terminal
         term_scroll = Gtk.ScrolledWindow()
@@ -457,13 +541,16 @@ class ApexNativeWindow(Gtk.Window):
         sel = self.tree_ep.get_selection()
         model, treeiter = sel.get_selected()
         if treeiter is not None:
-            method, url = model[treeiter][0], model[treeiter][1]
+            import re as _re
+            method = _re.sub(r"<[^>]+>", "", model[treeiter][0])
+            url = _re.sub(r"<[^>]+>", "", model[treeiter][1])
             auth = self.auth_entry.get_text().strip()
             h_flag = f' -H "{auth if ":" in auth else "Cookie: " + auth}"' if auth else ""
             cmd = f'curl -i -s -k -X {method}{h_flag} "{url}"'
             clip = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
             clip.set_text(cmd, -1)
             self.log_msg(f"[CLIPBOARD] cURL nusxalandi: {cmd}")
+
 
     def on_set_triage(self, status: str):
         sel = self.tree_find.get_selection()
