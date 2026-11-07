@@ -19,7 +19,7 @@ from bs4 import BeautifulSoup, Comment
 
 from core.database import DatabaseManager
 from core.scope_guard import ScopeGuard
-from agents import spectre_deep_modules
+from agents import spectre_deep_modules, spectre_v5_modules
 
 urllib3_disable = getattr(requests.packages, "urllib3", None)
 if urllib3_disable:
@@ -893,6 +893,7 @@ class ReconSuperAgent:
         # Stage 2
         tls_info = self._stage2_tls_inspect(project_id, primary_host, scope, log_fn)
         self._stage2_shodan_internetdb(project_id, scope, log_fn)
+        spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
         if "nmap" in active_ids and self._find_binary("nmap") and project_id not in self.abort_flags:
             log_fn(f"[SPECTRE Stage 2] Nmap Service & Port Scan (Top 100 ports): {primary_host}")
             xml_out = self._run_cli(f"nmap -Pn -sV -T4 --top-ports 100 -oX - {safe_host}", log_fn, timeout=90, project_id=project_id)
@@ -950,6 +951,8 @@ class ReconSuperAgent:
         spectre_deep_modules.probe_api_versions_and_ghost_endpoints(self.db, project_id, log_fn)
         spectre_deep_modules.classify_auth_portals_and_schema(self.db, project_id, log_fn)
         spectre_deep_modules.analyze_badsecrets_and_cookies(self.db, project_id, apex_domain, log_fn)
+        spectre_v5_modules.audit_ssl_certificates_deep(self.db, project_id, log_fn)
+        spectre_v5_modules.audit_domain_backup_exposure(self.db, project_id, apex_domain, log_fn)
         spectre_deep_modules.harvest_emails_and_osint(self.db, project_id, apex_domain, collected_html, log_fn)
         spectre_deep_modules.build_custom_wordlist_and_params(self.db, project_id, apex_domain, log_fn)
         spectre_deep_modules.log_incremental_diff(before_snap, self.db, project_id, log_fn)

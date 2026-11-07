@@ -6,6 +6,9 @@ workspaces/*.txt
 reports/*.md
 reports/*.html
 reports/*.pdf
+reports/*.json
+reports/*.csv
+reports/*.txt
 
 # Keep empty directories
 !workspaces/.gitkeep

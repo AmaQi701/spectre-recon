@@ -23,7 +23,7 @@ sys.path.insert(0, str(BASE_DIR))
 from agents.recon_agent import ReconSuperAgent
 from agents.triage_chain_agent import TriageAndChainSuperAgent
 from agents.vuln_agent import VulnAssessmentSuperAgent
-from agents import spectre_deep_modules
+from agents import spectre_deep_modules, spectre_v5_modules
 from core.database import DatabaseManager
 
 DARK_CSS = b"""
@@ -203,13 +203,18 @@ class ApexNativeWindow(Gtk.Window):
 
 
         self.auth_entry = Gtk.Entry()
-        self.auth_entry.set_placeholder_text("🔑 Grey-box Auth (Cookie: ... / Authorization: Bearer ...)")
+        self.auth_entry.set_placeholder_text("🔑 Auth (Cookie: ... / Authorization: Bearer ...)")
         self.auth_entry.set_hexpand(True)
         cmd_bar.pack_start(self.auth_entry, True, True, 0)
 
+        self.proxy_entry = Gtk.Entry()
+        self.proxy_entry.set_placeholder_text("🌐 Proxy (http://127.0.0.1:8080)")
+        self.proxy_entry.set_width_chars(21)
+        cmd_bar.pack_start(self.proxy_entry, False, False, 0)
+
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text("🔎 Filter (subdomen, port, api, cve...)")
-        self.search_entry.set_width_chars(26)
+        self.search_entry.set_width_chars(22)
         self.search_entry.connect("search-changed", lambda _: self.load_bundle())
         cmd_bar.pack_start(self.search_entry, False, False, 0)
 
@@ -291,6 +296,12 @@ class ApexNativeWindow(Gtk.Window):
         tab1_left.pack1(sc_http, True, False)
         tab1_left.pack2(sc_dom, True, False)
 
+        dossier_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        dos_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        dos_bar.pack_start(Gtk.Label(label="🎯 Target Dossier & Pentesting Task Tree (PTT):", xalign=0), True, True, 6)
+        dos_bar.pack_end(self._make_btn("🧠 AI Tactical Analysis", "btn-purple", self.on_ai_dossier_analysis), False, False, 4)
+        dossier_box.pack_start(dos_bar, False, False, 2)
+
         dossier_scroll = Gtk.ScrolledWindow()
         dossier_scroll.get_style_context().add_class("panel-box")
         self.dossier_view = Gtk.TextView()
@@ -300,27 +311,46 @@ class ApexNativeWindow(Gtk.Window):
         self.dossier_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         self.dossier_view.get_buffer().set_text("Subdomen ustiga bosing — uning To'liq Texnik Pasporti (Target Dossier & PTT) shu yerda ochiladi...")
         dossier_scroll.add(self.dossier_view)
+        dossier_box.pack_start(dossier_scroll, True, True, 0)
 
         tab1.pack1(tab1_left, True, False)
-        tab1.pack2(dossier_scroll, True, False)
+        tab1.pack2(dossier_box, True, False)
         self.stack.add_named(tab1, "p_recon")
         self.stack.add_named(tab0, "p_scope")
 
 
-        # TAB 2: Endpoints, API & JS Bundles
+        # TAB 2: Endpoints, API & JS Bundles + In-App HTTP Repeater
         tab2_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         ep_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        ep_bar.pack_start(Gtk.Label(label="Ro'yxatdan endpointni tanlab, Burp Suite / Terminal uchun cURL nusxalashingiz mumkin:", xalign=0), True, True, 6)
-        ep_bar.pack_end(self._make_btn("📋 Copy Selected Endpoint as cURL", "btn-amber", self.on_copy_curl), False, False, 6)
+        ep_bar.pack_start(Gtk.Label(label="Endpointni tanlab, bevosita so'rov yuborish (Repeater) yoki cURL nusxalash:", xalign=0), True, True, 6)
+        ep_bar.pack_end(self._make_btn("📋 Copy cURL", "btn-amber", self.on_copy_curl), False, False, 4)
+        ep_bar.pack_end(self._make_btn("⚡ Send Request (In-App Inspector)", "btn-purple", self.on_send_repeater), False, False, 4)
         tab2_box.pack_start(ep_bar, False, False, 4)
+
+        tab2_hpaned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        tab2_hpaned.set_position(740)
         tab2_paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
-        tab2_paned.set_position(260)
+        tab2_paned.set_position(250)
         sc_ep, self.store_ep, self.tree_ep = self._make_tree([("Method", str), ("Endpoint URL", str), ("Parametrlar", str), ("Kategoriya", str), ("Xavf Teglari (Manual Guide)", str)])
         sc_js, self.store_js, _ = self._make_tree([("JS Bundle Fayl", str), ("Ajratilgan API Route / URL'lar", str), ("Parametrlar", str), ("DOM Sinks & Config/Keys", str)])
         tab2_paned.pack1(sc_ep, True, False)
         tab2_paned.pack2(sc_js, True, False)
-        tab2_box.pack_start(tab2_paned, True, True, 0)
+
+        rep_insp_scroll = Gtk.ScrolledWindow()
+        rep_insp_scroll.get_style_context().add_class("panel-box")
+        self.repeater_view = Gtk.TextView()
+        self.repeater_view.set_editable(False)
+        self.repeater_view.set_monospace(True)
+        self.repeater_view.set_left_margin(10); self.repeater_view.set_top_margin(8)
+        self.repeater_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.repeater_view.get_buffer().set_text("Endpointni tanlab '⚡ Send Request (In-App Inspector)' tugmasini bosing — HTTP Status, Response Headers va Body shu yerda ko'rinadi...")
+        rep_insp_scroll.add(self.repeater_view)
+
+        tab2_hpaned.pack1(tab2_paned, True, False)
+        tab2_hpaned.pack2(rep_insp_scroll, True, False)
+        tab2_box.pack_start(tab2_hpaned, True, True, 0)
         self.stack.add_named(tab2_box, "p_endpoints")
+
 
         # TAB 3: Vuln Audit & SAST
         tab3_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -362,6 +392,7 @@ class ApexNativeWindow(Gtk.Window):
         btn_row5 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         btn_row5.pack_start(self._make_btn("➕ Manual PoC Zaiflik Qo'shish", "btn-amber", self.on_add_manual), False, False, 0)
         btn_row5.pack_start(self._make_btn("📥 Markdown va HTML Hisobot Generatsiya Qilish", "btn-green", self.on_generate_report), False, False, 0)
+        btn_row5.pack_start(self._make_btn("📤 Export All (Burp Scope JSON / Nuclei URLs / CSV)", "btn-purple", self.on_export_artifacts), False, False, 0)
         tab5.pack_start(btn_row5, False, False, 0)
         self.rep_view = Gtk.TextView(); self.rep_view.set_editable(False); self.rep_view.set_monospace(True)
         sc_rep = Gtk.ScrolledWindow(); sc_rep.set_vexpand(True); sc_rep.add(self.rep_view)
@@ -455,8 +486,19 @@ class ApexNativeWindow(Gtk.Window):
         if treeiter is not None:
             import re as _re
             dom_name = _re.sub(r"<[^>]+>", "", model[treeiter][0])
+            self._selected_domain = dom_name
             dossier_txt = spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, dom_name)
             self.dossier_view.get_buffer().set_text(dossier_txt)
+
+    def on_ai_dossier_analysis(self, _btn):
+        if not self.current_project_id:
+            return
+        dom_name = getattr(self, "_selected_domain", "")
+        ai_txt = spectre_v5_modules.generate_ai_tactical_analysis(self.db, self.current_project_id, dom_name)
+        dossier_txt = spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, dom_name)
+        self.dossier_view.get_buffer().set_text(ai_txt + "\n\n" + dossier_txt)
+        self.log_msg(f"[AI ANALYST] 🧠 '{dom_name or 'Primary Target'}' bo'yicha taktik tahlil tayyorlandi.")
+
 
     def _periodic_refresh(self):
         # Faqat orqa fonda skaner ishlayotganda va ma'lumot o'zgargandagina yangilaymiz (tanlangan qator o'chib ketmasligi uchun!)
@@ -626,6 +668,12 @@ class ApexNativeWindow(Gtk.Window):
             else:
                 self.recon_agent.session.headers["Cookie"] = auth
 
+        proxy_val = self.proxy_entry.get_text().strip() if hasattr(self, "proxy_entry") else ""
+        if proxy_val:
+            self.recon_agent.session.proxies.update({"http": proxy_val, "https": proxy_val})
+            self.log_msg(f"[PROXY] 🌐 Outbound Proxy ulandi: {proxy_val}")
+
+
         def worker():
             try:
                 if agent_type in ("recon", "all"):
@@ -666,6 +714,43 @@ class ApexNativeWindow(Gtk.Window):
             self.log_msg(f"[CLIPBOARD] ✅ cURL nusxalandi: {cmd}")
         else:
             self.log_msg("[!] Endpointlar jadvali bo'sh yoki qator tanlanmagan.")
+
+    def on_send_repeater(self, _btn):
+        sel = self.tree_ep.get_selection()
+        model, treeiter = sel.get_selected()
+        if treeiter is None and len(model) > 0:
+            treeiter = model.get_iter_first()
+        if treeiter is None:
+            self.log_msg("[!] Avval Endpointlar jadvalidan qatorni tanlang.")
+            return
+        import re as _re
+        method = _re.sub(r"<[^>]+>", "", model[treeiter][0])
+        url = _re.sub(r"<[^>]+>", "", model[treeiter][1])
+        auth = self.auth_entry.get_text().strip()
+        proxy_val = self.proxy_entry.get_text().strip() if hasattr(self, "proxy_entry") else ""
+        self.repeater_view.get_buffer().set_text(f"⏳ So'rov yuborilmoqda: {method} {url} ...")
+
+        def _req_worker():
+            out = spectre_v5_modules.send_repeater_request(method, url, auth, proxy_val)
+            GLib.idle_add(lambda: self.repeater_view.get_buffer().set_text(out) or False)
+
+        threading.Thread(target=_req_worker, daemon=True).start()
+
+    def on_export_artifacts(self, _btn):
+        if not self.current_project_id:
+            return
+        res = spectre_v5_modules.export_project_artifacts(self.db, self.current_project_id)
+        msg = (
+            "╔══ 📤 SPECTRE MULTI-FORMAT ARTIFACTS EXPORTED ══╗\n"
+            f"• Burp Suite Scope JSON: {res['burp_scope_json']}\n"
+            f"• Live URLs (Nuclei/HTTPX): {res['live_urls_txt']}\n"
+            f"• Subdomains List: {res['subdomains_txt']}\n"
+            f"• Findings CSV: {res['findings_csv']}\n"
+            f"• Full Database JSON: {res['full_json']}\n"
+        )
+        self.rep_view.get_buffer().set_text(msg)
+        self.log_msg(f"[EXPORT] ✅ Burp Scope, Nuclei URLs, CSV va JSON saqlandi: {res['burp_scope_json']}")
+
 
     def on_set_triage(self, status: str):
         sel = self.tree_find.get_selection()
