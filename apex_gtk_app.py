@@ -652,20 +652,28 @@ class ApexNativeWindow(Gtk.Window):
     def refresh_tools(self):
         self.store_tools.clear()
         for t in self.recon_agent.get_tools_status():
+            en_markup = "<span foreground='#34d399' weight='bold'>● YES</span>" if t.get("enabled") else "<span foreground='#64748b'>○ NO</span>"
+            inst_markup = "<span foreground='#34d399' weight='bold'>READY</span>" if t["installed"] else "<span foreground='#f87171' weight='bold'>MISSING</span>"
             self.store_tools.append([
-                t["id"], "YES" if t.get("enabled") else "NO", t["name"],
-                t["stage"], "READY" if t["installed"] else "MISSING",
-                t["resolved_path"], t["command_template"]
+                self._esc(t["id"]),
+                en_markup,
+                f"<b>{self._esc(t['name'])}</b>",
+                f"<span foreground='#38bdf8'>{self._esc(t['stage'])}</span>",
+                inst_markup,
+                self._esc(t["resolved_path"]),
+                self._esc(t["command_template"]),
             ])
 
     def on_toggle_tool(self, _btn):
         sel = self.tree_tools.get_selection()
         model, treeiter = sel.get_selected()
         if treeiter is not None:
-            tid = model[treeiter][0]
-            cur_en = model[treeiter][1] == "YES"
+            import re as _re
+            tid = _re.sub(r"<[^>]+>", "", model[treeiter][0])
+            cur_en = "YES" in model[treeiter][1]
             self.recon_agent.toggle_tool(tid, not cur_en)
             self.refresh_tools()
+
 
     def on_audit_jwt(self, _btn):
         tok = self.ent_jwt.get_text().strip()
