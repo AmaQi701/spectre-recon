@@ -237,14 +237,23 @@ def generate_ai_tactical_analysis(db, project_id: int, selected_domain: str = ""
     host_ports = [p for p in b.get("ports", []) if p["host"] == selected_domain or (ip and p.get("ip") == ip)]
     host_finds = [f for f in b.get("findings", []) if selected_domain in f["asset"] or (ip and ip in f["asset"])]
 
+    pnums = sorted({int(p["port"]) for p in host_ports})
+    direct_ips = []
+    for d in domains:
+        d_ip = d.get("ip", "")
+        d_rec = json.loads(d.get("records_json") or "{}").get("asn_intel", {})
+        if d_ip and "cloudflare" not in str(d_rec.get("isp", "")).lower() and "cloudflare" not in str(d.get("cdn_waf", "")).lower():
+            direct_ips.append(f"{d['domain']} ({d_ip} - {d_rec.get('isp', '')})")
+
     summary_lines = [
         f"╔══ 🧠 SPECTRE AI TACTICAL ANALYST REPORT: {selected_domain} ══╗",
         f"• Host: {selected_domain} | IP: {ip or 'N/A'} | ASN/ISP: {asn_info.get('asn', '')} {asn_info.get('isp', '')} ({asn_info.get('subnet', '')})",
-        f"• Ochiq Portlar: {[p['port'] for p in host_ports]} | Aniqlangan Zaifliklar: {len(host_finds)} ta",
-        "",
-        "── 🎯 EKSPERT XAVFSIZLIK BAHOSI VA HUJUM VEKTORLARI ──",
+        f"• Noyob Ochiq Portlar: {pnums} | Aniqlangan Zaifliklar: {len(host_finds)} ta",
     ]
-    pnums = {int(p["port"]) for p in host_ports}
+    if direct_ips:
+        summary_lines.append(f"• 🎯 WAF/Cloudflare Ortidan Tashqaridagi To'g'ridan-to'g'ri (Direct) Serverlar: {', '.join(direct_ips[:6])}")
+    summary_lines.extend(["", "── 🎯 EKSPERT XAVFSIZLIK BAHOSI VA HUJUM VEKTORLARI ──"])
+
     if 445 in pnums or 137 in pnums:
         summary_lines.append("1. [CRITICAL RISK - SMB/NetBIOS Exposed] Tashqi internetda 445/137 portlar ochiq. SMB signing, Null-Session va eskirgan Samba/Windows CVE'larini darhol tekshiring.")
     if 21 in pnums:
