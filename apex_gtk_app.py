@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 
 # Snap (VS Code) muhitidan chaqirilganda GTK3 schema to'qnashuvini oldini olish
-if any("snap" in os.environ.get(k, "") for k in ("GSETTINGS_SCHEMA_DIR", "XDG_DATA_DIRS", "GTK_PATH", "GIO_MODULE_DIR")):
+if any("/snap/" in os.environ.get(k, "") for k in ("GSETTINGS_SCHEMA_DIR", "XDG_DATA_DIRS", "GTK_PATH", "GIO_MODULE_DIR")):
     for k in ("GSETTINGS_SCHEMA_DIR", "GTK_PATH", "GIO_MODULE_DIR", "LD_LIBRARY_PATH", "GTK_EXE_PREFIX", "GTK_DATA_PREFIX"):
         os.environ.pop(k, None)
     os.environ["XDG_DATA_DIRS"] = "/usr/local/share:/usr/share:/var/lib/snapd/desktop"
@@ -530,7 +530,9 @@ if __name__ == "__main__":
     win = ApexNativeWindow()
     win.connect("destroy", Gtk.main_quit)
     win.show_all()
+    win.present()
     Gtk.main()
+
 
 
 
