@@ -19,6 +19,7 @@ from bs4 import BeautifulSoup, Comment
 
 from core.database import DatabaseManager
 from core.scope_guard import ScopeGuard
+from agents import spectre_deep_modules
 
 urllib3_disable = getattr(requests.packages, "urllib3", None)
 if urllib3_disable:
@@ -856,6 +857,8 @@ class ReconSuperAgent:
         active_ids = set(selected_tools) if selected_tools else {t["id"] for t in tools if t.get("enabled") and t.get("installed")}
 
         self.abort_flags.discard(project_id)
+        before_snap = spectre_deep_modules.take_recon_snapshot(self.db, project_id)
+        collected_html: list[str] = []
         apex_domain = ScopeGuard.extract_apex_domain(primary_host)
         safe_host = shlex.quote(primary_host)
         safe_apex = shlex.quote(apex_domain)
@@ -886,6 +889,10 @@ class ReconSuperAgent:
             self._parse_nmap_xml(project_id, primary_host, xml_out, log_fn)
             self.db.log_task(project_id, "SPECTRE-Agent1", "nmap", "COMPLETED", f"nmap -Pn -sV --top-ports 100 {primary_host}", "XML Parsed")
 
+        spectre_deep_modules.probe_nonstandard_web_ports(self.db, self.session, project_id, log_fn)
+        spectre_deep_modules.hunt_virtual_hosts(self.db, self.session, project_id, apex_domain, log_fn)
+
+
         # Stage 3, 4, 5, 6 (with Recursive Discovery Loop)
         probed_domains = set()
         for pass_num in (1, 2):
@@ -909,6 +916,9 @@ class ReconSuperAgent:
                     safe_url = shlex.quote(url)
                     html = self._stage3_http_probe(project_id, url, tls_info if dom == primary_host else {}, scope, log_fn)
                     if html:
+                        collected_html.append(html[:50000])
+                        if dom == primary_host:
+                            spectre_deep_modules.fingerprint_favicon(self.session, url, self.db, project_id, log_fn)
                         if "whatweb" in active_ids and self._find_binary("whatweb") and dom == primary_host:
                             ww = self._run_cli(f"whatweb --color=never -a 1 {safe_url}", log_fn, timeout=25, project_id=project_id)
                             self.db.log_task(project_id, "SPECTRE-Agent1", "whatweb", "COMPLETED", f"whatweb {url}", ww[:200])
@@ -925,6 +935,13 @@ class ReconSuperAgent:
                         self._stage5_openapi_discovery(project_id, url, scope, log_fn)
                         self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
                         break
+
+        spectre_deep_modules.hunt_cloud_and_storage_buckets(self.db, self.session, project_id, apex_domain, log_fn)
+        spectre_deep_modules.analyze_badsecrets_and_cookies(self.db, project_id, apex_domain, log_fn)
+        spectre_deep_modules.harvest_emails_and_osint(self.db, project_id, apex_domain, collected_html, log_fn)
+        spectre_deep_modules.build_custom_wordlist_and_params(self.db, project_id, apex_domain, log_fn)
+        spectre_deep_modules.log_incremental_diff(before_snap, self.db, project_id, log_fn)
+
 
         b_final = self.db.get_project_bundle(project_id)
         unique_ips = sorted({d["ip"] for d in b_final["domains"] if d.get("ip")})

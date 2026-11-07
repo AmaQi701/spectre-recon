@@ -2,6 +2,7 @@
 workspaces/*.db
 workspaces/*.db-shm
 workspaces/*.db-wal
+workspaces/*.txt
 reports/*.md
 reports/*.html
 reports/*.pdf

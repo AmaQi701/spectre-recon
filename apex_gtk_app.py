@@ -23,6 +23,7 @@ sys.path.insert(0, str(BASE_DIR))
 from agents.recon_agent import ReconSuperAgent
 from agents.triage_chain_agent import TriageAndChainSuperAgent
 from agents.vuln_agent import VulnAssessmentSuperAgent
+from agents import spectre_deep_modules
 from core.database import DatabaseManager
 
 DARK_CSS = b"""
@@ -181,14 +182,28 @@ class ApexNativeWindow(Gtk.Window):
         tab0.pack_start(self._make_btn("➕ Yangi Audit Loyihasini Yaratish va Faollashtirish", "btn-green", self.on_create_project), False, False, 6)
         notebook.append_page(tab0, Gtk.Label(label="🎯 0. Target & Scope"))
 
-        # TAB 1: Recon & Attack Surface
-        tab1 = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
-        tab1.set_position(260)
+        # TAB 1: Recon & Attack Surface + Target Dossier Inspector
+        tab1 = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        tab1.set_position(900)
+        tab1_left = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        tab1_left.set_position(240)
         sc_http, self.store_http, _ = self._make_tree([("URL", str), ("Status", str), ("Title", str), ("Server / Tech", str), ("WAF", str), ("Missing Headers", str)])
-        sc_dom, self.store_dom, _ = self._make_tree([("Subdomen / Host", str), ("IP Manzil", str), ("CNAME", str), ("Manba", str), ("Ochiq Portlar va Servislar", str)])
-        tab1.pack1(sc_http, True, False)
-        tab1.pack2(sc_dom, True, False)
-        notebook.append_page(tab1, Gtk.Label(label="🛰️ 1. Recon & Attack Surface"))
+        sc_dom, self.store_dom, self.tree_dom = self._make_tree([("Subdomen / Host", str), ("IP Manzil", str), ("CNAME", str), ("Manba", str), ("Ochiq Portlar va Servislar", str)])
+        self.tree_dom.connect("cursor-changed", self.on_domain_selected)
+        tab1_left.pack1(sc_http, True, False)
+        tab1_left.pack2(sc_dom, True, False)
+
+        dossier_scroll = Gtk.ScrolledWindow()
+        self.dossier_view = Gtk.TextView()
+        self.dossier_view.set_editable(False)
+        self.dossier_view.set_monospace(True)
+        self.dossier_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.dossier_view.get_buffer().set_text("Subdomen ustiga bosing — uning To'liq Texnik Pasporti (Target Dossier & PTT) shu yerda ochiladi...")
+        dossier_scroll.add(self.dossier_view)
+
+        tab1.pack1(tab1_left, True, False)
+        tab1.pack2(dossier_scroll, True, False)
+        notebook.append_page(tab1, Gtk.Label(label="🛰️ 1. Recon & Target Dossier"))
 
         # TAB 2: Endpoints, API & JS Bundles
         tab2_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -302,6 +317,17 @@ class ApexNativeWindow(Gtk.Window):
         if aid:
             self.current_project_id = int(aid)
             self.load_bundle()
+
+    def on_domain_selected(self, tree):
+        if not self.current_project_id:
+            return
+        sel = tree.get_selection()
+        model, treeiter = sel.get_selected()
+        if treeiter is not None:
+            dom_name = model[treeiter][0]
+            dossier_txt = spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, dom_name)
+            self.dossier_view.get_buffer().set_text(dossier_txt)
+
 
     def _periodic_refresh(self):
         if self.current_project_id:
