@@ -193,15 +193,16 @@ class VulnAssessmentSuperAgent:
                     "SSH boshqaruv porti tashqi internet uchun ochiq qoldirilgan.",
                     "SSH portini faqat VPN yoki ma'lum ma'muriy IP manzillar (Firewall allowlist) uchun oching va PasswordAuthentication ni o'chiring.",
                 )
-            elif pnum in (21, 23, 3306, 5432, 6379, 27017, 9200):
+            elif pnum in (21, 23, 137, 139, 445, 3306, 3389, 5432, 5900, 6379, 11211, 27017, 9200):
                 self.db.upsert_finding(
-                    project_id, "Agent-2 (NetworkAudit)", f"Exposed Database / Sensitive Network Port ({host}:{pnum})",
+                    project_id, "Agent-2 (NetworkAudit)", f"Exposed Critical Network Service / Port ({host}:{pnum})",
                     "Network Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
                     "CWE-284", "A05:2021 - Security Misconfiguration", f"{host}:{pnum}",
                     f"Port {pnum}/tcp open | Service: {svc} {ver}",
-                    "Ma'lumotlar bazasi yoki sezgir tarmoq servisi tashqi tarmoqqa ochiq.",
-                    "Ushbu portni tashqi interfeysdan yoping (127.0.0.1 yoki ichki VLAN ga bog'lang).",
+                    "SMB/FTP/DB/RDP kabi sezgir tarmoq porti tashqi internet uchun ochiq qoldirilgan.",
+                    "Ushbu portni tashqi interfeysdan Firewall orqali yoping (faqat ichki VLAN yoki VPN orqali ruxsat bering).",
                 )
+
 
 
     def _audit_endpoints_and_js(self, project_id: int, endpoints: list[dict], js_assets: list[dict], log_fn):

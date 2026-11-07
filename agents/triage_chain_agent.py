@@ -117,7 +117,7 @@ class TriageAndChainSuperAgent:
 
         # Markdown Report
         md_lines = [
-            f"# 🛡️ Xavfsizlik Auditi va Pentest Hisoboti: {proj.get('name', '')}",
+            f"# 👻 SPECTRE Cyber-Recon & Security Audit Report: {proj.get('name', '')}",
             f"- **Asosiy Nishon (Primary Target):** `{proj.get('primary_target', '')}`",
             f"- **In-Scope:** `{proj.get('in_scope', '')}`",
             f"- **Sana:** `{proj.get('created_at', '')}`",
@@ -126,14 +126,20 @@ class TriageAndChainSuperAgent:
             "## 1. Executive Summary (Umumiy Xulosa)",
             f"- **Aniqlangan Subdomenlar:** {len(domains)} ta",
             f"- **Ochiq Portlar va Servislar:** {len(ports)} ta",
-            f"- **Faol HTTP/HTTPS Servislar:** {len(http_svcs)} ta",
+            f"- **Faol HTTP/HTTPS Servislar va Panellar:** {len(http_svcs)} ta",
             f"- **Topilgan API va Web Endpointlar:** {len(endpoints)} ta",
             f"- **Aniqlangan Zaifliklar va Tekshiruv Nuqtalari:** {len(findings)} ta",
             f"- **Zaifliklar Zanjiri (Bug Chains):** {len(chains)} ta",
             "",
+            "### 🌐 Topilgan Asosiy Subdomenlar va IP Serverlar",
+        ]
+        for d in domains[:35]:
+            md_lines.append(f"- `{d['domain']}` ➔ IP: `{d.get('ip') or 'N/A'}` (Manba: `{d.get('source')}`)")
+        md_lines.extend([
+            "",
             "---",
             "## 2. 🔗 Bug Chaining Scenarios (Zaifliklar Zanjiri)",
-        ]
+        ])
         if not chains:
             md_lines.append("_Zanjirlangan ssenariylar aniqlanmadi._")
         for ch in chains:

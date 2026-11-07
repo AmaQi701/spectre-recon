@@ -486,21 +486,30 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn):
 
 
 # ================= #5A & #6B AUTH PORTAL CLASSIFIER & MASS-ASSIGNMENT SCHEMA =================
+DEFAULT_STUB_TITLES = ("welcome to nginx", "domain default page", "apache2 ubuntu default page", "404 not found", "403 forbidden")
+
+
 def classify_auth_portals_and_schema(db, project_id: int, log_fn):
     bundle = db.get_project_bundle(project_id)
     for svc in bundle.get("http_services", []):
         u = svc["url"]
-        t = (svc.get("title") or "").lower()
-        if any(k in u.lower() or k in t for k in ("login", "log in", "signin", "sign in", "admin", "webmail", "vpn", "portal", "auth", "sso", "hosting")):
+        t = (svc.get("title") or "").strip()
+        t_low = t.lower()
+        if any(stub in t_low for stub in DEFAULT_STUB_TITLES):
+            continue
+        if any(k in t_low for k in ("log in", "login", "sign in", "signin", "admin", "hosting", "panel", "auth", "sso")) or (
+            any(k in u.lower() for k in ("login", "admin", "auth", "sso", ":8443")) and int(svc.get("status_code") or 0) == 200 and t
+        ):
             db.upsert_finding(
                 project_id, "SPECTRE-Agent1 (AuthPortal)", f"Authentication / Login Portal Identified ({u})",
                 "Entry Point / Auth Surface", "Low", 3.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
                 "CWE-287", "A07:2021 - Identification and Authentication Failures", u,
-                f"URL: {u} | Title: '{svc.get('title')}' | Server: {svc.get('server')}",
-                "Tashkilotning kirish / avtorizatsiya portali aniqlandi (2FA, Rate-limit va Default Creds tekshiruvi uchun asosiy nuqta).",
+                f"URL: {u} | Title: '{t}' | Server: {svc.get('server')}",
+                "Tashkilotning haqiqiy kirish / boshqaruv portali aniqlandi (2FA, Rate-limit va Default Creds tekshiruvi uchun asosiy nuqta).",
                 "Barcha kirish portallarida MFA/2FA, Rate-Limiting va CAPTCHA himoyasini yoqing.",
             )
-            log_fn(f"  [🚪 AUTH PORTAL] Kirish darvozasi tasniflandi: {u} ('{svc.get('title')}')")
+            log_fn(f"  [🚪 AUTH PORTAL] Kirish darvozasi tasniflandi: {u} ('{t}')")
+
 
     priv_keys = set()
     priv_patterns = ("role", "admin", "is_admin", "isadmin", "permission", "priv", "balance", "status", "verified", "org", "tenant", "group", "type", "level", "access")

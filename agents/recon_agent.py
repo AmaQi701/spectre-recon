@@ -728,12 +728,13 @@ class ReconSuperAgent:
 
 
     def _stage6_js_analyzer(self, project_id: int, js_urls: list[str], base_url: str, scope: ScopeGuard, log_fn):
-        # Template literal (${...}) va oddiy satrlardagi API yo'llarini tutuvchi chuqur regex
-        ep_regex = re.compile(r"""(?:/api/v\d+/|/api/|/v1/|/v2/|/v3/|/graphql|/auth/|/admin/|/internal/|/live/|/stream/|/news/|/channels/)[a-zA-Z0-9_\-/\.?=&${}:]*""")
+        # Faqat satr boshidan (' " ` yoki ${...}) boshlangan haqiqiy route'larni tutish (tashqi YouTube/Vimeo URL o'rtasini kesib olmaslik uchun!)
+        ep_regex = re.compile(r"""(?:['"`]|\$\{[^}]{1,35}\})((?:/api/v\d+/|/api/|/v1/|/v2/|/v3/|/graphql|/auth/|/admin/|/internal/|/live/|/stream/|/news/|/tv/|/radio/|/channels/)[a-zA-Z0-9_\-/\.?=&${}:]+)""")
         full_url_regex = re.compile(r"""['"`]((?:https?|wss?)://[a-zA-Z0-9.\-_]+(?::\d+)?(?:/[a-zA-Z0-9_\-/\.?=&%${}]*)?)['"`]""")
         param_regex = re.compile(r"""(?:params|body|query|data)\s*[:=]\s*\{([^}]{1,250})\}|[?&]([a-zA-Z_][a-zA-Z0-9_]{1,25})=""")
         sink_regex = re.compile(r"""(innerHTML|outerHTML|document\.write|eval\s*\(|setTimeout\s*\(\s*['"]|postMessage\s*\(|dangerouslySetInnerHTML)""")
         secret_regex = re.compile(r"""(?i)((?:api[_-]?key|access[_-]?token|secret[_-]?key|base_?url|vite_[a-z0-9_]+|authorization)\s*[:=]\s*['"][^'"]{4,100}['"]|bearer\s+[a-zA-Z0-9_\-\.]{12,})""")
+
 
         clean_js_urls = []
         for u in js_urls:
@@ -769,18 +770,21 @@ class ReconSuperAgent:
                 raw_eps = ep_regex.findall(content)
                 eps = set()
                 for ep in raw_eps:
-                    cleaned_ep = re.sub(r"\$\{[^}]+\}", "{param}", ep).rstrip(".,;)'\"`")
-                    if len(cleaned_ep) > 4:
+                    cleaned_ep = re.sub(r"\$\{[^}]*\}?", "{param}", ep).rstrip(".,;)'\"`${")
+                    if len(cleaned_ep) > 4 and not any(cleaned_ep.endswith(ext) for ext in (".webp", ".png", ".jpg", ".svg", ".css", "/api/player.js")):
                         eps.add(cleaned_ep)
 
                 full_urls = set(full_url_regex.findall(content))
                 for fu in full_urls:
-                    fu_clean = re.sub(r"\$\{[^}]+\}", "{param}", fu)
+                    fu_clean = re.sub(r"\$\{[^}]*\}?", "{param}", fu).rstrip(".,;)'\"`${")
+                    if any(fu_clean.lower().endswith(ext) for ext in (".webp", ".png", ".jpg", ".svg", ".css", ".ico")):
+                        continue
                     ok, _ = scope.is_in_scope(fu_clean)
                     if ok:
                         host = ScopeGuard.extract_host(fu_clean)
                         self.db.upsert_domain(project_id, host, source="js_bundle")
                         eps.add(fu_clean)
+
 
                 extracted_params = set()
                 for m in param_regex.finditer(content):

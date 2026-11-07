@@ -51,6 +51,8 @@ class ScopeGuard:
             host = target.split("/")[0].split(":")[0]
         return host.strip(".")
 
+    SECOND_LEVEL_TLDS = {"co.uk", "org.uk", "ac.uk", "com.uz", "org.uz", "gov.uz", "edu.uz", "net.uz", "com.tr", "com.ru"}
+
     @classmethod
     def extract_apex_domain(cls, target: str) -> str:
         host = cls.extract_host(target)
@@ -59,9 +61,14 @@ class ScopeGuard:
             return host
         except ValueError:
             pass
-        if host.startswith("www.") and host.count(".") >= 2:
-            return host[4:]
+        parts = host.split(".")
+        if len(parts) >= 3:
+            last_two = f"{parts[-2]}.{parts[-1]}"
+            if last_two in cls.SECOND_LEVEL_TLDS and len(parts) >= 3:
+                return ".".join(parts[-3:])
+            return ".".join(parts[-2:])
         return host
+
 
     def _matches_rule(self, host: str, rule: str) -> bool:
         rule_host = self.extract_host(rule)
