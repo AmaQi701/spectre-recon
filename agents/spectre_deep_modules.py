@@ -398,4 +398,97 @@ def build_target_dossier(db, project_id: int, selected_domain: str = "") -> str:
     return "\n".join(lines)
 
 
+# ================= #3 API VERSION SHADOW TWINS & WAYBACK GHOST PROBER =================
+def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn):
+    bundle = db.get_project_bundle(project_id)
+    endpoints = bundle.get("endpoints", [])
+
+    versioned_eps = [e["url"] for e in endpoints if re.search(r"/v[1-3]/", e["url"])][:10]
+    shadow_candidates = []
+    for u in versioned_eps:
+        for repl in ("/v0/", "/v1/", "/v2/", "/v3/", "/internal/", "/admin/"):
+            mut_u = re.sub(r"/v[1-3]/", repl, u, count=1).replace("{param}", "1")
+            if mut_u != u and mut_u not in shadow_candidates:
+                shadow_candidates.append((mut_u, u))
+
+    wayback_eps = [e["url"] for e in endpoints if e.get("source") == "wayback" and not e["url"].endswith(".js")][:15]
+    if not shadow_candidates and not wayback_eps:
+        return
+    log_fn(f"[SPECTRE API Shadow & Ghost Prober] {len(shadow_candidates)} ta API versiya egizaklari va {len(wayback_eps)} ta tarixiy URL tekshirilmoqda...")
+
+    def check_shadow(item):
+        mut_url, orig_url = item
+        try:
+            r = requests.get(mut_url, headers={"User-Agent": "SPECTRE-Recon/4.0"}, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True)
+            chunk = next(r.iter_content(chunk_size=8192), b"").decode("utf-8", errors="ignore")
+            r.close()
+            if r.status_code in (200, 401, 403, 405) and "text/html" not in r.headers.get("Content-Type", "").lower():
+                db.upsert_endpoint(project_id, mut_url, method="GET", category="api_endpoint", risk_tags=["API_Shadow_Twin"], status_code=r.status_code, source="shadow_twin")
+                db.upsert_finding(
+                    project_id, "SPECTRE-Agent1 (ShadowAPI)", f"Active Shadow / Alternate API Version ({mut_url})",
+                    "API Version Exposure", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+                    "CWE-200", "A09:2021 - Security Logging and Monitoring Failures", mut_url,
+                    f"HTTP {r.status_code} on alternate version of {orig_url} | Sample: {chunk[:100]}",
+                    "API endpointning boshqa versiyasi (v0/v2/v3/internal) serverda faol holatda javob qaytarmoqda.",
+                    "Eskirgan yoki test API versiyalarini production gateway darajasida o'chiring.",
+                )
+                log_fn(f"  [🧬 SHADOW API] {mut_url} -> HTTP {r.status_code}")
+        except Exception:
+            pass
+
+    def check_ghost(wb_url: str):
+        try:
+            r = requests.get(wb_url, headers={"User-Agent": "SPECTRE-Recon/4.0"}, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True)
+            r.close()
+            if r.status_code in (200, 401, 403, 405):
+                db.upsert_endpoint(project_id, wb_url, method="GET", category="high_value_endpoint", risk_tags=["Zombie_Ghost_Endpoint"], status_code=r.status_code, source="wayback_verified")
+                log_fn(f"  [👻 GHOST ENDPOINT] Tarixiy URL hali ham tirik ({r.status_code}): {wb_url}")
+        except Exception:
+            pass
+
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+    futs = [ex.submit(check_shadow, sc) for sc in shadow_candidates] + [ex.submit(check_ghost, wu) for wu in wayback_eps]
+    concurrent.futures.wait(futs, timeout=7.0)
+    ex.shutdown(wait=False, cancel_futures=True)
+
+
+# ================= #5A & #6B AUTH PORTAL CLASSIFIER & MASS-ASSIGNMENT SCHEMA =================
+def classify_auth_portals_and_schema(db, project_id: int, log_fn):
+    bundle = db.get_project_bundle(project_id)
+    for svc in bundle.get("http_services", []):
+        u = svc["url"]
+        t = (svc.get("title") or "").lower()
+        if any(k in u.lower() or k in t for k in ("login", "log in", "signin", "sign in", "admin", "webmail", "vpn", "portal", "auth", "sso", "hosting")):
+            db.upsert_finding(
+                project_id, "SPECTRE-Agent1 (AuthPortal)", f"Authentication / Login Portal Identified ({u})",
+                "Entry Point / Auth Surface", "Low", 3.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                "CWE-287", "A07:2021 - Identification and Authentication Failures", u,
+                f"URL: {u} | Title: '{svc.get('title')}' | Server: {svc.get('server')}",
+                "Tashkilotning kirish / avtorizatsiya portali aniqlandi (2FA, Rate-limit va Default Creds tekshiruvi uchun asosiy nuqta).",
+                "Barcha kirish portallarida MFA/2FA, Rate-Limiting va CAPTCHA himoyasini yoqing.",
+            )
+            log_fn(f"  [🚪 AUTH PORTAL] Kirish darvozasi tasniflandi: {u} ('{svc.get('title')}')")
+
+    priv_keys = set()
+    priv_patterns = ("role", "admin", "is_admin", "isadmin", "permission", "priv", "balance", "status", "verified", "org", "tenant", "group", "type", "level", "access")
+    for js in bundle.get("js_assets", []):
+        for p in json.loads(js.get("params_json") or "[]"):
+            if any(pk in p.lower() for pk in priv_patterns):
+                priv_keys.add(p)
+    if priv_keys:
+        sorted_pk = sorted(priv_keys)
+        db.upsert_finding(
+            project_id, "SPECTRE-Agent1 (SchemaMiner)", f"Reconstructed Privileged / Mass-Assignment Parameters ({len(sorted_pk)} keys)",
+            "Mass Assignment / Data Schema (Manual Guide)", "Medium", 6.3, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
+            "CWE-915", "A04:2021 - Insecure Design", bundle.get("project", {}).get("primary_target", ""),
+            f"Candidate Mass-Assignment JSON Keys: {', '.join(sorted_pk[:20])}",
+            "JS bundle fayllaridan foydalanuvchi huquqi, holati yoki tashkilotga oid JSON parametr nomlari tiklandi.",
+            "POST/PUT/PATCH so'rovlarida DTO / White-list schema validatsiyasini qo'llang.",
+            confidence="Manual-Review",
+        )
+        log_fn(f"  [🧩 SCHEMA MINER] Mass-Assignment uchun {len(sorted_pk)} ta imtiyozli parametr tiklandi: {', '.join(sorted_pk[:10])}")
+
+
+
+
 

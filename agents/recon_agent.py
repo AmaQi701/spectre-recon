@@ -937,6 +937,8 @@ class ReconSuperAgent:
                         break
 
         spectre_deep_modules.hunt_cloud_and_storage_buckets(self.db, self.session, project_id, apex_domain, log_fn)
+        spectre_deep_modules.probe_api_versions_and_ghost_endpoints(self.db, project_id, log_fn)
+        spectre_deep_modules.classify_auth_portals_and_schema(self.db, project_id, log_fn)
         spectre_deep_modules.analyze_badsecrets_and_cookies(self.db, project_id, apex_domain, log_fn)
         spectre_deep_modules.harvest_emails_and_osint(self.db, project_id, apex_domain, collected_html, log_fn)
         spectre_deep_modules.build_custom_wordlist_and_params(self.db, project_id, apex_domain, log_fn)

@@ -120,8 +120,14 @@ class ApexNativeWindow(Gtk.Window):
 
         self.auth_entry = Gtk.Entry()
         self.auth_entry.set_placeholder_text("Grey-box Auth (Cookie: ... / Authorization: Bearer ...)")
-        self.auth_entry.set_width_chars(32)
+        self.auth_entry.set_width_chars(26)
         hb.pack_start(self.auth_entry)
+
+        self.search_entry = Gtk.SearchEntry()
+        self.search_entry.set_placeholder_text("🔎 Filter (subdomen, port, api, cve...)")
+        self.search_entry.set_width_chars(22)
+        self.search_entry.connect("search-changed", lambda _: self.load_bundle())
+        hb.pack_start(self.search_entry)
 
         hb.pack_end(self._make_btn("🛑 STOP", "btn-red", lambda _: self.on_abort()))
         hb.pack_end(self._make_btn("🚀 FULL AUTO", "btn-purple", lambda _: self.on_run_agent("all")))
@@ -351,12 +357,16 @@ class ApexNativeWindow(Gtk.Window):
         self.lbl_stat_ep.set_text(f"Endpointlar: {len(eps)} | JS: {len(js_list)}")
         self.lbl_stat_find.set_text(f"Topilmalar: {len(finds)} | Zanjirlar: {len(chains)}")
 
+        q = (self.search_entry.get_text() or "").strip().lower() if hasattr(self, "search_entry") else ""
+
         self.store_http.clear()
         for s in https:
             tech = ", ".join(json.loads(s.get("tech_stack") or "[]"))
             sec = json.loads(s.get("security_headers_json") or "{}")
             miss = ", ".join([k for k, v in sec.items() if not v])
-            self.store_http.append([s["url"], str(s["status_code"]), s["title"], f"{s['server']} ({tech})", s["waf"] or "-", miss or "OK"])
+            row_h = [s["url"], str(s["status_code"]), s["title"], f"{s['server']} ({tech})", s["waf"] or "-", miss or "OK"]
+            if not q or any(q in str(x).lower() for x in row_h):
+                self.store_http.append(row_h)
 
         ports_map = {}
         for pt in ports:
@@ -364,24 +374,33 @@ class ApexNativeWindow(Gtk.Window):
         self.store_dom.clear()
         for d in doms:
             p_str = ", ".join(ports_map.get(d["domain"], []))
-            self.store_dom.append([d["domain"], d["ip"] or "-", d["cname"] or "-", d["source"], p_str or "-"])
+            row_d = [d["domain"], d["ip"] or "-", d["cname"] or "-", d["source"], p_str or "-"]
+            if not q or any(q in str(x).lower() for x in row_d):
+                self.store_dom.append(row_d)
 
         self.store_ep.clear()
         for e in eps:
             prm = ", ".join(json.loads(e.get("params_json") or "[]"))
             rsk = ", ".join(json.loads(e.get("risk_tags_json") or "[]"))
-            self.store_ep.append([e["method"], e["url"], prm or "-", f"{e['category']} ({e['source']})", rsk or "-"])
+            row_e = [e["method"], e["url"], prm or "-", f"{e['category']} ({e['source']})", rsk or "-"]
+            if not q or any(q in str(x).lower() for x in row_e):
+                self.store_ep.append(row_e)
 
         self.store_js.clear()
         for j in js_list:
             jeps = ", ".join(json.loads(j.get("endpoints_json") or "[]")[:10])
             jprm = ", ".join(json.loads(j.get("params_json") or "[]")[:12])
             jsnk = ", ".join(json.loads(j.get("sinks_json") or "[]") + json.loads(j.get("secrets_hints_json") or "[]"))
-            self.store_js.append([j["js_url"].split("/")[-1], jeps or "-", jprm or "-", jsnk or "-"])
+            row_j = [j["js_url"].split("/")[-1], jeps or "-", jprm or "-", jsnk or "-"]
+            if not q or any(q in str(x).lower() for x in row_j):
+                self.store_js.append(row_j)
 
         self.store_find.clear()
         for f in finds:
-            self.store_find.append([f["id"], f["severity"], str(f["cvss_score"]), f["title"], f"{f['cwe']} | {f['owasp']}", f["asset"], f["evidence"], f["remediation"], f["triage_status"]])
+            row_f = [f["id"], f["severity"], str(f["cvss_score"]), f["title"], f"{f['cwe']} | {f['owasp']}", f["asset"], f["evidence"], f["remediation"], f["triage_status"]]
+            if not q or any(q in str(x).lower() for x in row_f):
+                self.store_find.append(row_f)
+
 
         self.store_chain.clear()
         for c in chains:
