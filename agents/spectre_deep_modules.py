@@ -8,9 +8,13 @@ import time
 import urllib.parse
 import warnings
 from pathlib import Path
+import requests
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+urllib3_disable = getattr(requests.packages, "urllib3", None)
+if urllib3_disable:
+    urllib3_disable.disable_warnings()
 
 
 # ================= #7 FAVICON MURMURHASH3 (SHODAN COMPATIBLE) =================
@@ -198,8 +202,10 @@ def hunt_virtual_hosts(db, session, project_id: int, apex_domain: str, log_fn):
             except Exception:
                 pass
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
-            list(ex.map(check_vhost, VHOST_PREFIXES))
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+        futs = [ex.submit(check_vhost, p) for p in VHOST_PREFIXES]
+        concurrent.futures.wait(futs, timeout=6.0)
+        ex.shutdown(wait=False, cancel_futures=True)
 
 
 # ================= #4 CLOUD STORAGE, UPLOAD & OPEN DIRECTORY HUNTER =================
@@ -219,8 +225,10 @@ def hunt_cloud_and_storage_buckets(db, session, project_id: int, apex_domain: st
         shost, path = item
         url = f"https://{shost}{path}"
         try:
-            r = session.get(url, timeout=3.5, verify=False)
-            if r.status_code == 200 and any(sig in r.text for sig in ("Index of /", "<ListBucketResult", "Directory listing for", "<EnumerationResults")):
+            r = requests.get(url, headers={"User-Agent": "SPECTRE-Recon/4.0"}, timeout=(2.5, 3.0), verify=False, stream=True)
+            chunk = next(r.iter_content(chunk_size=16384), b"").decode("utf-8", errors="ignore")
+            r.close()
+            if r.status_code == 200 and any(sig in chunk for sig in ("Index of /", "<ListBucketResult", "Directory listing for", "<EnumerationResults")):
                 db.upsert_finding(
                     project_id, "SPECTRE-Agent1 (StorageHunter)", f"Open Directory / Bucket Listing ({url})",
                     "Storage / Bucket Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
@@ -233,8 +241,11 @@ def hunt_cloud_and_storage_buckets(db, session, project_id: int, apex_domain: st
         except Exception:
             pass
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
-        list(ex.map(check_storage, tasks))
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+    futs = [ex.submit(check_storage, t) for t in tasks]
+    concurrent.futures.wait(futs, timeout=7.0)
+    ex.shutdown(wait=False, cancel_futures=True)
+
 
 
 
