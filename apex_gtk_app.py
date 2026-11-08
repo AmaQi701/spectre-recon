@@ -68,8 +68,9 @@ textview, textview text { background-color: #070a12; color: #cbd5e1; font-family
 
 class ApexNativeWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="SPECTRE Recon & Attack Surface Studio v3.0 (Native Ubuntu Desktop)")
-        self.set_default_size(1460, 900)
+        super().__init__(title="SPECTRE Recon & Attack Surface Studio v6.0 (Native Ubuntu Desktop)")
+        self.set_default_size(1280, 760)
+        self.maximize()
         self.set_wmclass("spectre-recon", "SPECTRE Recon Studio")
         icon_path = BASE_DIR / "ui" / "apex-icon.svg"
         if icon_path.exists():
@@ -114,24 +115,35 @@ class ApexNativeWindow(Gtk.Window):
         tree = Gtk.TreeView(model=store)
         tree.set_grid_lines(Gtk.TreeViewGridLines.HORIZONTAL)
         tree.set_headers_visible(True)
+        narrow_cols = {"ID", "Status", "CVSS", "WAF", "Method", "Manba", "CNAME", "Faol (Enabled)", "O'rnatilganligi"}
+        wide_cols = {"URL", "Endpoint URL", "Subdomen / Host", "Zaiflik Nomi", "Nishon (Asset)", "Ajratilgan API Route / URL'lar"}
         for idx, (col_title, col_type) in enumerate(columns):
             renderer = Gtk.CellRendererText()
-            renderer.set_padding(10, 7)
+            renderer.set_padding(8, 6)
             renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
             if use_markup and col_type == str:
                 col = Gtk.TreeViewColumn(col_title, renderer, markup=idx)
             else:
                 col = Gtk.TreeViewColumn(col_title, renderer, text=idx)
             col.set_resizable(True)
-            col.set_min_width(80 if col_type == int else 110)
-            col.set_expand(col_type == str)
+            if col_title in narrow_cols or col_type == int:
+                col.set_min_width(55)
+                col.set_expand(False)
+            elif col_title in wide_cols:
+                col.set_min_width(170)
+                col.set_expand(True)
+            else:
+                col.set_min_width(90)
+                col.set_expand(True)
             tree.append_column(col)
         scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scroll.set_vexpand(True)
         scroll.set_hexpand(True)
         scroll.get_style_context().add_class("panel-box")
         scroll.add(tree)
         return scroll, store, tree
+
 
     def _switch_page(self, page_name: str, clicked_btn: Gtk.Button):
         self.stack.set_visible_child_name(page_name)
@@ -154,14 +166,15 @@ class ApexNativeWindow(Gtk.Window):
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self.add(outer_hbox)
 
-        # Left Modern Sidebar (Obsidian / Caido style)
-        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        # Left Modern Sidebar (compact 200px width so it always fits 1920x1080)
+        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         sidebar.get_style_context().add_class("sidebar")
-        sidebar.set_size_request(235, -1)
+        sidebar.set_size_request(205, -1)
         brand_lbl = Gtk.Label(xalign=0)
-        brand_lbl.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>👻 SPECTRE v4.1</span>\n<span foreground='#64748b' size='small'>Cyber-Recon &amp; ASM Studio</span>")
-        brand_lbl.set_margin_bottom(10)
+        brand_lbl.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>👻 SPECTRE v6.0</span>\n<span foreground='#64748b' size='small'>Cyber-Recon &amp; ASM Studio</span>")
+        brand_lbl.set_margin_bottom(8)
         sidebar.pack_start(brand_lbl, False, False, 4)
+
 
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
@@ -192,8 +205,8 @@ class ApexNativeWindow(Gtk.Window):
         root_vbox.set_margin_start(12); root_vbox.set_margin_end(12)
         outer_hbox.pack_start(root_vbox, True, True, 0)
 
-        # Top Command & Filter Toolbar
-        cmd_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        # Top Command & Filter Toolbar (Row 1: Project, Filter, Mode & Agent Buttons)
+        cmd_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         cmd_bar.get_style_context().add_class("toolbar-bar")
         cmd_bar.pack_start(self._make_btn("➕ Yangi Target", "btn-green", lambda _: self._switch_page("p_scope", self.nav_buttons[0])), False, False, 0)
         self.proj_combo = Gtk.ComboBoxText()
@@ -201,28 +214,17 @@ class ApexNativeWindow(Gtk.Window):
         cmd_bar.pack_start(self.proj_combo, False, False, 0)
         cmd_bar.pack_start(self._make_btn("🗑️", "btn-red", self.on_delete_project), False, False, 0)
 
-
-        self.auth_entry = Gtk.Entry()
-        self.auth_entry.set_placeholder_text("🔑 Auth (Cookie: ... / Authorization: Bearer ...)")
-        self.auth_entry.set_hexpand(True)
-        cmd_bar.pack_start(self.auth_entry, True, True, 0)
-
-        self.proxy_entry = Gtk.Entry()
-        self.proxy_entry.set_placeholder_text("🌐 Proxy (http://127.0.0.1:8080)")
-        self.proxy_entry.set_width_chars(21)
-        cmd_bar.pack_start(self.proxy_entry, False, False, 0)
-
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text("🔎 Filter (subdomen, port, api, cve...)")
-        self.search_entry.set_width_chars(18)
+        self.search_entry.set_hexpand(True)
         self.search_entry.connect("search-changed", lambda _: self.load_bundle())
-        cmd_bar.pack_start(self.search_entry, False, False, 0)
+        cmd_bar.pack_start(self.search_entry, True, True, 0)
 
         self.mode_combo = Gtk.ComboBoxText()
         self.mode_combo.append("full", "🛰️ Full Recon")
-        self.mode_combo.append("subdomains", "🌐 Only Subdomains")
-        self.mode_combo.append("ports", "🔌 Only Ports/Shodan")
-        self.mode_combo.append("web_js", "📦 Only Web/API/JS")
+        self.mode_combo.append("subdomains", "🌐 Subdomains")
+        self.mode_combo.append("ports", "🔌 Ports/Shodan")
+        self.mode_combo.append("web_js", "📦 Web/API/JS")
         self.mode_combo.set_active_id("full")
         cmd_bar.pack_start(self.mode_combo, False, False, 0)
 
@@ -233,12 +235,27 @@ class ApexNativeWindow(Gtk.Window):
         cmd_bar.pack_end(self._make_btn("🛰️ 1-Agent", "act-btn", lambda _: self.on_run_agent("recon")), False, False, 0)
         root_vbox.pack_start(cmd_bar, False, False, 0)
 
-        # Live Stage Progress Bar
+        # Row 2: Auth, Proxy & Live Stage Progress Bar
+        sub_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.auth_entry = Gtk.Entry()
+        self.auth_entry.set_placeholder_text("🔑 Grey-box Auth (Cookie: ... / Authorization: Bearer ...)")
+        self.auth_entry.set_width_chars(28)
+        sub_bar.pack_start(self.auth_entry, False, False, 0)
+
+        self.proxy_entry = Gtk.Entry()
+        self.proxy_entry.set_placeholder_text("🌐 Proxy (http://127.0.0.1:8080)")
+        self.proxy_entry.set_width_chars(22)
+        sub_bar.pack_start(self.proxy_entry, False, False, 0)
+
         self.progress_bar = Gtk.ProgressBar()
         self.progress_bar.set_show_text(True)
         self.progress_bar.set_text("SPECTRE v6.0 Ready — Nishonni tanlang yoki skanerni boshlang")
         self.progress_bar.set_fraction(0.0)
-        root_vbox.pack_start(self.progress_bar, False, False, 0)
+        self.progress_bar.set_hexpand(True)
+        self.progress_bar.set_valign(Gtk.Align.CENTER)
+        sub_bar.pack_start(self.progress_bar, True, True, 0)
+        root_vbox.pack_start(sub_bar, False, False, 0)
+
 
 
         # Stats Row
