@@ -24,11 +24,13 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
 
     base_title = ""
     base_body = ""
+    base_len = 0
     base_fav_crc = None
     for scheme in ("https", "http"):
         try:
             r = session.get(f"{scheme}://{primary_host}", timeout=6, verify=False)
-            if r.status_code < 500 and len(r.text) > 100:
+            if r.status_code < 500 and len(r.content) > 100:
+                base_len = len(r.content)
                 m_t = re.search(r"<title[^>]*>(.*?)</title>", r.text, re.I | re.S)
                 base_title = m_t.group(1).strip() if m_t else ""
                 base_body = re.sub(r"\s+", " ", r.text[:25000])
@@ -80,13 +82,16 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
                 cand_title = m_t.group(1).strip() if m_t else ""
                 sim_ratio = difflib.SequenceMatcher(None, base_body[:8000], body_clean[:8000]).ratio() if base_body else 0.0
                 title_match = bool(base_title and len(base_title) >= 4 and cand_title == base_title)
+                len_match = bool(base_len > 500 and r.status_code == 200 and abs(len(r.content) - base_len) / float(base_len) < 0.15)
 
-                if title_match or sim_ratio >= 0.72:
+                if title_match or sim_ratio >= 0.68 or len_match:
                     reasons = []
                     if title_match:
                         reasons.append(f"Exact Title Match ('{cand_title[:45]}')")
-                    if sim_ratio >= 0.72:
+                    if sim_ratio >= 0.68:
                         reasons.append(f"HTML Similarity {int(sim_ratio * 100)}%")
+                    if len_match:
+                        reasons.append(f"Content-Length Match ({len(r.content)}B vs {base_len}B)")
                     log_fn(f"  [🎯 ORIGIN IP UNMASKED] {ip_addr} -> {primary_host} ({', '.join(reasons)})")
                     db.upsert_finding(
                         project_id, "SPECTRE-Agent1 (Origin Unmasker)", f"Direct Origin Server IP Confirmed: {ip_addr} ({primary_host})",
