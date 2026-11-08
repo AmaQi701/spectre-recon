@@ -13,33 +13,63 @@ import dns.reversename
 import requests
 
 
-# ================= #1 CLOUDFLARE / WAF ORIGIN IP UNMASKER =================
+# ================= #1 CLOUDFLARE / WAF ORIGIN IP UNMASKER (TRUE TLS SNI + HOST INJECTION) =================
+def _raw_sni_https_get(ip_addr: str, host_name: str, path: str = "/", timeout: float = 4.0) -> tuple[int, bytes, list[str]]:
+    sans = []
+    try:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with socket.create_connection((ip_addr, 443), timeout=timeout) as sock:
+            with ctx.wrap_socket(sock, server_hostname=host_name) as ssock:
+                req = (
+                    f"GET {path} HTTP/1.1\r\n"
+                    f"Host: {host_name}\r\n"
+                    f"User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64)\r\n"
+                    f"Accept: */*\r\n"
+                    f"Connection: close\r\n\r\n"
+                ).encode("utf-8")
+                ssock.sendall(req)
+                chunks = []
+                total = 0
+                while total < 65536:
+                    data = ssock.recv(8192)
+                    if not data:
+                        break
+                    chunks.append(data)
+                    total += len(data)
+                raw_resp = b"".join(chunks)
+                if b"\r\n\r\n" in raw_resp:
+                    hdr_b, body_b = raw_resp.split(b"\r\n\r\n", 1)
+                    first_line = hdr_b.splitlines()[0].decode("latin-1", errors="ignore")
+                    parts = first_line.split()
+                    code = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+                    return code, body_b, sans
+    except Exception:
+        pass
+    return 0, b"", sans
+
+
 def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int, apex_domain: str, primary_host: str, log_fn):
     bundle = db.get_project_bundle(project_id)
     domains = bundle.get("domains", [])
     if not domains:
         return
 
-    log_fn(f"[SPECTRE Ultra #1 -> Origin IP Unmasker] {primary_host} uchun WAF/Cloudflare ortidagi haqiqiy (Origin) IP qidirilmoqda...")
+    log_fn(f"[SPECTRE Ultra #1 -> Origin IP Unmasker] {primary_host} uchun True TLS SNI + Host Injection orqali Origin IP tekshirilmoqda...")
 
     base_title = ""
     base_body = ""
     base_len = 0
-    base_fav_crc = None
     for scheme in ("https", "http"):
         try:
             r = session.get(f"{scheme}://{primary_host}", timeout=6, verify=False)
             if r.status_code < 500 and len(r.content) > 100:
                 base_len = len(r.content)
-                m_t = re.search(r"<title[^>]*>(.*?)</title>", r.text, re.I | re.S)
+                txt_dec = r.content.decode("utf-8", errors="ignore")
+                m_t = re.search(r"<title[^>]*>(.*?)</title>", txt_dec, re.I | re.S)
                 base_title = m_t.group(1).strip() if m_t else ""
-                base_body = re.sub(r"\s+", " ", r.text[:25000])
-                try:
-                    rf = session.get(f"{scheme}://{primary_host}/favicon.ico", timeout=4, verify=False)
-                    if rf.status_code == 200 and len(rf.content) > 64 and "text/html" not in rf.headers.get("Content-Type", ""):
-                        base_fav_crc = zlib.crc32(rf.content)
-                except Exception:
-                    pass
+                base_body = re.sub(r"\s+", " ", txt_dec[:25000])
                 break
         except Exception:
             pass
@@ -55,65 +85,61 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
         for txt_val in recs.get("TXT", []):
             for m_ip in re.findall(r"ip4:(\d+\.\d+\.\d+\.\d+)", str(txt_val)):
                 candidate_ips.add(m_ip)
-        for mx_val in recs.get("MX", []):
-            mx_host = str(mx_val).split()[-1].rstrip(".")
-            try:
-                ans = dns.resolver.resolve(mx_host, "A", lifetime=2.5)
-                for rdata in ans:
-                    candidate_ips.add(rdata.to_text())
-            except Exception:
-                pass
 
     if not candidate_ips:
         return
 
     def check_candidate_ip(ip_addr: str):
-        for scheme in ("https", "http"):
+        code, body_b, _ = _raw_sni_https_get(ip_addr, primary_host, "/")
+        scheme_used = "https"
+        if code not in (200, 301, 302) or len(body_b) < 200:
             try:
                 r = session.get(
-                    f"{scheme}://{ip_addr}/",
-                    headers={"Host": primary_host, "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64)"},
-                    timeout=4.5,
-                    verify=False,
+                    f"http://{ip_addr}/",
+                    headers={"Host": primary_host, "User-Agent": "Mozilla/5.0"},
+                    timeout=4.0,
                     allow_redirects=False,
                 )
-                body_clean = re.sub(r"\s+", " ", r.text[:25000])
-                m_t = re.search(r"<title[^>]*>(.*?)</title>", r.text, re.I | re.S)
-                cand_title = m_t.group(1).strip() if m_t else ""
-                sim_ratio = difflib.SequenceMatcher(None, base_body[:8000], body_clean[:8000]).ratio() if base_body else 0.0
-                title_match = bool(base_title and len(base_title) >= 4 and cand_title == base_title)
-                len_match = bool(base_len > 500 and r.status_code == 200 and abs(len(r.content) - base_len) / float(base_len) < 0.15)
-
-                if title_match or sim_ratio >= 0.68 or len_match:
-                    reasons = []
-                    if title_match:
-                        reasons.append(f"Exact Title Match ('{cand_title[:45]}')")
-                    if sim_ratio >= 0.68:
-                        reasons.append(f"HTML Similarity {int(sim_ratio * 100)}%")
-                    if len_match:
-                        reasons.append(f"Content-Length Match ({len(r.content)}B vs {base_len}B)")
-                    log_fn(f"  [🎯 ORIGIN IP UNMASKED] {ip_addr} -> {primary_host} ({', '.join(reasons)})")
-                    db.upsert_finding(
-                        project_id, "SPECTRE-Agent1 (Origin Unmasker)", f"Direct Origin Server IP Confirmed: {ip_addr} ({primary_host})",
-                        "Origin IP Exposure / WAF Bypass Vector", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
-                        "CWE-200", "A05:2021 - Security Misconfiguration", f"{scheme}://{ip_addr} (Host: {primary_host})",
-                        f"Origin Proof: {', '.join(reasons)} | HTTP {r.status_code} ({len(r.content)}B)\nPoC: curl -k -i -H 'Host: {primary_host}' {scheme}://{ip_addr}/",
-                        f"Asosiy domen ({primary_host}) ga xizmat ko'rsatuvchi to'g'ridan-to'g'ri server IP manzili ({ip_addr}) aniqlandi.",
-                        "Serverda faqat CDN/WAF IP diapazonlaridan keluvchi 80/443 trafikni qabul qilishni sozlang.",
-                    )
-                    break
+                code = r.status_code
+                body_b = r.content
+                scheme_used = "http"
             except Exception:
-                pass
+                return
+
+        txt_dec = body_b.decode("utf-8", errors="ignore")
+        body_clean = re.sub(r"\s+", " ", txt_dec[:25000])
+        m_t = re.search(r"<title[^>]*>(.*?)</title>", txt_dec, re.I | re.S)
+        cand_title = m_t.group(1).strip() if m_t else ""
+        sim_ratio = difflib.SequenceMatcher(None, base_body[:8000], body_clean[:8000]).ratio() if base_body else 0.0
+        title_match = bool(base_title and len(base_title) >= 4 and cand_title == base_title)
+        len_match = bool(base_len > 500 and code == 200 and abs(len(body_b) - base_len) / float(base_len) < 0.20)
+
+        if title_match or sim_ratio >= 0.65 or len_match:
+            reasons = []
+            if title_match:
+                reasons.append(f"Exact Title Match ('{cand_title[:40]}')")
+            if sim_ratio >= 0.65:
+                reasons.append(f"HTML Similarity {int(sim_ratio * 100)}%")
+            if len_match:
+                reasons.append(f"Content-Length Match ({len(body_b)}B)")
+            log_fn(f"  [🎯 ORIGIN IP UNMASKED] {ip_addr} -> {primary_host} ({', '.join(reasons)})")
+            db.upsert_finding(
+                project_id, "SPECTRE-Agent1 (Origin Unmasker)", f"Direct Origin Server IP Confirmed: {ip_addr} ({primary_host})",
+                "Origin IP Exposure / WAF Bypass Vector", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                "CWE-200", "A05:2021 - Security Misconfiguration", f"{scheme_used}://{ip_addr} (Host: {primary_host})",
+                f"Origin Proof: {', '.join(reasons)} | HTTP {code} ({len(body_b)}B)\nPoC: curl -k -i --resolve {primary_host}:443:{ip_addr} https://{primary_host}/",
+                f"Asosiy domen ({primary_host}) ga xizmat ko'rsatuvchi to'g'ridan-to'g'ri Origin server IP manzili ({ip_addr}) tasdiqlandi.",
+                "Serverda faqat ruxsat etilgan WAF/Proxy IP manzillaridan keluvchi trafikni qabul qilishni sozlang.",
+            )
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
-        list(ex.map(check_candidate_ip, list(candidate_ips)[:25]))
+        list(ex.map(check_candidate_ip, sorted(candidate_ips)[:25]))
 
 
-# ================= #2 /24 SUBNET NEIGHBOR PTR & TLS SAN SWEEPER =================
+# ================= #2 FULL /24 SUBNET NEIGHBOR PTR & INFRASTRUCTURE SWEEPER =================
 def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope, log_fn):
     bundle = db.get_project_bundle(project_id)
     domains = bundle.get("domains", [])
-    known_ips = {d.get("ip", "") for d in domains if d.get("ip")}
     non_cdn_ips = [
         d.get("ip")
         for d in domains
@@ -122,36 +148,42 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
     if not non_cdn_ips:
         return
 
-    neighbor_candidates = set()
-    for ip in sorted(set(non_cdn_ips))[:5]:
-        parts = ip.split(".")
-        if len(parts) == 4 and parts[3].isdigit():
-            prefix = ".".join(parts[:3])
-            last_oct = int(parts[3])
-            for delta in range(-8, 9):
-                cand_oct = last_oct + delta
-                if 1 <= cand_oct <= 254:
-                    neighbor_candidates.add(f"{prefix}.{cand_oct}")
-
+    subnets = sorted({".".join(ip.split(".")[:3]) for ip in non_cdn_ips if len(ip.split(".")) == 4})[:2]
+    neighbor_candidates = [f"{pref}.{oct_i}" for pref in subnets for oct_i in range(1, 255)]
     if not neighbor_candidates:
         return
 
-    log_fn(f"[SPECTRE Ultra #2 -> /24 Subnet Neighbor Sweeper] {len(neighbor_candidates)} ta qo'shni IP manzilda PTR (Reverse-DNS) tekshirilmoqda...")
+    log_fn(f"[SPECTRE Ultra #2 -> Full /24 Subnet PTR Sweeper] {len(subnets)} ta /24 tarmoq ({len(neighbor_candidates)} ta IP) da Reverse-DNS (PTR) tekshirilmoqda...")
+    ptr_map = {}
 
     def check_neighbor(n_ip: str):
         try:
             rev_name = dns.reversename.from_address(n_ip)
-            ans = dns.resolver.resolve(rev_name, "PTR", lifetime=2.0)
+            ans = dns.resolver.resolve(rev_name, "PTR", lifetime=1.8)
             for rdata in ans:
                 ptr_host = rdata.to_text().rstrip(".").lower()
-                if ptr_host and (ptr_host.endswith(apex_domain) or scope.is_in_scope(ptr_host)[0]):
-                    db.upsert_domain(project_id, ptr_host, ip=n_ip, source="subnet_ptr_sweep")
-                    log_fn(f"  [🌐 /24 PTR Hit] {n_ip} -> {ptr_host}")
+                if ptr_host:
+                    ptr_map[n_ip] = ptr_host
+                    if ptr_host.endswith(apex_domain) or scope.is_in_scope(ptr_host)[0]:
+                        db.upsert_domain(project_id, ptr_host, ip=n_ip, source="subnet_ptr_sweep")
+                        log_fn(f"  [🌐 /24 In-Scope PTR Hit] {n_ip} -> {ptr_host}")
         except Exception:
             pass
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as ex:
-        list(ex.map(check_neighbor, list(neighbor_candidates)[:65]))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=40) as ex:
+        list(ex.map(check_neighbor, neighbor_candidates))
+
+    if ptr_map:
+        sample_ptrs = [f"{k} -> {v}" for k, v in sorted(ptr_map.items())[:12]]
+        log_fn(f"  [🗺️ /24 Neighborhood Map] Jami {len(ptr_map)} ta qo'shni server PTR yozuvi aniqlandi: {', '.join(sample_ptrs[:6])}")
+        db.upsert_finding(
+            project_id, "SPECTRE-Agent1 (/24 Subnet PTR Mapper)", f"Datacenter /24 Subnet Neighborhood Map ({len(ptr_map)} Active PTR Hosts)",
+            "Network Infrastructure Intelligence", "Info", 0.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
+            "CWE-200", "A05:2021 - Security Misconfiguration", ", ".join(f"{s}.0/24" for s in subnets),
+            "Discovered /24 PTR Neighbors:\n" + "\n".join(sample_ptrs),
+            "Nishon server joylashgan /24 subnetdagi qo'shni serverlar va PTR yozuvlari xaritasi tuzildi.",
+            "Maxfiy ichki subdomen nomlarini oshkor qilmaslik uchun PTR (Reverse-DNS) yozuvlarini neytral nomda saqlang.",
+        )
 
 
 # ================= #3 NEXT.JS / NUXT / VITE / WEBPACK MANIFEST & SSR DECONSTRUCTOR =================
@@ -197,7 +229,23 @@ def deconstruct_spa_manifests_and_ssr_state(db, session: requests.Session, proje
                 except Exception:
                     pass
 
-            # 2. Manifest JSON files
+            # 2. CMS & SPA Global State Variables (DLE, WordPress, Laravel, Nuxt, Custom Config)
+            cms_vars = []
+            for var_rgx, v_label in [
+                (r"var\s+dle_(?:root|admin|login_hash|group|skin)\s*=\s*['\"]([^'\"]*)['\"]", "DLE State"),
+                (r"window\.__NUXT__\s*=\s*(\{[^\n;]{5,180})", "Nuxt SSR State"),
+                (r"wpApiSettings\s*=\s*(\{[^\n;]{5,180})", "WordPress REST API Config"),
+                (r"window\.(?:__INITIAL_STATE__|__APP_CONFIG__|ENV)\s*=\s*(\{[^\n;]{5,180})", "SPA Global Config"),
+            ]:
+                for m_v in re.finditer(var_rgx, html):
+                    cms_vars.append(f"{v_label}: {m_v.group(0)[:90]}")
+            if cms_vars:
+                log_fn(f"  [🧩 Frontend/CMS State] {base_url} -> {' | '.join(cms_vars[:4])}")
+                if any("dle_" in x for x in cms_vars) and record_url_fn:
+                    for dle_ep in ("/engine/ajax/controller.php", "/engine/ajax/search.php", "/index.php?do=register", "/index.php?do=lostpassword", "/admin.php"):
+                        record_url_fn(project_id, dle_ep, base_url, scope, "dle_cms_deconstructor")
+
+            # 3. Manifest JSON files
             for mp in manifest_paths:
                 m_url = urllib.parse.urljoin(base_url, mp)
                 try:
