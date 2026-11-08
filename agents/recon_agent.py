@@ -982,11 +982,13 @@ class ReconSuperAgent:
                             self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
                             break
 
-            _prog(0.90, "Stage 6/6: Deep Post-Recon Audits (Manifests, Secrets v2, Mobile/OIDC, SSL, Backup)...")
+            _prog(0.90, "Stage 6/6: Adaptive Brain, Auto-Validator, SPA Manifests, Secrets v2 & Mobile/OIDC...")
+            spectre_ultra_modules.run_adaptive_brain_strategy(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
             spectre_ultra_modules.deconstruct_spa_manifests_and_ssr_state(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
             spectre_ultra_modules.hunt_deep_secrets_and_uz_ecosystem(self.db, self.session, project_id, log_fn)
             spectre_ultra_modules.mine_well_known_and_mobile_links(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
             spectre_ultra_modules.trace_redirect_chains_and_oauth_flows(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+            spectre_ultra_modules.run_safe_auto_validator(self.db, self.session, project_id, log_fn)
             spectre_ultra_modules.extract_document_metadata_osint(self.db, self.session, project_id, apex_domain, log_fn)
             spectre_deep_modules.hunt_cloud_and_storage_buckets(self.db, self.session, project_id, apex_domain, log_fn)
             spectre_deep_modules.probe_api_versions_and_ghost_endpoints(self.db, project_id, log_fn)
@@ -1056,11 +1058,13 @@ class ReconSuperAgent:
                 self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
                 break
 
-        _prog(0.85, f"Single-Host SPA Manifest, SecretHunter v2 & Mobile/OIDC: {target_host}...")
+        _prog(0.85, f"Single-Host Adaptive Brain, Auto-Validator, SPA Manifest & SecretHunter v2: {target_host}...")
+        spectre_ultra_modules.run_adaptive_brain_strategy(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
         spectre_ultra_modules.deconstruct_spa_manifests_and_ssr_state(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
         spectre_ultra_modules.hunt_deep_secrets_and_uz_ecosystem(self.db, self.session, project_id, log_fn)
         spectre_ultra_modules.mine_well_known_and_mobile_links(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
         spectre_ultra_modules.trace_redirect_chains_and_oauth_flows(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+        spectre_ultra_modules.run_safe_auto_validator(self.db, self.session, project_id, log_fn)
         _prog(1.0, f"✅ Deep Scan Completed: {target_host}")
         log_fn(f"═══ ✅ SINGLE-HOST DEEP RECON YAKUNLANDI: {target_host} ═══")
 

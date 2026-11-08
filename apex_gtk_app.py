@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import json
 import os
+import re
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -130,6 +132,8 @@ class ApexNativeWindow(Gtk.Window):
             else:
                 col = Gtk.TreeViewColumn(col_title, renderer, text=idx)
             col.set_resizable(True)
+            col.set_sort_column_id(idx)
+            col.set_clickable(True)
             if col_title in narrow_cols or col_type == int:
                 col.set_min_width(55)
                 col.set_expand(False)
@@ -148,6 +152,53 @@ class ApexNativeWindow(Gtk.Window):
         scroll.add(tree)
         return scroll, store, tree
 
+    def _attach_context_menu(self, tree: Gtk.TreeView, target_col: int):
+        def _on_btn_press(tv, event):
+            if event.button != 3:
+                return False
+            path_info = tv.get_path_at_pos(int(event.x), int(event.y))
+            if not path_info:
+                return False
+            path, col, _, _ = path_info
+            tv.grab_focus()
+            tv.set_cursor(path, col, 0)
+            model = tv.get_model()
+            raw_val = re.sub(r"<[^>]+>", "", str(model[path][target_col] or "")).strip()
+            if not raw_val:
+                return False
+            full_url = raw_val if raw_val.startswith("http") else f"https://{raw_val.lstrip('/')}"
+            host_only = re.sub(r"^https?://", "", full_url).split("/")[0].split(":")[0]
+
+            menu = Gtk.Menu()
+            it_open = Gtk.MenuItem(label=f"🌐 Brauzerda Ochish ({raw_val[:38]})")
+            it_open.connect("activate", lambda _: subprocess.Popen(["xdg-open", full_url]))
+            menu.append(it_open)
+
+            it_rep = Gtk.MenuItem(label="⚡ HTTP Repeater'ga Yuborish")
+            def _send_rep(_):
+                self.rep_url_entry.set_text(full_url)
+                self._switch_page("p_endpoints", self.nav_buttons[2])
+                self.log_msg(f"[REPEATER] ⚡ URL Repeater'ga yuklandi: {full_url}")
+            it_rep.connect("activate", _send_rep)
+            menu.append(it_rep)
+
+            it_deep = Gtk.MenuItem(label=f"🎯 Shu Hostni Chuqur Skanerlash ({host_only})")
+            def _deep_host(_):
+                self._selected_domain = host_only
+                self.on_deep_scan_selected_subdomain(None)
+            it_deep.connect("activate", _deep_host)
+            menu.append(it_deep)
+
+            it_copy = Gtk.MenuItem(label="📋 Manzilni Nusxalash (Copy)")
+            it_copy.connect("activate", lambda _: Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(raw_val, -1))
+            menu.append(it_copy)
+
+            menu.show_all()
+            menu.popup_at_pointer(event)
+            return True
+
+        tree.connect("button-press-event", _on_btn_press)
+
 
     def _switch_page(self, page_name: str, clicked_btn: Gtk.Button):
         self.stack.set_visible_child_name(page_name)
@@ -163,19 +214,19 @@ class ApexNativeWindow(Gtk.Window):
         # Clean Minimal HeaderBar (window controls stay sleek & native)
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
-        hb.props.title = "👻 SPECTRE Recon & Attack Surface Studio v4.1"
-        hb.props.subtitle = "Autonomous OSINT Mesh • Shodan CVE • Deep JS/SourceMap • Pentest Task Tree"
+        hb.props.title = "👻 SPECTRE Recon & Attack Surface Studio v8.0"
+        hb.props.subtitle = "Adaptive Brain • Safe Auto-Validator • True SNI Unmasker • Visual Topology Graph"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self.add(outer_hbox)
 
-        # Left Modern Sidebar (compact 200px width so it always fits 1920x1080)
+        # Left Modern Sidebar (compact 205px width so it always fits 1920x1080)
         sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         sidebar.get_style_context().add_class("sidebar")
         sidebar.set_size_request(205, -1)
         brand_lbl = Gtk.Label(xalign=0)
-        brand_lbl.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>👻 SPECTRE v6.0</span>\n<span foreground='#64748b' size='small'>Cyber-Recon &amp; ASM Studio</span>")
+        brand_lbl.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>👻 SPECTRE v8.0</span>\n<span foreground='#64748b' size='small'>Adaptive Cyber-Recon Studio</span>")
         brand_lbl.set_margin_bottom(8)
         sidebar.pack_start(brand_lbl, False, False, 4)
 
@@ -191,8 +242,9 @@ class ApexNativeWindow(Gtk.Window):
             ("p_endpoints", "🗂️  3. Endpoints, API & JS"),
             ("p_vulns", "🔍  4. Vuln Audit & SAST"),
             ("p_chains", "🔗  5. Triage & Bug Chains"),
-            ("p_report", "📄  6. Manual PoC & Report"),
-            ("p_tools", "⚙️  7. Tool Registry & JWT"),
+            ("p_graph", "🕸️  6. Attack Surface Graph"),
+            ("p_report", "📄  7. Manual PoC & Report"),
+            ("p_tools", "⚙️  8. Tool Registry & JWT"),
         ]
         for idx, (pname, plabel) in enumerate(nav_items):
             b = Gtk.Button(label=plabel)
@@ -327,9 +379,11 @@ class ApexNativeWindow(Gtk.Window):
         tab1.set_position(740)
         tab1_left = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         tab1_left.set_position(250)
-        sc_http, self.store_http, _ = self._make_tree([("URL", str), ("Status", str), ("Title", str), ("Server / Tech", str), ("WAF", str), ("Missing Headers", str)])
+        sc_http, self.store_http, self.tree_http = self._make_tree([("URL", str), ("Status", str), ("Title", str), ("Server / Tech", str), ("WAF", str), ("Missing Headers", str)])
         sc_dom, self.store_dom, self.tree_dom = self._make_tree([("Subdomen / Host", str), ("IP Manzil", str), ("CNAME", str), ("Manba", str), ("Ochiq Portlar va Servislar", str)])
         self.tree_dom.connect("cursor-changed", self.on_domain_selected)
+        self._attach_context_menu(self.tree_http, 0)
+        self._attach_context_menu(self.tree_dom, 0)
         tab1_left.pack1(sc_http, True, False)
         tab1_left.pack2(sc_dom, True, False)
 
@@ -386,7 +440,8 @@ class ApexNativeWindow(Gtk.Window):
         tab2_paned.set_position(250)
         sc_ep, self.store_ep, self.tree_ep = self._make_tree([("Method", str), ("Endpoint URL", str), ("Parametrlar", str), ("Kategoriya", str), ("Xavf Teglari (Manual Guide)", str)])
         self.tree_ep.connect("cursor-changed", self.on_endpoint_selected)
-        sc_js, self.store_js, _ = self._make_tree([("JS Bundle Fayl", str), ("Ajratilgan API Route / URL'lar", str), ("Parametrlar", str), ("DOM Sinks & Config/Keys", str)])
+        self._attach_context_menu(self.tree_ep, 1)
+        sc_js, self.store_js, self.tree_js = self._make_tree([("JS Bundle Fayl", str), ("Ajratilgan API Route / URL'lar", str), ("Parametrlar", str), ("DOM Sinks & Config/Keys", str)])
         tab2_paned.pack1(sc_ep, True, False)
         tab2_paned.pack2(sc_js, True, False)
 
@@ -407,10 +462,18 @@ class ApexNativeWindow(Gtk.Window):
         self.stack.add_named(tab2_box, "p_endpoints")
 
 
-        # TAB 3: Vuln Audit & SAST
+        # TAB 3: Vuln Audit & SAST (with Smart Noise Filter)
         tab3_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         triage_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        triage_bar.pack_start(Gtk.Label(label="Tanlangan topilma (Finding) statusini o'zgartirish:", xalign=0), True, True, 6)
+        self.finding_filter_combo = Gtk.ComboBoxText()
+        self.finding_filter_combo.append("no_noise", "⚠️ Muhim Topilmalar (Medium+ / Shovqinsiz)")
+        self.finding_filter_combo.append("crit_high", "🚨 Faqat Critical & High")
+        self.finding_filter_combo.append("confirmed", "✅ Faqat Tasdiqlangan ([CONFIRMED] / Verified)")
+        self.finding_filter_combo.append("all", "🔥 Barcha Topilmalar (Low/Info bilan)")
+        self.finding_filter_combo.set_active_id("all")
+        self.finding_filter_combo.connect("changed", lambda _: self.load_bundle())
+        triage_bar.pack_start(self.finding_filter_combo, False, False, 4)
+        triage_bar.pack_start(Gtk.Label(label="Tanlangan topilma statusi:", xalign=0), True, True, 6)
         triage_bar.pack_end(self._make_btn("❌ False-Positive", "btn-red", lambda _: self.on_set_triage("False-Positive")), False, False, 4)
         triage_bar.pack_end(self._make_btn("🕵️ Manual-Review", "btn-amber", lambda _: self.on_set_triage("Manual-Review")), False, False, 4)
         triage_bar.pack_end(self._make_btn("✅ Verified", "btn-green", lambda _: self.on_set_triage("Verified")), False, False, 4)
@@ -420,6 +483,7 @@ class ApexNativeWindow(Gtk.Window):
             ("CWE / OWASP", str), ("Nishon (Asset)", str), ("Dalil (Evidence)", str),
             ("Remediation (Yechim)", str), ("Triage Holati", str)
         ])
+        self._attach_context_menu(self.tree_find, 5)
         tab3_box.pack_start(sc_find, True, True, 0)
         self.stack.add_named(tab3_box, "p_vulns")
 
@@ -429,6 +493,15 @@ class ApexNativeWindow(Gtk.Window):
             ("Bosqichlar (Nodes)", str), ("Hujum Ssenariysi va Impact", str), ("Remediation", str)
         ])
         self.stack.add_named(sc_chain, "p_chains")
+
+        # TAB 5 (NEW): Cairo 2D Visual Attack Surface Topology Graph
+        graph_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.graph_area = Gtk.DrawingArea()
+        self.graph_area.set_vexpand(True)
+        self.graph_area.set_hexpand(True)
+        self.graph_area.connect("draw", self._draw_attack_graph)
+        graph_box.pack_start(self.graph_area, True, True, 0)
+        self.stack.add_named(graph_box, "p_graph")
 
         # TAB 5: Manual PoC & Report Studio
         tab5 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -582,8 +655,8 @@ class ApexNativeWindow(Gtk.Window):
         finds = b.get("findings", [])
         chains = b.get("bug_chains", [])
 
-        q = (self.search_entry.get_text() or "").strip().lower() if hasattr(self, "search_entry") else ""
-        sig = (self.current_project_id, len(doms), len(ports), len(https), len(eps), len(js_list), len(finds), len(chains), q)
+        f_mode = self.finding_filter_combo.get_active_id() if hasattr(self, "finding_filter_combo") else "all"
+        sig = (self.current_project_id, len(doms), len(ports), len(https), len(eps), len(js_list), len(finds), len(chains), q, f_mode)
         if preserve_if_unchanged and sig == self._last_data_sig:
             return
         self._last_data_sig = sig
@@ -669,20 +742,32 @@ class ApexNativeWindow(Gtk.Window):
                 ])
 
         self.store_find.clear()
-        for f in finds:
-            raw_str = f"{f['severity']} {f['title']} {f['cwe']} {f['asset']} {f['evidence']}".lower()
+        f_mode = self.finding_filter_combo.get_active_id() if hasattr(self, "finding_filter_combo") else "all"
+        sorted_finds = sorted(finds, key=lambda x: float(x.get("cvss_score") or 0.0), reverse=True)
+        for f in sorted_finds:
+            sev = str(f.get("severity") or "")
+            title_str = str(f.get("title") or "")
+            conf_str = str(f.get("confidence") or "")
+            triage_str = str(f.get("triage_status") or "")
+            if f_mode == "crit_high" and sev not in ("Critical", "High"):
+                continue
+            if f_mode == "no_noise" and sev in ("Low", "Info"):
+                continue
+            if f_mode == "confirmed" and not ("[CONFIRMED]" in title_str or "Confirmed" in conf_str or triage_str == "Verified"):
+                continue
+            raw_str = f"{sev} {title_str} {f['cwe']} {f['asset']} {f['evidence']}".lower()
             if not q or q in raw_str:
-                t_col = "#34d399" if f["triage_status"] == "Verified" else ("#fbbf24" if f["triage_status"] == "Manual-Review" else "#64748b")
+                t_col = "#34d399" if triage_str == "Verified" else ("#fbbf24" if triage_str == "Manual-Review" else "#64748b")
                 self.store_find.append([
                     f["id"],
-                    self._color_sev(f["severity"]),
+                    self._color_sev(sev),
                     f"<b>{f['cvss_score']}</b>",
-                    f"<b>{self._esc(f['title'])}</b>",
+                    f"<b>{self._esc(title_str)}</b>",
                     self._esc(f"{f['cwe']} | {f['owasp']}"),
                     f"<span foreground='#38bdf8'>{self._esc(f['asset'])}</span>",
                     self._esc(f["evidence"]),
                     self._esc(f["remediation"]),
-                    f"<span foreground='{t_col}' weight='bold'>{self._esc(f['triage_status'])}</span>",
+                    f"<span foreground='{t_col}' weight='bold'>{self._esc(triage_str)}</span>",
                 ])
 
         self.store_chain.clear()
@@ -696,6 +781,104 @@ class ApexNativeWindow(Gtk.Window):
                 self._esc(f"{c['attack_scenario']} | Impact: {c['impact']}"),
                 self._esc(c["remediation"]),
             ])
+
+        if hasattr(self, "graph_area"):
+            self.graph_area.queue_draw()
+
+
+    def _draw_attack_graph(self, area, cr):
+        import math
+        alloc = area.get_allocation()
+        w, h = alloc.width, alloc.height
+        cr.set_source_rgb(0.04, 0.06, 0.11)
+        cr.rectangle(0, 0, w, h)
+        cr.fill()
+
+        if not self.current_project_id:
+            return False
+        b = self.db.get_project_bundle(self.current_project_id)
+        proj = b.get("project") or {}
+        target = proj.get("primary_target", "Target")
+        doms = b.get("domains", [])
+        ports = b.get("ports", [])
+        finds = b.get("findings", [])
+
+        cx, cy = w / 2.0, h / 2.0
+        # Legend header
+        cr.set_source_rgb(0.22, 0.74, 0.97)
+        cr.select_font_face("Monospace", 0, 1)
+        cr.set_font_size(13)
+        cr.move_to(18, 26)
+        cr.show_text(f"🕸️ SPECTRE ATTACK SURFACE TOPOLOGY GRAPH — {target} ({len(doms)} Hosts | {len(ports)} Open Ports | {len(finds)} Findings)")
+
+        by_ip = {}
+        for d in doms[:36]:
+            ip = d.get("ip") or "Unresolved"
+            by_ip.setdefault(ip, []).append(d["domain"])
+
+        ips = list(by_ip.keys())[:12]
+        r_inner = min(w, h) * 0.23
+        r_outer = min(w, h) * 0.41
+
+        crit_hosts = {f.get("asset", "") for f in finds if f.get("severity") in ("Critical", "High")}
+
+        for idx, ip in enumerate(ips):
+            ang = (2 * math.pi * idx) / max(1, len(ips))
+            ix = cx + r_inner * math.cos(ang)
+            iy = cy + r_inner * math.sin(ang)
+
+            # Edge Center -> IP
+            cr.set_source_rgba(0.22, 0.74, 0.97, 0.35)
+            cr.set_line_width(1.6)
+            cr.move_to(cx, cy)
+            cr.line_to(ix, iy)
+            cr.stroke()
+
+            hosts = by_ip[ip][:5]
+            for h_idx, h_name in enumerate(hosts):
+                spread = 0.38
+                sub_ang = ang + ((h_idx - (len(hosts) - 1) / 2.0) * (spread / max(1, len(hosts))))
+                ox = cx + r_outer * math.cos(sub_ang)
+                oy = cy + r_outer * math.sin(sub_ang)
+
+                is_vuln = any(h_name in ch for ch in crit_hosts)
+                cr.set_source_rgba(0.97, 0.44, 0.44, 0.55) if is_vuln else cr.set_source_rgba(0.20, 0.83, 0.60, 0.35)
+                cr.set_line_width(1.2)
+                cr.move_to(ix, iy)
+                cr.line_to(ox, oy)
+                cr.stroke()
+
+                # Outer Host Node
+                cr.arc(ox, oy, 7 if is_vuln else 5, 0, 2 * math.pi)
+                if is_vuln:
+                    cr.set_source_rgb(0.97, 0.44, 0.44)
+                else:
+                    cr.set_source_rgb(0.20, 0.83, 0.60)
+                cr.fill()
+
+                cr.set_source_rgb(0.88, 0.91, 0.94)
+                cr.set_font_size(10)
+                cr.move_to(ox + 9, oy + 4)
+                cr.show_text(h_name[:26])
+
+            # IP Node
+            cr.arc(ix, iy, 11, 0, 2 * math.pi)
+            cr.set_source_rgb(0.65, 0.54, 0.98)
+            cr.fill()
+            cr.set_source_rgb(0.95, 0.96, 0.98)
+            cr.set_font_size(10.5)
+            cr.move_to(ix - 28, iy - 14)
+            cr.show_text(ip)
+
+        # Center Apex Node
+        cr.arc(cx, cy, 22, 0, 2 * math.pi)
+        cr.set_source_rgb(0.22, 0.74, 0.97)
+        cr.fill()
+        cr.set_source_rgb(0.04, 0.06, 0.11)
+        cr.set_font_size(11)
+        cr.move_to(cx - min(60, len(target) * 3.2), cy + 4)
+        cr.show_text(target[:22])
+        return False
 
 
     def on_create_project(self, _btn, auto_start: bool = False):

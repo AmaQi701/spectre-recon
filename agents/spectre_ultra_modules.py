@@ -33,11 +33,16 @@ def _raw_sni_https_get(ip_addr: str, host_name: str, path: str = "/", timeout: f
                 chunks = []
                 total = 0
                 while total < 65536:
-                    data = ssock.recv(8192)
-                    if not data:
+                    try:
+                        data = ssock.recv(8192)
+                        if not data:
+                            break
+                        chunks.append(data)
+                        total += len(data)
+                        if b"</html>" in data.lower() or b"\r\n0\r\n\r\n" in data:
+                            break
+                    except Exception:
                         break
-                    chunks.append(data)
-                    total += len(data)
                 raw_resp = b"".join(chunks)
                 if b"\r\n\r\n" in raw_resp:
                     hdr_b, body_b = raw_resp.split(b"\r\n\r\n", 1)
@@ -61,11 +66,13 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
     base_title = ""
     base_body = ""
     base_len = 0
+    canon_host = primary_host
     for scheme in ("https", "http"):
         try:
             r = session.get(f"{scheme}://{primary_host}", timeout=6, verify=False)
             if r.status_code < 500 and len(r.content) > 100:
                 base_len = len(r.content)
+                canon_host = urllib.parse.urlparse(r.url).hostname or primary_host
                 txt_dec = r.content.decode("utf-8", errors="ignore")
                 m_t = re.search(r"<title[^>]*>(.*?)</title>", txt_dec, re.I | re.S)
                 base_title = m_t.group(1).strip() if m_t else ""
@@ -90,13 +97,13 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
         return
 
     def check_candidate_ip(ip_addr: str):
-        code, body_b, _ = _raw_sni_https_get(ip_addr, primary_host, "/")
+        code, body_b, _ = _raw_sni_https_get(ip_addr, canon_host, "/")
         scheme_used = "https"
         if code not in (200, 301, 302) or len(body_b) < 200:
             try:
                 r = session.get(
                     f"http://{ip_addr}/",
-                    headers={"Host": primary_host, "User-Agent": "Mozilla/5.0"},
+                    headers={"Host": canon_host, "User-Agent": "Mozilla/5.0"},
                     timeout=4.0,
                     allow_redirects=False,
                 )
@@ -466,6 +473,152 @@ def extract_document_metadata_osint(db, session: requests.Session, project_id: i
                 )
         except Exception:
             pass
+
+
+# ================= #8 CONTEXT-AWARE ADAPTIVE BRAIN (OBSERVE -> THINK -> ACT) =================
+TECH_PLAYBOOKS = {
+    "wordpress": {
+        "triggers": ("wordpress", "wp-content", "wp-includes"),
+        "paths": ["/wp-json/wp/v2/users", "/xmlrpc.php", "/wp-content/debug.log", "/wp-login.php", "/wp-json/"],
+        "label": "WordPress CMS Playbook",
+    },
+    "dle": {
+        "triggers": ("datalife", "dle_", "/engine/", "do=register", "do=feedback", "dle-"),
+        "paths": ["/engine/ajax/controller.php", "/engine/opensearch.php", "/admin.php", "/index.php?do=stats", "/index.php?do=lastcomments"],
+        "label": "DataLife Engine (DLE) Playbook",
+    },
+    "nuxt_next_spa": {
+        "triggers": ("/_nuxt/", "__nuxt__", "/_next/", "__next_data__"),
+        "paths": ["/api/health", "/api/config", "/api/auth/session", "/api/v1/config", "/_nuxt/", "/manifest.json"],
+        "label": "Nuxt.js / Next.js Modern SPA Playbook",
+    },
+    "laravel": {
+        "triggers": ("laravel", "xsrf-token", "laravel_session"),
+        "paths": ["/_ignition/health-check", "/telescope/requests", "/storage/logs/laravel.log", "/.env", "/horizon/api/stats"],
+        "label": "Laravel PHP Playbook",
+    },
+    "spring": {
+        "triggers": ("spring", "whitelabel error", "jsessionid"),
+        "paths": ["/actuator", "/actuator/health", "/actuator/env", "/actuator/mappings", "/v2/api-docs", "/v3/api-docs", "/swagger-ui/index.html"],
+        "label": "Java Spring Boot Playbook",
+    },
+    "django": {
+        "triggers": ("django", "csrftoken", "wsgi"),
+        "paths": ["/admin/login/", "/__debug__/", "/static/admin/css/base.css", "/api/schema/", "/api/docs/"],
+        "label": "Python Django/DRF Playbook",
+    },
+    "bitrix": {
+        "triggers": ("bitrix", "bx_", "/bitrix/"),
+        "paths": ["/bitrix/admin/", "/bitrix/tools/oauth/", "/bitrix/services/main/ajax.php", "/bitrix/license_key.php"],
+        "label": "1C-Bitrix Enterprise Playbook",
+    },
+}
+
+
+def run_adaptive_brain_strategy(db, session: requests.Session, project_id: int, scope, log_fn, record_url_fn=None):
+    bundle = db.get_project_bundle(project_id)
+    services = bundle.get("http_services", [])
+    if not services:
+        return
+
+    log_fn("[SPECTRE Ultra #8 -> Context-Aware Adaptive Brain] Aniqlangan texnologiyalarga moslashtirilgan (Observe -> Think -> Act) chuqur tekshiruv boshlandi...")
+
+    for svc in services[:12]:
+        base_url = svc["url"]
+        tech_blob = f"{svc.get('tech_stack', '')} {svc.get('server', '')} {svc.get('cookies_json', '')} {svc.get('headers_json', '')}".lower()
+        try:
+            r_home = session.get(base_url, timeout=5, verify=False)
+            tech_blob += " " + r_home.text[:40000].lower()
+        except Exception:
+            pass
+
+        for pb_key, pb in TECH_PLAYBOOKS.items():
+            if any(trig in tech_blob for trig in pb["triggers"]):
+                log_fn(f"  [🧠 ADAPTIVE BRAIN] {base_url} da '{pb['label']}' aniqlandi -> Maxsus {len(pb['paths'])} ta vektor tekshirilmoqda!")
+                for clean_p in pb["paths"]:
+                    target_u = urllib.parse.urljoin(base_url, clean_p)
+                    try:
+                        rp = session.get(target_u, timeout=4.5, verify=False, allow_redirects=False)
+                        if rp.status_code in (200, 401, 403, 405) and len(rp.content) > 15:
+                            if record_url_fn:
+                                record_url_fn(project_id, target_u, base_url, scope, f"adaptive_{pb_key}_{rp.status_code}")
+                            if rp.status_code == 200 and any(x in clean_p for x in ("users", "debug.log", "laravel.log", "actuator/env", "_ignition", "xmlrpc.php")):
+                                body_sample = rp.text[:220].replace("\n", " ")
+                                if "<!doctype html" not in body_sample.lower():
+                                    db.upsert_finding(
+                                        project_id, "SPECTRE-Agent1 (Adaptive Brain)", f"[CONFIRMED] Exposed {pb['label']} Sensitive Endpoint ({clean_p})",
+                                        "Technology-Specific Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                                        "CWE-200", "A05:2021 - Security Misconfiguration", target_u,
+                                        f"HTTP {rp.status_code} ({len(rp.content)}B) | Sample: {body_sample[:140]}",
+                                        f"Adaptive Brain tomonidan {pb['label']} uchun maxsus sezgir yo'l ({clean_p}) ochiq ekanligi tasdiqlandi.",
+                                        f"{clean_p} manziliga tashqi kirishni veb-server yoki framework darajasida yoping.",
+                                        confidence="Confirmed-PoC",
+                                    )
+                                    log_fn(f"    [🔥 CONFIRMED HIT] {target_u} -> HTTP {rp.status_code} ({len(rp.content)}B)")
+                    except Exception:
+                        pass
+
+
+# ================= #9 SAFE AUTO-VALIDATOR (CONFIRMED POC ENGINE) =================
+def run_safe_auto_validator(db, session: requests.Session, project_id: int, log_fn):
+    bundle = db.get_project_bundle(project_id)
+    endpoints = bundle.get("endpoints", [])
+    if not endpoints:
+        return
+
+    log_fn("[SPECTRE Ultra #9 -> Safe Auto-Validator] Shubhali parametrli endpointlarda (Open Redirect, Canary Reflection) xavfsiz PoC validatsiya bajarilmoqda...")
+    redir_params = {"url", "redirect", "redirect_uri", "next", "return", "returnurl", "return_to", "goto", "dest", "destination"}
+
+    for ep in endpoints[:40]:
+        u = ep["url"]
+        params = json.loads(ep.get("params_json") or "[]")
+        if not params and "?" not in u:
+            continue
+
+        matched_r_params = [p for p in params if p.lower() in redir_params]
+        for rp_name in matched_r_params[:2]:
+            sep = "&" if "?" in u else "?"
+            test_u = f"{u}{sep}{rp_name}=https://example.org/spectre_check"
+            try:
+                r = session.get(test_u, timeout=4.0, verify=False, allow_redirects=False)
+                loc = r.headers.get("Location", "")
+                if r.status_code in (301, 302, 303, 307, 308) and loc.startswith("https://example.org"):
+                    log_fn(f"  [✅ CONFIRMED OPEN REDIRECT] {test_u} -> Location: {loc}")
+                    db.upsert_finding(
+                        project_id, "SPECTRE-Agent1 (Auto-Validator)", f"[CONFIRMED] Verified Open Redirect via '{rp_name}' Parameter",
+                        "Open Redirect (Validated PoC)", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                        "CWE-601", "A01:2021 - Broken Access Control", u,
+                        f"PoC URL: {test_u}\nResponse: HTTP {r.status_code} | Location: {loc}",
+                        f"'{rp_name}' parametri tashqi domenga (https://example.org) tekshiruvsiz yo'naltirishi amalda tasdiqlandi.",
+                        "Yo'naltirish manzillarini faqat ruxsat etilgan ichki yo'llar (allowlist) bilan cheklang.",
+                        confidence="Confirmed-PoC",
+                    )
+            except Exception:
+                pass
+
+        for p_name in params[:2]:
+            if p_name.lower() in redir_params:
+                continue
+            sep = "&" if "?" in u else "?"
+            canary = "spectre7x9q"
+            test_u = f"{u}{sep}{p_name}={canary}"
+            try:
+                r = session.get(test_u, timeout=4.0, verify=False)
+                if r.status_code == 200 and canary in r.text and "text/html" in r.headers.get("Content-Type", "").lower():
+                    log_fn(f"  [🔎 REFLECTION CONFIRMED] Parameter '{p_name}' reflects input in HTML body: {u}")
+                    db.upsert_finding(
+                        project_id, "SPECTRE-Agent1 (Auto-Validator)", f"[CONFIRMED] Unfiltered Input Reflection on Parameter '{p_name}'",
+                        "Input Reflection / XSS Candidate (Validated)", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                        "CWE-79", "A03:2021 - Injection", u,
+                        f"Probe URL: {test_u} -> Canary '{canary}' reflected directly in text/html response.",
+                        f"'{p_name}' parametriga yuborilgan qiymat HTML sahifa tarkibida aks etishi tasdiqlandi.",
+                        "Foydalanuvchi kiritgan barcha parametrlarni HTML kontekstida chiqarishdan oldin kontekstli encoding qiling.",
+                        confidence="Confirmed-PoC",
+                    )
+            except Exception:
+                pass
+
+
 
 
 
