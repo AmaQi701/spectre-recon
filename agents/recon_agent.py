@@ -918,33 +918,22 @@ class ReconSuperAgent:
 
         # Stage 1: Subdomains & OSINT
         if recon_mode in ("full", "subdomains"):
-            _prog(0.15, "Stage 1/6: 5-OSINT Mesh & Subfinder...")
+            _prog(0.15, "Stage 1/6: 5-OSINT Mesh, Subfinder, Sublist3r, Amass, Dig AXFR...")
             if "crtsh_builtin" in active_ids:
                 self._stage1_crtsh(project_id, apex_domain, scope, log_fn)
-            if "subfinder" in active_ids and self._find_binary("subfinder"):
-                out = self._run_cli(f"subfinder -d {safe_apex} -silent", log_fn, timeout=45, project_id=project_id)
-                for line in out.splitlines():
-                    if scope.is_in_scope(line.strip())[0]:
-                        self.db.upsert_domain(project_id, line.strip(), source="subfinder")
-            if "whois" in active_ids and self._find_binary("whois"):
-                w_out = self._run_cli(f"whois {safe_apex}", log_fn, timeout=20, project_id=project_id)
-                self.db.log_task(project_id, "Agent-1 (Recon)", "whois", "COMPLETED", f"whois {apex_domain}", w_out[:250])
+            spectre_v5_modules.run_deep_subdomain_tools(self, project_id, apex_domain, scope, active_ids, log_fn)
             _prog(0.30, "Stage 1/6: SecLists DNS Enum & Smart Permutations...")
             self._stage1_dns_enum(project_id, primary_host, scope, log_fn)
 
-        # Stage 2: Ports, Shodan & ASN
+        # Stage 2: Ports, Shodan, Nmap Deep NSE & NetExec
         tls_info = {}
         if recon_mode in ("full", "ports"):
             _prog(0.45, "Stage 2/6: TLS SAN, Shodan InternetDB & ASN/ISP...")
             tls_info = self._stage2_tls_inspect(project_id, primary_host, scope, log_fn)
             self._stage2_shodan_internetdb(project_id, scope, log_fn)
             spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
-            if "nmap" in active_ids and self._find_binary("nmap") and project_id not in self.abort_flags:
-                _prog(0.55, f"Stage 2/6: Nmap Service Scan ({primary_host})...")
-                log_fn(f"[SPECTRE Stage 2] Nmap Service & Port Scan (Top 100 ports): {primary_host}")
-                xml_out = self._run_cli(f"nmap -Pn -sV -T4 --top-ports 100 -oX - {safe_host}", log_fn, timeout=90, project_id=project_id)
-                self._parse_nmap_xml(project_id, primary_host, xml_out, log_fn)
-                self.db.log_task(project_id, "SPECTRE-Agent1", "nmap", "COMPLETED", f"nmap -Pn -sV --top-ports 100 {primary_host}", "XML Parsed")
+            _prog(0.55, f"Stage 2/6: Nmap Deep NSE, Naabu & NetExec ({primary_host})...")
+            spectre_v5_modules.run_deep_network_and_ad_tools(self, project_id, primary_host, active_ids, log_fn)
             spectre_deep_modules.probe_nonstandard_web_ports(self.db, self.session, project_id, log_fn)
             spectre_deep_modules.hunt_virtual_hosts(self.db, self.session, project_id, apex_domain, log_fn)
 
@@ -981,19 +970,10 @@ class ReconSuperAgent:
                             collected_html.append(html[:50000])
                             if dom == primary_host:
                                 spectre_deep_modules.fingerprint_favicon(self.session, url, self.db, project_id, log_fn)
-                            if "whatweb" in active_ids and self._find_binary("whatweb") and dom == primary_host:
-                                ww = self._run_cli(f"whatweb --color=never -a 1 {safe_url}", log_fn, timeout=25, project_id=project_id)
-                                self.db.log_task(project_id, "SPECTRE-Agent1", "whatweb", "COMPLETED", f"whatweb {url}", ww[:200])
-                            if "wafw00f" in active_ids and self._find_binary("wafw00f") and dom == primary_host:
-                                wf = self._run_cli(f"wafw00f {safe_url}", log_fn, timeout=25, project_id=project_id)
-                                self.db.log_task(project_id, "SPECTRE-Agent1", "wafw00f", "COMPLETED", f"wafw00f {url}", wf[:200])
                             js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)
-                            if "katana" in active_ids and self._find_binary("katana") and is_high_val:
-                                kt_out = self._run_cli(f"katana -u {safe_url} -d 2 -jc -kf all -silent", log_fn, timeout=35, project_id=project_id)
-                                for k_url in kt_out.splitlines():
-                                    u = self._record_discovered_url(project_id, k_url, url, scope, "katana")
-                                    if u and u.endswith(".js"):
-                                        js_list.append(u)
+                            spectre_v5_modules.run_deep_web_and_fuzz_tools(
+                                self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn
+                            )
                             if is_high_val:
                                 self._stage5_openapi_discovery(project_id, url, scope, log_fn)
                             self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)

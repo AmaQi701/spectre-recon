@@ -1,161 +1,403 @@
-version: "2.0"
-description: "APEX-ASM Autonomous Recon & Security Audit Tool Registry"
+version: "7.0"
+description: "SPECTRE 13-Category Deep Reconnaissance & ASM Tool Registry"
 
 tools:
-  # STAGE 1: PASSIVE & DNS RECON
+  # 1. SUBDOMAIN ENUMERATION
   - id: crtsh_builtin
-    name: "CRT.sh Certificate Transparency (Built-in)"
-    stage: "1_passive_dns"
+    name: "1.1 Passive OSINT Mesh (CRT.sh, OTX, HackerTarget, URLScan, Anubis)"
+    stage: "1_subdomain_enum"
     binary: "builtin"
     enabled: true
-    description: "SSL/TLS sertifikatlar reestridan subdomenlarni passiv yig'ish"
-    command_template: "builtin:crtsh {domain}"
-
-  - id: dns_enum_builtin
-    name: "DNS Resolver & Zone Analyzer (Built-in dnspython)"
-    stage: "1_passive_dns"
-    binary: "builtin"
-    enabled: true
-    description: "A, AAAA, CNAME, MX, TXT, NS, SOA yozuvlarini va keng tarqalgan subdomenlarni aniqlash"
-    command_template: "builtin:dns_enum {domain}"
+    description: "5 ta global passiv OSINT bazadan subdomenlarni parallel yig'ish"
+    command_template: "builtin:osint_mesh {domain}"
 
   - id: subfinder
-    name: "Subfinder"
-    stage: "1_passive_dns"
+    name: "1.2 Subfinder (All Sources Deep -all -recursive)"
+    stage: "1_subdomain_enum"
     binary: "subfinder"
     enabled: true
-    description: "Passiv manbalar orqali subdomenlarni tezkor qidirish"
-    command_template: "subfinder -d {domain} -silent"
+    description: "Barcha passiv manbalardan rekursiv subdomen qidirish"
+    command_template: "subfinder -d {domain} -all -recursive -silent"
+
+  - id: sublist3r
+    name: "1.3 Sublist3r (Search Engines OSINT)"
+    stage: "1_subdomain_enum"
+    binary: "sublist3r"
+    enabled: true
+    description: "Qidiruv tizimlari va OSINT manbalari orqali subdomen yig'ish"
+    command_template: "sublist3r -d {domain} -n"
 
   - id: amass
-    name: "OWASP Amass (Passive)"
-    stage: "1_passive_dns"
+    name: "1.4 OWASP Amass (Deep Graph Passive)"
+    stage: "1_subdomain_enum"
     binary: "amass"
-    enabled: false
-    description: "Chuqur passiv subdomen va ASN razvedkasi"
+    enabled: true
+    description: "Chuqur passiv subdomen va ASN/tarmoq xaritasi tuzish"
     command_template: "amass enum -passive -d {domain} -timeout 2"
 
+  - id: assetfinder
+    name: "1.5 Assetfinder (--subs-only)"
+    stage: "1_subdomain_enum"
+    binary: "assetfinder"
+    enabled: true
+    description: "Tomnomnom tezkor subdomen qidiruvchisi"
+    command_template: "assetfinder --subs-only {domain}"
+
+  - id: cero
+    name: "1.6 Cero SSL/TLS SAN Certificate Domain Hunter"
+    stage: "1_subdomain_enum"
+    binary: "cero"
+    enabled: true
+    description: "TLS handshake orqali sertifikat ichidagi barcha yashirin domenlarni ajratib olish"
+    command_template: "cero {domain}"
+
+  - id: chaos
+    name: "1.7 ProjectDiscovery Chaos Dataset Client"
+    stage: "1_subdomain_enum"
+    binary: "chaos"
+    enabled: true
+    description: "ProjectDiscovery global Chaos bazasidan subdomenlarni tortish"
+    command_template: "chaos -d {domain} -silent"
+
+  - id: findomain
+    name: "1.8 Findomain Ultra-Fast Rust Subdomain Enumerator"
+    stage: "1_subdomain_enum"
+    binary: "findomain"
+    enabled: true
+    description: "Rust tilidagi tezkor subdomen qidiruvchi (-t {domain} -q)"
+    command_template: "findomain -t {domain} -q"
+
+  # 2. DNS RESOLUTION & PERMUTATION
+  - id: dns_enum_builtin
+    name: "2.1 Deep DNS Resolver, SecLists Brute, SPF & Smart Mutator"
+    stage: "2_dns_permutation"
+    binary: "builtin"
+    enabled: true
+    description: "A/AAAA/CNAME/MX/TXT/NS/SOA, Wildcard filter, Subdomain Takeover va SecLists 300+ brute"
+    command_template: "builtin:deep_dns {domain}"
+
+  - id: dnsx
+    name: "2.2 ProjectDiscovery DNSX (Multi-Record Probe)"
+    stage: "2_dns_permutation"
+    binary: "dnsx"
+    enabled: true
+    description: "A, AAAA, CNAME, MX, TXT, NS, SOA va javoblarni tekshirish"
+    command_template: "dnsx -d {domain} -a -aaaa -cname -mx -txt -ns -soa -resp -silent"
+
+  - id: puredns
+    name: "2.3 PureDNS Wildcard-Filtering Resolver"
+    stage: "2_dns_permutation"
+    binary: "puredns"
+    enabled: true
+    description: "Wildcard DNS javoblarini tozalovchi yuqori aniqlikdagi resolver"
+    command_template: "puredns resolve {domains_file}"
+
+  - id: shuffledns
+    name: "2.4 ShuffleDNS MassDNS Wrapper"
+    stage: "2_dns_permutation"
+    binary: "shuffledns"
+    enabled: true
+    description: "ProjectDiscovery DNS resolver va bruteforce wrapper"
+    command_template: "shuffledns -d {domain} -silent"
+
+  - id: gotator
+    name: "2.5 Gotator Smart DNS Permutation Generator"
+    stage: "2_dns_permutation"
+    binary: "gotator"
+    enabled: true
+    description: "Topilgan subdomenlar asosida aqlli DNS mutatsiyalarni generatsiya qilish"
+    command_template: "gotator -sub {domains_file} -depth 1 -numbers 2 -mindup -md"
+
+  - id: dnsgen
+    name: "2.6 DNSGen Intelligent Domain Mutator"
+    stage: "2_dns_permutation"
+    binary: "dnsgen"
+    enabled: true
+    description: "Subdomen kombinatsiyalarini yaratib yashirin dev/stage xostlarni topish"
+    command_template: "dnsgen {domains_file}"
+
+  - id: fierce
+    name: "2.7 Fierce DNS Zone & Neighbor IP Scanner"
+    stage: "2_dns_permutation"
+    binary: "fierce"
+    enabled: true
+    description: "DNS zona, NS va qo'shni IP bloklarni tekshirish"
+    command_template: "fierce --domain {domain}"
+
   - id: dig
-    name: "Dig DNS Lookup"
-    stage: "1_passive_dns"
+    name: "2.3 Dig DNS Zone & AXFR Inspector"
+    stage: "2_dns_permutation"
     binary: "dig"
     enabled: true
-    description: "DNS A, CNAME, TXT va MX yozuvlarini tekshirish"
-    command_template: "dig +short {domain} ANY"
+    description: "DNS ANY, AXFR (Zone Transfer) va javob yozuvlarini tekshirish"
+    command_template: "dig +noall +answer {domain} ANY"
 
   - id: whois
-    name: "Whois Domain Intelligence"
-    stage: "1_passive_dns"
+    name: "2.4 Whois Domain & Registrar Intelligence"
+    stage: "2_dns_permutation"
     binary: "whois"
     enabled: true
     description: "Domen registratori, NS serverlar va tashkilot ma'lumotlari"
     command_template: "whois {domain}"
 
-  # STAGE 2: NETWORK, PORT & TLS MAPPING
+  # 3. PORT & NETWORK SCANNING
   - id: tls_inspector_builtin
-    name: "TLS/SSL SAN & Cipher Inspector (Built-in)"
-    stage: "2_network_port"
+    name: "3.0 Deep SSL/TLS Certificate, SAN & Shodan CVE Inspector"
+    stage: "3_port_network"
     binary: "builtin"
     enabled: true
-    description: "SSL sertifikat ichidagi Subject Alternative Names (SAN), muddati va TLS versiyasini tekshirish"
-    command_template: "builtin:tls_inspect {domain}"
+    description: "SSL SAN, muddati, Self-Signed, Shodan InternetDB CVE va ASN/ISP xaritasi"
+    command_template: "builtin:tls_shodan_asn {domain}"
 
   - id: nmap
-    name: "Nmap Service & Port Scanner"
-    stage: "2_network_port"
+    name: "3.1 Nmap Deep NSE Recon Scanner (-sV -sC + Discovery Scripts)"
+    stage: "3_port_network"
     binary: "nmap"
     enabled: true
-    description: "Asosiy portlar va servis versiyalarini XML formatda aniqlash"
-    command_template: "nmap -Pn -sV -T4 --top-ports 100 -oX - {domain}"
+    description: "Top portlar, servis versiyalari va NSE skriptlar (banner, http-title, http-headers, ssl-cert, ftp-anon, smb-os-discovery)"
+    command_template: "nmap -Pn -sV -T4 --top-ports 100 --script=banner,http-title,http-headers,ssl-cert,ftp-anon,smb-os-discovery,smb-protocols -oX - {domain}"
 
   - id: naabu
-    name: "Naabu Fast Port Scanner"
-    stage: "2_network_port"
+    name: "3.2 Naabu Fast Port Scanner (-top-ports 1000)"
+    stage: "3_port_network"
     binary: "naabu"
     enabled: true
-    description: "Tezkor port skaneri"
-    command_template: "naabu -host {domain} -top-ports 100 -silent"
+    description: "Top 1000 portni tezkor aniqlash"
+    command_template: "naabu -host {domain} -top-ports 1000 -silent"
 
-  # STAGE 3: WEB PROBING & TECH FINGERPRINTING
+  - id: mapcidr
+    name: "3.3 ProjectDiscovery MapCIDR Subnet Aggregator"
+    stage: "3_port_network"
+    binary: "mapcidr"
+    enabled: true
+    description: "Topilgan IP va /24 CIDR diapazonlarini tahlil qilish"
+    command_template: "mapcidr -cidr {subnet} -silent"
+
+  # 4. WEB PROBING & FINGERPRINTING
   - id: http_prober_builtin
-    name: "HTTP/HTTPS Deep Prober & Header Auditor (Built-in)"
-    stage: "3_web_probe"
+    name: "4.1 SPECTRE Deep HTTP/HTTPS Prober, Non-Standard Ports & VHost Hunter"
+    stage: "4_web_fingerprinting"
     binary: "builtin"
     enabled: true
-    description: "Status code, Title, Tech Stack, Security Headers, Cookies va CORS konfiguratsiyasini yig'ish"
-    command_template: "builtin:http_probe {target_url}"
+    description: "24 ta nostandart port, VHost fuzzing, Favicon mmh3 va CSP/Header miner"
+    command_template: "builtin:http_deep_probe {target_url}"
 
   - id: whatweb
-    name: "WhatWeb Tech Fingerprinter"
-    stage: "3_web_probe"
+    name: "4.2 WhatWeb Deep Aggression (-a 3 JSON Fingerprinter)"
+    stage: "4_web_fingerprinting"
     binary: "whatweb"
     enabled: true
-    description: "Veb-sayt CMS, framework, server va kutubxonalarini aniqlash"
-    command_template: "whatweb --color=never -a 1 {target_url}"
+    description: "CMS, framework, server, plaginlar va versiyalarni JSON formatda chuqur aniqlash (-a 3)"
+    command_template: "whatweb --color=never -a 3 --log-json=- {target_url}"
 
   - id: wafw00f
-    name: "Wafw00f WAF Detector"
-    stage: "3_web_probe"
+    name: "4.3 Wafw00f All-WAF Detector (-a)"
+    stage: "4_web_fingerprinting"
     binary: "wafw00f"
     enabled: true
-    description: "Web Application Firewall (Cloudflare, Imperva, ModSecurity va b.) mavjudligini tekshirish"
+    description: "Barcha WAF qatlamlarini (Cloudflare, Imperva, F5, ModSecurity va b.) to'liq tekshirish (-a)"
     command_template: "wafw00f -a {target_url}"
 
   - id: httpx
-    name: "ProjectDiscovery HTTPX"
-    stage: "3_web_probe"
+    name: "4.4 ProjectDiscovery HTTPX (Tech, Status, Title, CDN, Favicon)"
+    stage: "4_web_fingerprinting"
     binary: "httpx"
     enabled: true
-    description: "HTTP servislar, texnologiyalar va status kodlarni aniqlash"
-    command_template: "httpx -u {target_url} -silent -title -tech-detect -status-code -json"
+    description: "HTTP servislar, texnologiyalar, status, title va favicon xeshni aniqlash"
+    command_template: "httpx -u {target_url} -silent -title -tech-detect -status-code -server -favicon -json"
 
-  # STAGE 4: CRAWLING & HISTORICAL URLS
+  - id: httprobe
+    name: "4.5 Tomnomnom Httprobe Fast Live Web Verifier"
+    stage: "4_web_fingerprinting"
+    binary: "httprobe"
+    enabled: true
+    description: "Subdomenlar ro'yxatidan tirik HTTP/HTTPS serverlarni tezkor ajratish"
+    command_template: "httprobe -prefer-https"
+
+  # 5. CRAWLING & HISTORICAL DATA
   - id: katana
-    name: "Katana Web Crawler"
-    stage: "4_crawling"
+    name: "5.1 Katana Deep JS/Form Crawler (-d 3 -jc -kf all -fx)"
+    stage: "5_crawling_history"
     binary: "katana"
     enabled: true
-    description: "Zamonaviy veb-sayt va JS fayllarni chuqur crawl qilish"
-    command_template: "katana -u {target_url} -d 2 -jc -silent -ef woff,css,png,jpg,svg,ico"
+    description: "Chuqurlik 3 (-d 3), JS parsing (-jc), robots/sitemap (-kf all) va form extraction (-fx)"
+    command_template: "katana -u {target_url} -d 3 -jc -kf all -fx -silent -ef woff,woff2,ttf,css,png,jpg,jpeg,gif,svg,ico"
 
   - id: wayback_builtin
-    name: "Wayback Machine Archive Collector (Built-in)"
-    stage: "4_crawling"
+    name: "5.2 Wayback Machine CDX & Ghost Endpoint Prober"
+    stage: "5_crawling_history"
     binary: "builtin"
     enabled: true
-    description: "Web.archive.org orqali tarixiy endpoint, API va JS manzillarini passiv olish"
-    command_template: "builtin:wayback {domain}"
+    description: "Web.archive.org tarixiy URL'larni olish va unutilgan (Ghost) API'larni tiriklikka tekshirish"
+    command_template: "builtin:wayback_ghost {domain}"
 
-  # STAGE 5: CONTENT, API & SCHEMA DISCOVERY
+  - id: gau
+    name: "5.3 GAU (GetAllUrls — Wayback, OTX, CommonCrawl)"
+    stage: "5_crawling_history"
+    binary: "gau"
+    enabled: true
+    description: "Wayback, AlienVault OTX va CommonCrawl arxivlaridan barcha URL'larni yig'ish"
+    command_template: "gau {domain} --subs"
+
+  - id: waybackurls
+    name: "5.4 Waybackurls (Tomnomnom)"
+    stage: "5_crawling_history"
+    binary: "waybackurls"
+    enabled: true
+    description: "Wayback Machine arxivlaridan tarixiy URL'larni tezkor yig'ish"
+    command_template: "waybackurls {domain}"
+
+  - id: gospider
+    name: "5.5 GoSpider Deep JS & Sitemap Crawler"
+    stage: "5_crawling_history"
+    binary: "gospider"
+    enabled: true
+    description: "GoSpider orqali sayt xaritasi, robots.txt va JS linklarni chuqur yig'ish"
+    command_template: "gospider -s {target_url} -d 2 -c 10 -t 5 --js --sitemap --robots -q"
+
+  - id: hakrawler
+    name: "5.6 Hakrawler Fast Endpoint & Form Extractor"
+    stage: "5_crawling_history"
+    binary: "hakrawler"
+    enabled: true
+    description: "Tezkor endpoint va JS link ekstraktor"
+    command_template: "echo {target_url} | hakrawler -d 2 -subs -u"
+
+  - id: waymore
+    name: "5.7 Waymore Deep Archive & Historical URL Extractor"
+    stage: "5_crawling_history"
+    binary: "waymore"
+    enabled: true
+    description: "Wayback, CommonCrawl, OTX va URLScan arxivlaridan kengaytirilgan URL yig'ish"
+    command_template: "waymore -i {domain} -mode U -np"
+
+  - id: arjun
+    name: "5.8 Arjun Hidden HTTP GET/POST/JSON Parameter Miner"
+    stage: "5_crawling_history"
+    binary: "arjun"
+    enabled: true
+    description: "API va veb sahifalardagi yashirin GET/POST parametrlarini topish"
+    command_template: "arjun -u {target_url} -oJ {output_json} -q"
+
+  # 6. DIRECTORY & FILE FUZZING
   - id: openapi_swagger_builtin
-    name: "OpenAPI / Swagger / GraphQL / Well-Known Discovery (Built-in)"
-    stage: "5_api_content"
+    name: "6.0 OpenAPI / Swagger / GraphQL / Backup & Shadow API Prober"
+    stage: "6_directory_fuzzing"
     binary: "builtin"
     enabled: true
-    description: "API hujjatlari (swagger.json, openapi.yaml, graphql, actuator, .well-known) va sxemalarini tahlil qilish"
-    command_template: "builtin:openapi_discovery {target_url}"
+    description: "35+ sezgir fayl (.env, .git, swagger, actuator), GraphQL Introspection va Shadow API v0/v1/v2"
+    command_template: "builtin:openapi_shadow_backup {target_url}"
 
   - id: ffuf
-    name: "FFUF Web Fuzzer (Safe Discovery)"
-    stage: "5_api_content"
+    name: "6.1 FFUF Auto-Calibrated SecLists Fuzzer (-ac -of json)"
+    stage: "6_directory_fuzzing"
     binary: "ffuf"
-    enabled: false
-    description: "Yashirin katalog va API yo'llarini qidirish"
-    command_template: "ffuf -u {target_url}/FUZZ -w {wordlist} -mc 200,204,301,302,307,401,403 -t 20 -s"
+    enabled: true
+    description: "SecLists common.txt bilan auto-calibrated (-ac) yashirin katalog va fayllarni chuqur qidirish"
+    command_template: "ffuf -u {target_url}/FUZZ -w /home/amaqi/SecLists/Discovery/Web-Content/common.txt -mc 200,204,301,302,307,401,403,405 -ac -t 30 -maxtime 30 -of json -o {output_json} -s"
+
+  - id: dirsearch
+    name: "6.2 Dirsearch Advanced Web Path Scanner"
+    stage: "6_directory_fuzzing"
+    binary: "dirsearch"
+    enabled: true
+    description: "Python asosidagi boy lug'atli direktoriya va konfiguratsiya skaneri"
+    command_template: "dirsearch -u {target_url} -q --format=json -o {output_json}"
 
   - id: gobuster
-    name: "Gobuster Directory Scanner"
-    stage: "5_api_content"
+    name: "6.3 Gobuster Directory & File Fuzzer"
+    stage: "6_directory_fuzzing"
     binary: "gobuster"
-    enabled: false
-    description: "Katalog va fayllarni qidirish"
-    command_template: "gobuster dir -u {target_url} -w {wordlist} -q --no-error"
+    enabled: true
+    description: "SecLists yordamida yashirin kataloglarni qidirish"
+    command_template: "gobuster dir -u {target_url} -w /home/amaqi/SecLists/Discovery/Web-Content/common.txt -q --no-error -t 25 --timeout 5s"
 
-  # STAGE 6: JS INTELLIGENCE & SAST
+  - id: wfuzz
+    name: "6.4 Wfuzz Parameter & Directory Fuzzer"
+    stage: "6_directory_fuzzing"
+    binary: "wfuzz"
+    enabled: false
+    description: "Parametrlar va direktoriyalarni fuzz qilish vositasi"
+    command_template: "wfuzz -c -z file,/home/amaqi/SecLists/Discovery/Web-Content/common.txt --hc 404 {target_url}/FUZZ"
+
+  # 7-14. JS, SECRETS, CLOUD, OSINT, NUCLEI & INTERNAL/AD RECON
   - id: js_intelligence_builtin
-    name: "Deep JS AST/Regex Endpoint, Parameter & Sink Extractor (Built-in)"
-    stage: "6_js_intelligence"
+    name: "8.1 SPECTRE Deep JS Bundle, Lazy-Chunk, SourceMap & getjswords Deconstructor"
+    stage: "7_js_cloud_ad"
     binary: "builtin"
     enabled: true
-    description: "JS fayllardan API route'lar, GET/POST parametrlar, DOM XSS sinklar va kalit patternlarni ajratish"
-    command_template: "builtin:js_analyzer {target_url}"
+    description: "40+ JS bundle, unlinked chunklar, ${param} route'lar, POST/PUT/DELETE metodlar, DOM sinklar va .js.map"
+    command_template: "builtin:js_deconstructor {target_url}"
+
+  - id: subjs
+    name: "8.2 SubJS JavaScript Extractor"
+    stage: "7_js_cloud_ad"
+    binary: "subjs"
+    enabled: true
+    description: "URL'lar ichidan barcha JavaScript fayllarni ajratib olish"
+    command_template: "subjs"
+
+  - id: s3scanner
+    name: "9.1 S3Scanner & Multi-Cloud Bucket Permission Auditor"
+    stage: "7_js_cloud_ad"
+    binary: "s3scanner"
+    enabled: true
+    description: "AWS S3, DigitalOcean, Azure va GCP bucketlarning ochiq ruxsatlarini tekshirish"
+    command_template: "s3scanner -bucket {domain}"
+
+  - id: trufflehog
+    name: "10.1 TruffleHog Verified Secret & Token Scanner"
+    stage: "7_js_cloud_ad"
+    binary: "trufflehog"
+    enabled: true
+    description: "Yuklab olingan JS bundle va konfiguratsiyalardan API kalitlarni qidirish"
+    command_template: "trufflehog filesystem {source_path} --json"
+
+  - id: gitleaks
+    name: "10.2 Gitleaks Hardcoded Password & Key Auditor"
+    stage: "7_js_cloud_ad"
+    binary: "gitleaks"
+    enabled: true
+    description: "Manba kodlar va JS fayllardan hardcoded token va sirlarni qidirish"
+    command_template: "gitleaks detect --no-git -s {source_path}"
+
+  - id: holehe
+    name: "12.1 Holehe Corporate Email OSINT Account Checker"
+    stage: "7_js_cloud_ad"
+    binary: "holehe"
+    enabled: true
+    description: "Topilgan korporativ emaillar 120+ xizmatda ro'yxatdan o'tganini tekshirish"
+    command_template: "holehe {email} --only-used --no-color"
+
+  - id: netexec
+    name: "13.1 NetExec (nxc) SMB / SSH / WinRM Service & Domain Enumerator"
+    stage: "7_js_cloud_ad"
+    binary: "nxc"
+    enabled: true
+    description: "Ochiq 445 (SMB) va 22 (SSH) portlarda OS versiyasi, AD Domain nomi va SMB Signing holatini aniqlash"
+    command_template: "nxc smb {ip}"
+
+  - id: kerbrute
+    name: "13.2 Kerbrute Active Directory Kerberos Enumerator"
+    stage: "7_js_cloud_ad"
+    binary: "kerbrute"
+    enabled: true
+    description: "Ichki tarmoqda (88-port) Kerberos xizmatini xavfsiz tekshirish"
+    command_template: "kerbrute version"
+
+  - id: nuclei
+    name: "14.1 Nuclei Recon, Exposure & Tech Scanner"
+    stage: "7_js_cloud_ad"
+    binary: "nuclei"
+    enabled: true
+    description: "Nuclei shablonlari asosida texnologiyalar, ochiq panellar va miskonfiguratsiyalarni aniqlash"
+    command_template: "nuclei -u {target_url} -t /home/amaqi/Kali-Tools/nuclei-templates/http/exposures/ -silent -jsonl"
+
+  - id: dalfox
+    name: "14.2 Dalfox Parameter & DOM XSS Recon Analyzer"
+    stage: "7_js_cloud_ad"
+    binary: "dalfox"
+    enabled: true
+    description: "Topilgan parametrli URL'larda refleksiya va DOM sinklarni chuqur tekshirish"
+    command_template: "dalfox url {target_url} --silence --no-color"
+
