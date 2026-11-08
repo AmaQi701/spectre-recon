@@ -148,18 +148,25 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
     if not non_cdn_ips:
         return
 
-    subnets = sorted({".".join(ip.split(".")[:3]) for ip in non_cdn_ips if len(ip.split(".")) == 4})[:2]
-    neighbor_candidates = [f"{pref}.{oct_i}" for pref in subnets for oct_i in range(1, 255)]
+    neighbor_set = set()
+    for ip in sorted(set(non_cdn_ips))[:5]:
+        parts = ip.split(".")
+        if len(parts) == 4 and parts[3].isdigit():
+            pref = ".".join(parts[:3])
+            oct_val = int(parts[3])
+            for d_oct in list(range(max(1, oct_val - 20), min(255, oct_val + 21))) + [1, 2, 5, 10, 50, 100, 150, 156, 200, 250, 253, 254]:
+                neighbor_set.add(f"{pref}.{d_oct}")
+    neighbor_candidates = sorted(neighbor_set)
     if not neighbor_candidates:
         return
 
-    log_fn(f"[SPECTRE Ultra #2 -> Full /24 Subnet PTR Sweeper] {len(subnets)} ta /24 tarmoq ({len(neighbor_candidates)} ta IP) da Reverse-DNS (PTR) tekshirilmoqda...")
+    log_fn(f"[SPECTRE Ultra #2 -> /24 Subnet PTR Sweeper] {len(neighbor_candidates)} ta qo'shni IP manzilda Reverse-DNS (PTR) tekshirilmoqda...")
     ptr_map = {}
 
     def check_neighbor(n_ip: str):
         try:
             rev_name = dns.reversename.from_address(n_ip)
-            ans = dns.resolver.resolve(rev_name, "PTR", lifetime=1.8)
+            ans = dns.resolver.resolve(rev_name, "PTR", lifetime=1.0)
             for rdata in ans:
                 ptr_host = rdata.to_text().rstrip(".").lower()
                 if ptr_host:
@@ -179,7 +186,7 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
         db.upsert_finding(
             project_id, "SPECTRE-Agent1 (/24 Subnet PTR Mapper)", f"Datacenter /24 Subnet Neighborhood Map ({len(ptr_map)} Active PTR Hosts)",
             "Network Infrastructure Intelligence", "Info", 0.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
-            "CWE-200", "A05:2021 - Security Misconfiguration", ", ".join(f"{s}.0/24" for s in subnets),
+            "CWE-200", "A05:2021 - Security Misconfiguration", ", ".join(sorted({".".join(i.split(".")[:3]) + ".0/24" for i in non_cdn_ips[:3]})),
             "Discovered /24 PTR Neighbors:\n" + "\n".join(sample_ptrs),
             "Nishon server joylashgan /24 subnetdagi qo'shni serverlar va PTR yozuvlari xaritasi tuzildi.",
             "Maxfiy ichki subdomen nomlarini oshkor qilmaslik uchun PTR (Reverse-DNS) yozuvlarini neytral nomda saqlang.",
