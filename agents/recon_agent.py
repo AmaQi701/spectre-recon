@@ -8,6 +8,7 @@ import signal
 import socket
 import ssl
 import subprocess
+import threading
 import urllib.parse
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -128,13 +129,28 @@ class ReconSuperAgent:
                 t["enabled"] = bool(enabled)
         self.registry_path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
-    def _run_cli(self, cmd: str, log_fn, timeout: int = 90, project_id: int = 0) -> str:
+    def _run_cli(self, cmd: str, log_fn, timeout: int = 45, project_id: int = 0) -> str:
         if project_id in self.abort_flags:
             return ""
         env = os.environ.copy()
         env["PATH"] = ":".join(self.EXTRA_PATHS) + ":" + env.get("PATH", "")
         log_fn(f"[CMD] $ {cmd}")
         proc = None
+        timed_out = False
+
+        def _watchdog_kill():
+            nonlocal timed_out
+            timed_out = True
+            if proc and proc.poll() is None:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+
+        timer = threading.Timer(timeout, _watchdog_kill)
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -145,31 +161,30 @@ class ReconSuperAgent:
                 env=env,
                 preexec_fn=os.setsid,
             )
+            timer.start()
             if project_id:
                 self.active_procs.setdefault(project_id, []).append(proc)
             output_lines = []
             if proc.stdout:
                 for line in proc.stdout:
-                    if project_id in self.abort_flags:
+                    if project_id in self.abort_flags or timed_out:
                         break
                     clean_line = line.rstrip()
                     if clean_line:
                         output_lines.append(clean_line)
                         if len(output_lines) <= 45:
                             log_fn(f"  │ {clean_line[:160]}")
-            proc.wait(timeout=timeout)
+            proc.wait(timeout=3)
+            if timed_out:
+                log_fn(f"[WARN] Command timeout ({timeout}s), davom etilmoqda: {cmd}")
             return "\n".join(output_lines)
-        except subprocess.TimeoutExpired:
-            if proc:
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                except Exception:
-                    proc.kill()
-            log_fn(f"[WARN] Command timeout ({timeout}s): {cmd}")
-            return ""
         except Exception as e:
-            log_fn(f"[ERR] CLI xatolik: {e}")
+            if not timed_out:
+                log_fn(f"[WARN] CLI yakunlandi: {e}")
             return ""
+        finally:
+            timer.cancel()
+
 
 
     # ================= STAGE 1: MULTI-SOURCE PASSIVE OSINT & DNS =================

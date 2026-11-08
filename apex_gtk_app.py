@@ -49,8 +49,12 @@ treeview header button:hover { background-color: #1e293b; color: #38bdf8; }
 
 entry, combobox button { background-image: none; background-color: #090d16; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 6px 10px; box-shadow: none; }
 entry:focus { border-color: #0ea5e9; }
-textview, textview text { background-color: #070a12; color: #cbd5e1; font-family: "JetBrains Mono", "Ubuntu Mono", monospace; font-size: 12px; }
-.panel-box { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 10px; }
+textview, textview text { background-color: #070a12; color: #34d399; font-family: "JetBrains Mono", "Ubuntu Mono", monospace; font-size: 12.5px; }
+.panel-box { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 8px; }
+progressbar text { color: #ffffff; font-weight: 700; font-size: 12px; }
+progressbar trough { min-height: 22px; background-color: #090d16; border: 1px solid #1e293b; border-radius: 6px; }
+progressbar progress { min-height: 22px; background-image: none; background-color: #0284c7; border-radius: 6px; }
+
 
 .act-btn { background-image: none; background-color: #0284c7; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 6px; padding: 6px 13px; border: none; box-shadow: none; }
 .act-btn:hover { background-color: #0369a1; }
@@ -282,7 +286,7 @@ class ApexNativeWindow(Gtk.Window):
         root_vbox.pack_start(stats_box, False, False, 0)
 
         vpaned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
-        vpaned.set_position(560)
+        vpaned.set_position(430)
         root_vbox.pack_start(vpaned, True, True, 0)
         vpaned.pack1(self.stack, True, False)
 
@@ -466,15 +470,24 @@ class ApexNativeWindow(Gtk.Window):
         self.stack.add_named(tab6, "p_tools")
 
 
-        # Bottom Live Terminal
+        # Bottom Live Terminal (Guaranteed 185px minimum height so it is always clearly visible)
+        term_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        term_box.get_style_context().add_class("panel-box")
+        term_hdr = Gtk.Label(xalign=0)
+        term_hdr.set_markup("<span foreground='#38bdf8' weight='bold' size='small'>🖥️ LIVE RECON &amp; AGENT TERMINAL STREAM</span>")
+        term_box.pack_start(term_hdr, False, False, 0)
         term_scroll = Gtk.ScrolledWindow()
+        term_scroll.set_size_request(-1, 175)
         self.term_view = Gtk.TextView()
         self.term_view.set_editable(False)
         self.term_view.set_monospace(True)
+        self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v3.0 NATIVE GTK3 STUDIO] Mahalliy Ubuntu kiber-razvedka platformasi ishga tushdi.\n")
+        self.term_buf.set_text("[SPECTRE v6.0 NATIVE GTK3 STUDIO] Mahalliy Ubuntu kiber-razvedka platformasi tayyor.\n")
         term_scroll.add(self.term_view)
-        vpaned.pack2(term_scroll, False, False)
+        term_box.pack_start(term_scroll, True, True, 0)
+        vpaned.pack2(term_box, False, False)
+
 
     def log_msg(self, msg: str):
         def _append():
