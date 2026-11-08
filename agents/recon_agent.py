@@ -20,7 +20,7 @@ from bs4 import BeautifulSoup, Comment
 
 from core.database import DatabaseManager
 from core.scope_guard import ScopeGuard
-from agents import spectre_deep_modules, spectre_v5_modules
+from agents import spectre_deep_modules, spectre_v5_modules, spectre_ultra_modules
 
 urllib3_disable = getattr(requests.packages, "urllib3", None)
 if urllib3_disable:
@@ -934,6 +934,8 @@ class ReconSuperAgent:
             spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
             _prog(0.55, f"Stage 2/6: Nmap Deep NSE, Naabu & NetExec ({primary_host})...")
             spectre_v5_modules.run_deep_network_and_ad_tools(self, project_id, primary_host, active_ids, log_fn)
+            spectre_ultra_modules.sweep_subnet_neighbors_and_ptr(self.db, project_id, apex_domain, scope, log_fn)
+            spectre_ultra_modules.unmask_cloudflare_origin_ips(self.db, self.session, project_id, apex_domain, primary_host, log_fn)
             spectre_deep_modules.probe_nonstandard_web_ports(self.db, self.session, project_id, log_fn)
             spectre_deep_modules.hunt_virtual_hosts(self.db, self.session, project_id, apex_domain, log_fn)
 
@@ -945,17 +947,18 @@ class ReconSuperAgent:
             high_value_prefixes = ("id.", "api.", "backend.", "accounts.", "my.", "admin.", "portal.", "dev.", "svc.", "auth.", "sso.")
             probed_domains = set()
             for pass_num in (1, 2):
-                domains = [d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", []) if d.get("ip") or d.get("cname") or d["domain"] == primary_host or pass_num == 2]
+                if pass_num == 2 and recon_mode == "full":
+                    self._stage1_dns_enum(project_id, primary_host, scope, log_fn)
+                    self._stage2_shodan_internetdb(project_id, scope, log_fn)
+                    spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
+                domains = [d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", []) if d.get("ip") or d.get("cname") or d["domain"] == primary_host]
                 if primary_host not in domains:
                     domains.insert(0, primary_host)
                 new_batch = [d for d in domains if d not in probed_domains][:14]
                 if not new_batch:
                     break
                 if pass_num == 2 and recon_mode == "full":
-                    log_fn(f"[SPECTRE Recursive Loop] 2-to'lqinda topilgan {len(new_batch)} ta yangi subdomen tekshirilmoqda: {', '.join(new_batch)}")
-                    self._stage1_dns_enum(project_id, primary_host, scope, log_fn)
-                    self._stage2_shodan_internetdb(project_id, scope, log_fn)
-                    spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
+                    log_fn(f"[SPECTRE Recursive Loop] 2-to'lqinda DNS tasdiqlangan {len(new_batch)} ta tirik subdomen tekshirilmoqda: {', '.join(new_batch)}")
 
                 for dom in new_batch:
                     probed_domains.add(dom)
@@ -979,7 +982,12 @@ class ReconSuperAgent:
                             self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
                             break
 
-            _prog(0.90, "Stage 6/6: Deep Post-Recon Audits (Storage, Shadow API, SSL, Backup)...")
+            _prog(0.90, "Stage 6/6: Deep Post-Recon Audits (Manifests, Secrets v2, Mobile/OIDC, SSL, Backup)...")
+            spectre_ultra_modules.deconstruct_spa_manifests_and_ssr_state(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+            spectre_ultra_modules.hunt_deep_secrets_and_uz_ecosystem(self.db, self.session, project_id, log_fn)
+            spectre_ultra_modules.mine_well_known_and_mobile_links(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+            spectre_ultra_modules.trace_redirect_chains_and_oauth_flows(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+            spectre_ultra_modules.extract_document_metadata_osint(self.db, self.session, project_id, apex_domain, log_fn)
             spectre_deep_modules.hunt_cloud_and_storage_buckets(self.db, self.session, project_id, apex_domain, log_fn)
             spectre_deep_modules.probe_api_versions_and_ghost_endpoints(self.db, project_id, log_fn)
             spectre_deep_modules.classify_auth_portals_and_schema(self.db, project_id, log_fn)
@@ -991,8 +999,6 @@ class ReconSuperAgent:
 
         spectre_deep_modules.log_incremental_diff(before_snap, self.db, project_id, log_fn)
         _prog(1.0, "✅ Recon Completed!")
-
-
 
         b_final = self.db.get_project_bundle(project_id)
         unique_ips = sorted({d["ip"] for d in b_final["domains"] if d.get("ip")})
@@ -1008,6 +1014,56 @@ class ReconSuperAgent:
 
         self.db.update_project_status(project_id, "RECON_COMPLETED")
         log_fn("═══ ✅ SPECTRE 1-SUPERAGENT: DEEP RECON YAKUNLANDI ═══")
+
+    def run_single_subdomain_deep_recon(self, project_id: int, target_host: str, log_fn, progress_fn=None):
+        def _prog(frac: float, text: str):
+            if progress_fn:
+                try:
+                    progress_fn(frac, text)
+                except Exception:
+                    pass
+
+        proj = self.db.get_project(project_id)
+        if not proj:
+            return
+        scope = ScopeGuard(proj["in_scope"], proj["out_of_scope"])
+        target_host = ScopeGuard.extract_host(target_host)
+        ok, reason = scope.is_in_scope(target_host)
+        if not ok:
+            log_fn(f"[SCOPE BLOCK] '{target_host}' ruxsat etilgan scope ichida emas: {reason}")
+            return
+
+        self.abort_flags.discard(project_id)
+        active_ids = {t["id"] for t in self.get_tools_status() if t.get("enabled") and t.get("installed")}
+        apex_domain = ScopeGuard.extract_apex_domain(target_host)
+        log_fn(f"═══ 🎯 SINGLE-HOST DEEP SURGICAL RECON: {target_host} ═══")
+
+        _prog(0.20, f"Single-Host DNS, TLS & Nmap Deep NSE: {target_host}...")
+        tls_info = self._stage2_tls_inspect(project_id, target_host, scope, log_fn)
+        spectre_v5_modules.run_deep_network_and_ad_tools(self, project_id, target_host, active_ids, log_fn)
+
+        _prog(0.55, f"Single-Host Deep Web, FFUF, Katana, Arjun & JS: {target_host}...")
+        for scheme in ("https", "http"):
+            url = f"{scheme}://{target_host}"
+            html = self._stage3_http_probe(project_id, url, tls_info, scope, log_fn)
+            if html:
+                spectre_deep_modules.fingerprint_favicon(self.session, url, self.db, project_id, log_fn)
+                js_list = self._stage4_html_and_wayback(project_id, url, html, target_host, scope, log_fn)
+                spectre_v5_modules.run_deep_web_and_fuzz_tools(
+                    self, project_id, url, target_host, target_host, True, scope, active_ids, js_list, log_fn
+                )
+                self._stage5_openapi_discovery(project_id, url, scope, log_fn)
+                self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
+                break
+
+        _prog(0.85, f"Single-Host SPA Manifest, SecretHunter v2 & Mobile/OIDC: {target_host}...")
+        spectre_ultra_modules.deconstruct_spa_manifests_and_ssr_state(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+        spectre_ultra_modules.hunt_deep_secrets_and_uz_ecosystem(self.db, self.session, project_id, log_fn)
+        spectre_ultra_modules.mine_well_known_and_mobile_links(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+        spectre_ultra_modules.trace_redirect_chains_and_oauth_flows(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+        _prog(1.0, f"✅ Deep Scan Completed: {target_host}")
+        log_fn(f"═══ ✅ SINGLE-HOST DEEP RECON YAKUNLANDI: {target_host} ═══")
+
 
 
 

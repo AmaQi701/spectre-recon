@@ -316,9 +316,9 @@ tools:
     name: "6.4 Wfuzz Parameter & Directory Fuzzer"
     stage: "6_directory_fuzzing"
     binary: "wfuzz"
-    enabled: false
+    enabled: true
     description: "Parametrlar va direktoriyalarni fuzz qilish vositasi"
-    command_template: "wfuzz -c -z file,/home/amaqi/SecLists/Discovery/Web-Content/common.txt --hc 404 {target_url}/FUZZ"
+    command_template: "wfuzz -c -z file,/home/amaqi/SecLists/Discovery/Web-Content/common.txt --hc 404,403 {target_url}/FUZZ"
 
   # 7-14. JS, SECRETS, CLOUD, OSINT, NUCLEI & INTERNAL/AD RECON
   - id: js_intelligence_builtin

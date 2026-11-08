@@ -297,88 +297,87 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
     import shlex
 
     safe_apex = shlex.quote(apex_domain)
+    log_fn(f"[SPECTRE Parallel Subdomain Engine] 6 ta subdomen vositasi (Subfinder, Sublist3r, Amass, Assetfinder, Cero, Findomain) parallel ishga tushirilmoqda...")
 
-    # 1.2 Subfinder (-all -recursive)
-    if "subfinder" in active_ids and agent._find_binary("subfinder"):
-        log_fn(f"[Tool 1.2 -> Subfinder Deep] Barcha passiv manbalardan (-all) subdomenlar yig'ilmoqda: {apex_domain}...")
-        out = agent._run_cli(f"subfinder -d {safe_apex} -all -silent", log_fn, timeout=50, project_id=project_id)
-        cnt = 0
-        for line in out.splitlines():
-            h = line.strip().lower().rstrip(".")
-            if h and scope.is_in_scope(h)[0]:
-                agent.db.upsert_domain(project_id, h, source="subfinder_deep")
-                cnt += 1
-        log_fn(f"  [+] Subfinder Deep yakunlandi: {cnt} ta subdomen bazaga qo'shildi.")
+    def _task_subfinder():
+        if "subfinder" in active_ids and agent._find_binary("subfinder"):
+            out = agent._run_cli(f"subfinder -d {safe_apex} -all -silent", log_fn, timeout=45, project_id=project_id)
+            cnt = 0
+            for line in out.splitlines():
+                h = line.strip().lower().rstrip(".")
+                if h and scope.is_in_scope(h)[0]:
+                    agent.db.upsert_domain(project_id, h, source="subfinder_deep")
+                    cnt += 1
+            log_fn(f"  [+] Subfinder Deep yakunlandi: {cnt} ta subdomen bazaga qo'shildi.")
 
-    # 1.3 Sublist3r
-    if "sublist3r" in active_ids and agent._find_binary("sublist3r"):
-        out_file = f"/tmp/spectre_sublist3r_{project_id}.txt"
-        try:
-            if os.path.exists(out_file):
-                os.remove(out_file)
-        except Exception:
-            pass
-        log_fn(f"[Tool 1.3 -> Sublist3r] Qidiruv tizimlari orqali subdomenlar qidirilmoqda: {apex_domain}...")
-        agent._run_cli(f"sublist3r -d {safe_apex} -n -o {out_file}", log_fn, timeout=45, project_id=project_id)
-        cnt = 0
-        if os.path.exists(out_file):
+    def _task_sublist3r():
+        if "sublist3r" in active_ids and agent._find_binary("sublist3r"):
+            out_file = f"/tmp/spectre_sublist3r_{project_id}.txt"
             try:
-                for line in open(out_file, "r", errors="ignore"):
-                    h = line.strip().lower().rstrip(".")
-                    if h and h.endswith(apex_domain) and scope.is_in_scope(h)[0]:
-                        agent.db.upsert_domain(project_id, h, source="sublist3r")
-                        cnt += 1
+                if os.path.exists(out_file):
+                    os.remove(out_file)
             except Exception:
                 pass
-        log_fn(f"  [+] Sublist3r yakunlandi: {cnt} ta subdomen topildi.")
+            agent._run_cli(f"sublist3r -d {safe_apex} -n -o {out_file}", log_fn, timeout=40, project_id=project_id)
+            cnt = 0
+            if os.path.exists(out_file):
+                try:
+                    for line in open(out_file, "r", errors="ignore"):
+                        h = line.strip().lower().rstrip(".")
+                        if h and h.endswith(apex_domain) and scope.is_in_scope(h)[0]:
+                            agent.db.upsert_domain(project_id, h, source="sublist3r")
+                            cnt += 1
+                except Exception:
+                    pass
+            log_fn(f"  [+] Sublist3r yakunlandi: {cnt} ta subdomen topildi.")
 
-    # 1.4 OWASP Amass (Passive Graph)
-    if "amass" in active_ids and agent._find_binary("amass"):
-        log_fn(f"[Tool 1.4 -> OWASP Amass] Passiv ASN va subdomen grafigi tuzilmoqda: {apex_domain}...")
-        out = agent._run_cli(f"amass enum -passive -d {safe_apex} -timeout 1", log_fn, timeout=65, project_id=project_id)
-        cnt = 0
-        for m in re.findall(r"(?:[a-zA-Z0-9\-]+\.)+" + re.escape(apex_domain), out):
-            h = m.lower().strip(".")
-            if scope.is_in_scope(h)[0]:
-                agent.db.upsert_domain(project_id, h, source="amass_passive")
-                cnt += 1
-        log_fn(f"  [+] OWASP Amass yakunlandi: {cnt} ta subdomen ajratib olindi.")
+    def _task_amass():
+        if "amass" in active_ids and agent._find_binary("amass"):
+            out = agent._run_cli(f"amass enum -passive -d {safe_apex} -timeout 1", log_fn, timeout=55, project_id=project_id)
+            cnt = 0
+            for m in re.findall(r"(?:[a-zA-Z0-9\-]+\.)+" + re.escape(apex_domain), out):
+                h = m.lower().strip(".")
+                if scope.is_in_scope(h)[0]:
+                    agent.db.upsert_domain(project_id, h, source="amass_passive")
+                    cnt += 1
+            log_fn(f"  [+] OWASP Amass yakunlandi: {cnt} ta subdomen ajratib olindi.")
 
-    # 1.5 Assetfinder
-    if "assetfinder" in active_ids and agent._find_binary("assetfinder"):
-        log_fn(f"[Tool 1.5 -> Assetfinder] Qo'shimcha passiv manbalar tekshirilmoqda: {apex_domain}...")
-        out = agent._run_cli(f"assetfinder --subs-only {safe_apex}", log_fn, timeout=30, project_id=project_id)
-        cnt = 0
-        for line in out.splitlines():
-            h = line.strip().lower().rstrip(".")
-            if h and h.endswith(apex_domain) and scope.is_in_scope(h)[0]:
-                agent.db.upsert_domain(project_id, h, source="assetfinder")
-                cnt += 1
-        log_fn(f"  [+] Assetfinder yakunlandi: {cnt} ta subdomen topildi.")
+    def _task_assetfinder():
+        if "assetfinder" in active_ids and agent._find_binary("assetfinder"):
+            out = agent._run_cli(f"assetfinder --subs-only {safe_apex}", log_fn, timeout=28, project_id=project_id)
+            cnt = 0
+            for line in out.splitlines():
+                h = line.strip().lower().rstrip(".")
+                if h and h.endswith(apex_domain) and scope.is_in_scope(h)[0]:
+                    agent.db.upsert_domain(project_id, h, source="assetfinder")
+                    cnt += 1
+            log_fn(f"  [+] Assetfinder yakunlandi: {cnt} ta subdomen topildi.")
 
-    # 1.6 Cero (SSL/TLS SAN Certificate Domain Hunter)
-    if "cero" in active_ids and agent._find_binary("cero"):
-        log_fn(f"[Tool 1.6 -> Cero TLS SAN Hunter] Sertifikat X.509 SAN yozuvlaridan domenlar qidirilmoqda: {apex_domain}...")
-        out = agent._run_cli(f"cero {safe_apex}", log_fn, timeout=20, project_id=project_id)
-        cnt = 0
-        for line in out.splitlines():
-            h = line.strip().lower().lstrip("*.").rstrip(".")
-            if h and h.endswith(apex_domain) and scope.is_in_scope(h)[0]:
-                agent.db.upsert_domain(project_id, h, source="cero_tls")
-                cnt += 1
-        log_fn(f"  [+] Cero yakunlandi: {cnt} ta SAN subdomen topildi.")
+    def _task_cero():
+        if "cero" in active_ids and agent._find_binary("cero"):
+            out = agent._run_cli(f"cero {safe_apex}", log_fn, timeout=18, project_id=project_id)
+            cnt = 0
+            for line in out.splitlines():
+                h = line.strip().lower().lstrip("*.").rstrip(".")
+                if h and h.endswith(apex_domain) and scope.is_in_scope(h)[0]:
+                    agent.db.upsert_domain(project_id, h, source="cero_tls")
+                    cnt += 1
+            log_fn(f"  [+] Cero TLS SAN yakunlandi: {cnt} ta subdomen topildi.")
 
-    # 1.8 Findomain (Rust Subdomain Scanner)
-    if "findomain" in active_ids and agent._find_binary("findomain"):
-        log_fn(f"[Tool 1.8 -> Findomain Rust Scanner] Yuqori tezlikda subdomenlar yig'ilmoqda: {apex_domain}...")
-        out = agent._run_cli(f"findomain -t {safe_apex} -q", log_fn, timeout=25, project_id=project_id)
-        cnt = 0
-        for line in out.splitlines():
-            h = line.strip().lower().rstrip(".")
-            if h and h.endswith(apex_domain) and scope.is_in_scope(h)[0]:
-                agent.db.upsert_domain(project_id, h, source="findomain")
-                cnt += 1
-        log_fn(f"  [+] Findomain yakunlandi: {cnt} ta subdomen topildi.")
+    def _task_findomain():
+        if "findomain" in active_ids and agent._find_binary("findomain"):
+            out = agent._run_cli(f"findomain -t {safe_apex} -q", log_fn, timeout=22, project_id=project_id)
+            cnt = 0
+            for line in out.splitlines():
+                h = line.strip().lower().rstrip(".")
+                if h and h.endswith(apex_domain) and scope.is_in_scope(h)[0]:
+                    agent.db.upsert_domain(project_id, h, source="findomain")
+                    cnt += 1
+            log_fn(f"  [+] Findomain Rust yakunlandi: {cnt} ta subdomen topildi.")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+        futs = [ex.submit(fn) for fn in (_task_subfinder, _task_sublist3r, _task_amass, _task_assetfinder, _task_cero, _task_findomain)]
+        concurrent.futures.wait(futs, timeout=62)
 
     # 2.2 ProjectDiscovery DNSX Multi-Record Verification
     if "dnsx" in active_ids and agent._find_binary("dnsx"):

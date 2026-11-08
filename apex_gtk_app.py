@@ -337,6 +337,7 @@ class ApexNativeWindow(Gtk.Window):
         dos_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         dos_bar.pack_start(Gtk.Label(label="🎯 Target Dossier & Pentesting Task Tree (PTT):", xalign=0), True, True, 6)
         dos_bar.pack_end(self._make_btn("🧠 AI Tactical Analysis", "btn-purple", self.on_ai_dossier_analysis), False, False, 4)
+        dos_bar.pack_end(self._make_btn("🎯 Chuqur Skan (Tanlangan Host)", "btn-green", self.on_deep_scan_selected_subdomain), False, False, 4)
         dossier_box.pack_start(dos_bar, False, False, 2)
 
         dossier_scroll = Gtk.ScrolledWindow()
@@ -911,6 +912,41 @@ class ApexNativeWindow(Gtk.Window):
         tok = self.ent_jwt.get_text().strip()
         res = self.vuln_agent.audit_jwt_token(tok)
         self.log_msg(f"[JWT AUDIT] {json.dumps(res, ensure_ascii=False)}")
+
+    def on_deep_scan_selected_subdomain(self, _btn):
+        if not self.current_project_id:
+            self.log_msg("[!] Avval loyiha tanlang!")
+            return
+        sel = self.tree_dom.get_selection()
+        model, treeiter = sel.get_selected()
+        if treeiter is None and len(model) > 0:
+            treeiter = model.get_iter_first()
+        if treeiter is None:
+            self.log_msg("[!] Subdomenlar jadvalidan biror qatorni tanlang.")
+            return
+        import re as _re
+        host = _re.sub(r"<[^>]+>", "", model[treeiter][0]).strip()
+        pid = self.current_project_id
+        self.is_running_job = True
+
+        def update_prog(frac: float, text: str):
+            def _u():
+                self.progress_bar.set_fraction(max(0.0, min(1.0, frac)))
+                self.progress_bar.set_text(f"[{int(frac*100)}%] {text}")
+                return False
+            GLib.idle_add(_u)
+
+        def _worker():
+            try:
+                self.recon_agent.run_single_subdomain_deep_recon(pid, host, self.log_msg, progress_fn=update_prog)
+            finally:
+                self.is_running_job = False
+                self._last_data_sig = None
+                GLib.idle_add(self.refresh_projects)
+                GLib.idle_add(self.load_bundle)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
 
 
 if __name__ == "__main__":
