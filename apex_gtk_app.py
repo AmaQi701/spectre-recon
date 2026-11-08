@@ -655,6 +655,7 @@ class ApexNativeWindow(Gtk.Window):
         finds = b.get("findings", [])
         chains = b.get("bug_chains", [])
 
+        q = (self.search_entry.get_text() or "").strip().lower() if hasattr(self, "search_entry") else ""
         f_mode = self.finding_filter_combo.get_active_id() if hasattr(self, "finding_filter_combo") else "all"
         sig = (self.current_project_id, len(doms), len(ports), len(https), len(eps), len(js_list), len(finds), len(chains), q, f_mode)
         if preserve_if_unchanged and sig == self._last_data_sig:
