@@ -214,9 +214,17 @@ class ApexNativeWindow(Gtk.Window):
 
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text("🔎 Filter (subdomen, port, api, cve...)")
-        self.search_entry.set_width_chars(22)
+        self.search_entry.set_width_chars(18)
         self.search_entry.connect("search-changed", lambda _: self.load_bundle())
         cmd_bar.pack_start(self.search_entry, False, False, 0)
+
+        self.mode_combo = Gtk.ComboBoxText()
+        self.mode_combo.append("full", "🛰️ Full Recon")
+        self.mode_combo.append("subdomains", "🌐 Only Subdomains")
+        self.mode_combo.append("ports", "🔌 Only Ports/Shodan")
+        self.mode_combo.append("web_js", "📦 Only Web/API/JS")
+        self.mode_combo.set_active_id("full")
+        cmd_bar.pack_start(self.mode_combo, False, False, 0)
 
         cmd_bar.pack_end(self._make_btn("🛑 STOP", "btn-red", lambda _: self.on_abort()), False, False, 0)
         cmd_bar.pack_end(self._make_btn("🚀 FULL AUTO", "btn-purple", lambda _: self.on_run_agent("all")), False, False, 0)
@@ -224,6 +232,14 @@ class ApexNativeWindow(Gtk.Window):
         cmd_bar.pack_end(self._make_btn("🔍 2-Agent", "btn-amber", lambda _: self.on_run_agent("vuln")), False, False, 0)
         cmd_bar.pack_end(self._make_btn("🛰️ 1-Agent", "act-btn", lambda _: self.on_run_agent("recon")), False, False, 0)
         root_vbox.pack_start(cmd_bar, False, False, 0)
+
+        # Live Stage Progress Bar
+        self.progress_bar = Gtk.ProgressBar()
+        self.progress_bar.set_show_text(True)
+        self.progress_bar.set_text("SPECTRE v6.0 Ready — Nishonni tanlang yoki skanerni boshlang")
+        self.progress_bar.set_fraction(0.0)
+        root_vbox.pack_start(self.progress_bar, False, False, 0)
+
 
         # Stats Row
         stats_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -319,12 +335,27 @@ class ApexNativeWindow(Gtk.Window):
         self.stack.add_named(tab0, "p_scope")
 
 
-        # TAB 2: Endpoints, API & JS Bundles + In-App HTTP Repeater
+        # TAB 2: Endpoints, API & JS Bundles + Full Interactive HTTP Repeater
         tab2_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        ep_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        ep_bar.pack_start(Gtk.Label(label="Endpointni tanlab, bevosita so'rov yuborish (Repeater) yoki cURL nusxalash:", xalign=0), True, True, 6)
-        ep_bar.pack_end(self._make_btn("📋 Copy cURL", "btn-amber", self.on_copy_curl), False, False, 4)
-        ep_bar.pack_end(self._make_btn("⚡ Send Request (In-App Inspector)", "btn-purple", self.on_send_repeater), False, False, 4)
+        ep_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.rep_method_combo = Gtk.ComboBoxText()
+        for m_name in ("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"):
+            self.rep_method_combo.append(m_name, m_name)
+        self.rep_method_combo.set_active_id("GET")
+        ep_bar.pack_start(self.rep_method_combo, False, False, 0)
+
+        self.rep_url_entry = Gtk.Entry()
+        self.rep_url_entry.set_placeholder_text("URL (jadvaldan tanlang yoki qo'lda o'zgartiring, masalan: https://target.uz/api/v1/item/1)")
+        self.rep_url_entry.set_hexpand(True)
+        ep_bar.pack_start(self.rep_url_entry, True, True, 0)
+
+        self.rep_body_entry = Gtk.Entry()
+        self.rep_body_entry.set_placeholder_text('Request Body (JSON/Form, masalan: {"id":1,"role":"admin"})')
+        self.rep_body_entry.set_width_chars(28)
+        ep_bar.pack_start(self.rep_body_entry, False, False, 0)
+
+        ep_bar.pack_end(self._make_btn("📋 Copy cURL", "btn-amber", self.on_copy_curl), False, False, 2)
+        ep_bar.pack_end(self._make_btn("⚡ Send Request", "btn-purple", self.on_send_repeater), False, False, 2)
         tab2_box.pack_start(ep_bar, False, False, 4)
 
         tab2_hpaned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
@@ -332,9 +363,11 @@ class ApexNativeWindow(Gtk.Window):
         tab2_paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         tab2_paned.set_position(250)
         sc_ep, self.store_ep, self.tree_ep = self._make_tree([("Method", str), ("Endpoint URL", str), ("Parametrlar", str), ("Kategoriya", str), ("Xavf Teglari (Manual Guide)", str)])
+        self.tree_ep.connect("cursor-changed", self.on_endpoint_selected)
         sc_js, self.store_js, _ = self._make_tree([("JS Bundle Fayl", str), ("Ajratilgan API Route / URL'lar", str), ("Parametrlar", str), ("DOM Sinks & Config/Keys", str)])
         tab2_paned.pack1(sc_ep, True, False)
         tab2_paned.pack2(sc_js, True, False)
+
 
         rep_insp_scroll = Gtk.ScrolledWindow()
         rep_insp_scroll.get_style_context().add_class("panel-box")
@@ -674,14 +707,26 @@ class ApexNativeWindow(Gtk.Window):
             self.log_msg(f"[PROXY] 🌐 Outbound Proxy ulandi: {proxy_val}")
 
 
+        rec_mode = self.mode_combo.get_active_id() if hasattr(self, "mode_combo") else "full"
+
+        def update_prog(frac: float, text: str):
+            def _u():
+                self.progress_bar.set_fraction(max(0.0, min(1.0, frac)))
+                self.progress_bar.set_text(f"[{int(frac*100)}%] {text}")
+                return False
+            GLib.idle_add(_u)
+
         def worker():
             try:
                 if agent_type in ("recon", "all"):
-                    self.recon_agent.run_full_recon(pid, None, self.log_msg)
+                    self.recon_agent.run_full_recon(pid, None, self.log_msg, recon_mode=rec_mode or "full", progress_fn=update_prog)
                 if agent_type in ("vuln", "all"):
+                    update_prog(0.92, "2-SuperAgent: Vulnerability & SAST Audit...")
                     self.vuln_agent.run_assessment(pid, self.log_msg)
                 if agent_type in ("triage", "all"):
+                    update_prog(0.96, "3-SuperAgent: Triage & Dynamic Bug Chaining...")
                     self.triage_agent.run_triage_and_chaining(pid, self.log_msg)
+                update_prog(1.0, "✅ Barcha tanlangan jarayonlar yakunlandi!")
             finally:
                 self.is_running_job = False
                 self._last_data_sig = None
@@ -689,6 +734,7 @@ class ApexNativeWindow(Gtk.Window):
                 GLib.idle_add(self.load_bundle)
 
         threading.Thread(target=worker, daemon=True).start()
+
 
 
     def on_abort(self):
@@ -715,26 +761,36 @@ class ApexNativeWindow(Gtk.Window):
         else:
             self.log_msg("[!] Endpointlar jadvali bo'sh yoki qator tanlanmagan.")
 
-    def on_send_repeater(self, _btn):
-        sel = self.tree_ep.get_selection()
+    def on_endpoint_selected(self, tree):
+        sel = tree.get_selection()
         model, treeiter = sel.get_selected()
-        if treeiter is None and len(model) > 0:
-            treeiter = model.get_iter_first()
-        if treeiter is None:
-            self.log_msg("[!] Avval Endpointlar jadvalidan qatorni tanlang.")
+        if treeiter is not None:
+            import re as _re
+            method = _re.sub(r"<[^>]+>", "", model[treeiter][0]).strip()
+            url = _re.sub(r"<[^>]+>", "", model[treeiter][1]).strip()
+            self.rep_method_combo.set_active_id(method if method in ("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD") else "GET")
+            self.rep_url_entry.set_text(url)
+
+    def on_send_repeater(self, _btn):
+        method = self.rep_method_combo.get_active_id() or "GET"
+        url = self.rep_url_entry.get_text().strip()
+        if not url:
+            self.on_endpoint_selected(self.tree_ep)
+            url = self.rep_url_entry.get_text().strip()
+        if not url:
+            self.log_msg("[!] Avval Endpointlar jadvalidan qatorni tanlang yoki URL kiriting.")
             return
-        import re as _re
-        method = _re.sub(r"<[^>]+>", "", model[treeiter][0])
-        url = _re.sub(r"<[^>]+>", "", model[treeiter][1])
+        req_body = self.rep_body_entry.get_text().strip()
         auth = self.auth_entry.get_text().strip()
         proxy_val = self.proxy_entry.get_text().strip() if hasattr(self, "proxy_entry") else ""
         self.repeater_view.get_buffer().set_text(f"⏳ So'rov yuborilmoqda: {method} {url} ...")
 
         def _req_worker():
-            out = spectre_v5_modules.send_repeater_request(method, url, auth, proxy_val)
+            out = spectre_v5_modules.send_repeater_request(method, url, auth, proxy_val, req_body=req_body)
             GLib.idle_add(lambda: self.repeater_view.get_buffer().set_text(out) or False)
 
         threading.Thread(target=_req_worker, daemon=True).start()
+
 
     def on_export_artifacts(self, _btn):
         if not self.current_project_id:

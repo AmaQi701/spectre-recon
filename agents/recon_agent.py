@@ -243,14 +243,29 @@ class ReconSuperAgent:
 
     def _stage1_dns_enum(self, project_id: int, base_domain: str, scope: ScopeGuard, log_fn):
         apex_domain = ScopeGuard.extract_apex_domain(base_domain)
-        log_fn(f"[Stage 1] Chuqur DNS yozuvlari va 60+ subdomen parallel tekshiruvi: {apex_domain}")
         candidates = {base_domain, apex_domain}
         for prefix in self.COMMON_SUBDOMAINS:
             candidates.add(f"{prefix}.{apex_domain}")
 
+        # Load top 220 prefixes from SecLists if available on system
+        seclist_dns = Path("/home/amaqi/SecLists/Discovery/DNS/subdomains-top1million-5000.txt")
+        if seclist_dns.exists():
+            try:
+                for line in seclist_dns.read_text(encoding="utf-8", errors="ignore").splitlines()[:220]:
+                    w = line.strip().lower()
+                    if w and not w.startswith("#"):
+                        candidates.add(f"{w}.{apex_domain}")
+            except Exception:
+                pass
+
+        for reg_p in ("1c", "bitrix", "edo", "hr", "jira", "confluence", "payme", "click", "uzum", "accounts", "svc", "vod", "upload", "open", "reja", "zakovat", "fikr"):
+            candidates.add(f"{reg_p}.{apex_domain}")
+
         existing = self.db.get_project_bundle(project_id).get("domains", [])
         for d in existing:
             candidates.add(d["domain"])
+        log_fn(f"[Stage 1] Chuqur DNS yozuvlari va {len(candidates)} ta subdomen (SecLists + Regional) parallel tekshiruvi: {apex_domain}")
+
 
         resolver = dns.resolver.Resolver()
         resolver.timeout = 2.0
@@ -848,19 +863,28 @@ class ReconSuperAgent:
 
 
 
-    def run_full_recon(self, project_id: int, selected_tools: list[str] | None, log_fn):
+    def run_full_recon(self, project_id: int, selected_tools: list[str] | None, log_fn, recon_mode: str = "full", progress_fn=None):
+        def _prog(frac: float, text: str):
+            if progress_fn:
+                try:
+                    progress_fn(frac, text)
+                except Exception:
+                    pass
+
         proj = self.db.get_project(project_id)
         if not proj:
             log_fn("[ERR] Loyiha topilmadi.")
             return
 
         self.db.update_project_status(project_id, "RUNNING_RECON")
+        _prog(0.05, "Scope va nishon tekshirilmoqda...")
         scope = ScopeGuard(proj["in_scope"], proj["out_of_scope"])
         primary_host = ScopeGuard.extract_host(proj["primary_target"])
         ok, reason = scope.is_in_scope(primary_host)
         if not ok:
             log_fn(f"[SCOPE BLOCK] Asosiy nishon '{primary_host}' ruxsat berilgan scope ichida emas: {reason}")
             self.db.update_project_status(project_id, "SCOPE_BLOCKED")
+            _prog(0.0, "Scope Blocked")
             return
 
         tools = self.get_tools_status()
@@ -872,90 +896,107 @@ class ReconSuperAgent:
         apex_domain = ScopeGuard.extract_apex_domain(primary_host)
         safe_host = shlex.quote(primary_host)
         safe_apex = shlex.quote(apex_domain)
-        log_fn(f"═══ 🛰️ 1-SUPERAGENT: DEEP AUTONOMOUS RECON BOSHLANDI (Target: {primary_host} | Apex: {apex_domain}) ═══")
+        log_fn(f"═══ 🛰️ 1-SUPERAGENT: DEEP AUTONOMOUS RECON [{recon_mode.upper()}] (Target: {primary_host} | Apex: {apex_domain}) ═══")
         self.db.upsert_domain(project_id, primary_host, source="primary_target")
         if apex_domain != primary_host:
             self.db.upsert_domain(project_id, apex_domain, source="apex_domain")
 
-        # Stage 1
-        if "crtsh_builtin" in active_ids:
-            self._stage1_crtsh(project_id, apex_domain, scope, log_fn)
-        if "subfinder" in active_ids and self._find_binary("subfinder"):
-            out = self._run_cli(f"subfinder -d {safe_apex} -silent", log_fn, timeout=45, project_id=project_id)
-            for line in out.splitlines():
-                if scope.is_in_scope(line.strip())[0]:
-                    self.db.upsert_domain(project_id, line.strip(), source="subfinder")
-        if "whois" in active_ids and self._find_binary("whois"):
-            w_out = self._run_cli(f"whois {safe_apex}", log_fn, timeout=20, project_id=project_id)
-            self.db.log_task(project_id, "Agent-1 (Recon)", "whois", "COMPLETED", f"whois {apex_domain}", w_out[:250])
-        self._stage1_dns_enum(project_id, primary_host, scope, log_fn)
+        # Stage 1: Subdomains & OSINT
+        if recon_mode in ("full", "subdomains"):
+            _prog(0.15, "Stage 1/6: 5-OSINT Mesh & Subfinder...")
+            if "crtsh_builtin" in active_ids:
+                self._stage1_crtsh(project_id, apex_domain, scope, log_fn)
+            if "subfinder" in active_ids and self._find_binary("subfinder"):
+                out = self._run_cli(f"subfinder -d {safe_apex} -silent", log_fn, timeout=45, project_id=project_id)
+                for line in out.splitlines():
+                    if scope.is_in_scope(line.strip())[0]:
+                        self.db.upsert_domain(project_id, line.strip(), source="subfinder")
+            if "whois" in active_ids and self._find_binary("whois"):
+                w_out = self._run_cli(f"whois {safe_apex}", log_fn, timeout=20, project_id=project_id)
+                self.db.log_task(project_id, "Agent-1 (Recon)", "whois", "COMPLETED", f"whois {apex_domain}", w_out[:250])
+            _prog(0.30, "Stage 1/6: SecLists DNS Enum & Smart Permutations...")
+            self._stage1_dns_enum(project_id, primary_host, scope, log_fn)
 
-        # Stage 2
-        tls_info = self._stage2_tls_inspect(project_id, primary_host, scope, log_fn)
-        self._stage2_shodan_internetdb(project_id, scope, log_fn)
-        spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
-        if "nmap" in active_ids and self._find_binary("nmap") and project_id not in self.abort_flags:
-            log_fn(f"[SPECTRE Stage 2] Nmap Service & Port Scan (Top 100 ports): {primary_host}")
-            xml_out = self._run_cli(f"nmap -Pn -sV -T4 --top-ports 100 -oX - {safe_host}", log_fn, timeout=90, project_id=project_id)
-            self._parse_nmap_xml(project_id, primary_host, xml_out, log_fn)
-            self.db.log_task(project_id, "SPECTRE-Agent1", "nmap", "COMPLETED", f"nmap -Pn -sV --top-ports 100 {primary_host}", "XML Parsed")
+        # Stage 2: Ports, Shodan & ASN
+        tls_info = {}
+        if recon_mode in ("full", "ports"):
+            _prog(0.45, "Stage 2/6: TLS SAN, Shodan InternetDB & ASN/ISP...")
+            tls_info = self._stage2_tls_inspect(project_id, primary_host, scope, log_fn)
+            self._stage2_shodan_internetdb(project_id, scope, log_fn)
+            spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
+            if "nmap" in active_ids and self._find_binary("nmap") and project_id not in self.abort_flags:
+                _prog(0.55, f"Stage 2/6: Nmap Service Scan ({primary_host})...")
+                log_fn(f"[SPECTRE Stage 2] Nmap Service & Port Scan (Top 100 ports): {primary_host}")
+                xml_out = self._run_cli(f"nmap -Pn -sV -T4 --top-ports 100 -oX - {safe_host}", log_fn, timeout=90, project_id=project_id)
+                self._parse_nmap_xml(project_id, primary_host, xml_out, log_fn)
+                self.db.log_task(project_id, "SPECTRE-Agent1", "nmap", "COMPLETED", f"nmap -Pn -sV --top-ports 100 {primary_host}", "XML Parsed")
+            spectre_deep_modules.probe_nonstandard_web_ports(self.db, self.session, project_id, log_fn)
+            spectre_deep_modules.hunt_virtual_hosts(self.db, self.session, project_id, apex_domain, log_fn)
 
-        spectre_deep_modules.probe_nonstandard_web_ports(self.db, self.session, project_id, log_fn)
-        spectre_deep_modules.hunt_virtual_hosts(self.db, self.session, project_id, apex_domain, log_fn)
 
 
-        # Stage 3, 4, 5, 6 (with Recursive Discovery Loop)
-        probed_domains = set()
-        for pass_num in (1, 2):
-            domains = [d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", []) if d.get("ip") or d.get("cname") or d["domain"] == primary_host or pass_num == 2]
-            if primary_host not in domains:
-                domains.insert(0, primary_host)
-            new_batch = [d for d in domains if d not in probed_domains][:8]
-            if not new_batch:
-                break
-            if pass_num == 2:
-                log_fn(f"[SPECTRE Recursive Loop] 2-to'lqinda topilgan {len(new_batch)} ta yangi subdomen tekshirilmoqda: {', '.join(new_batch)}")
-                self._stage1_dns_enum(project_id, primary_host, scope, log_fn)
-                self._stage2_shodan_internetdb(project_id, scope, log_fn)
-
-            for dom in new_batch:
-                probed_domains.add(dom)
-                if project_id in self.abort_flags:
+        # Stage 3, 4, 5, 6: Web, API & JS Bundles (across all High-Value Subdomains!)
+        if recon_mode in ("full", "web_js"):
+            _prog(0.70, "Stage 3-6: Web Probing, Katana SPA Crawl & JS Deconstruction...")
+            high_value_prefixes = ("id.", "api.", "backend.", "accounts.", "my.", "admin.", "portal.", "dev.", "svc.", "auth.", "sso.")
+            probed_domains = set()
+            for pass_num in (1, 2):
+                domains = [d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", []) if d.get("ip") or d.get("cname") or d["domain"] == primary_host or pass_num == 2]
+                if primary_host not in domains:
+                    domains.insert(0, primary_host)
+                new_batch = [d for d in domains if d not in probed_domains][:14]
+                if not new_batch:
                     break
-                for scheme in ("https", "http"):
-                    url = f"{scheme}://{dom}"
-                    safe_url = shlex.quote(url)
-                    html = self._stage3_http_probe(project_id, url, tls_info if dom == primary_host else {}, scope, log_fn)
-                    if html:
-                        collected_html.append(html[:50000])
-                        if dom == primary_host:
-                            spectre_deep_modules.fingerprint_favicon(self.session, url, self.db, project_id, log_fn)
-                        if "whatweb" in active_ids and self._find_binary("whatweb") and dom == primary_host:
-                            ww = self._run_cli(f"whatweb --color=never -a 1 {safe_url}", log_fn, timeout=25, project_id=project_id)
-                            self.db.log_task(project_id, "SPECTRE-Agent1", "whatweb", "COMPLETED", f"whatweb {url}", ww[:200])
-                        if "wafw00f" in active_ids and self._find_binary("wafw00f") and dom == primary_host:
-                            wf = self._run_cli(f"wafw00f {safe_url}", log_fn, timeout=25, project_id=project_id)
-                            self.db.log_task(project_id, "SPECTRE-Agent1", "wafw00f", "COMPLETED", f"wafw00f {url}", wf[:200])
-                        js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)
-                        if "katana" in active_ids and self._find_binary("katana") and dom == primary_host:
-                            kt_out = self._run_cli(f"katana -u {safe_url} -d 2 -jc -silent", log_fn, timeout=40, project_id=project_id)
-                            for k_url in kt_out.splitlines():
-                                u = self._record_discovered_url(project_id, k_url, url, scope, "katana")
-                                if u and u.endswith(".js"):
-                                    js_list.append(u)
-                        self._stage5_openapi_discovery(project_id, url, scope, log_fn)
-                        self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
-                        break
+                if pass_num == 2 and recon_mode == "full":
+                    log_fn(f"[SPECTRE Recursive Loop] 2-to'lqinda topilgan {len(new_batch)} ta yangi subdomen tekshirilmoqda: {', '.join(new_batch)}")
+                    self._stage1_dns_enum(project_id, primary_host, scope, log_fn)
+                    self._stage2_shodan_internetdb(project_id, scope, log_fn)
+                    spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
 
-        spectre_deep_modules.hunt_cloud_and_storage_buckets(self.db, self.session, project_id, apex_domain, log_fn)
-        spectre_deep_modules.probe_api_versions_and_ghost_endpoints(self.db, project_id, log_fn)
-        spectre_deep_modules.classify_auth_portals_and_schema(self.db, project_id, log_fn)
-        spectre_deep_modules.analyze_badsecrets_and_cookies(self.db, project_id, apex_domain, log_fn)
-        spectre_v5_modules.audit_ssl_certificates_deep(self.db, project_id, log_fn)
-        spectre_v5_modules.audit_domain_backup_exposure(self.db, project_id, apex_domain, log_fn)
-        spectre_deep_modules.harvest_emails_and_osint(self.db, project_id, apex_domain, collected_html, log_fn)
-        spectre_deep_modules.build_custom_wordlist_and_params(self.db, project_id, apex_domain, log_fn)
+                for dom in new_batch:
+                    probed_domains.add(dom)
+                    if project_id in self.abort_flags:
+                        break
+                    is_high_val = (dom == primary_host) or any(dom.startswith(hp) for hp in high_value_prefixes)
+                    for scheme in ("https", "http"):
+                        url = f"{scheme}://{dom}"
+                        safe_url = shlex.quote(url)
+                        html = self._stage3_http_probe(project_id, url, tls_info if dom == primary_host else {}, scope, log_fn)
+                        if html:
+                            collected_html.append(html[:50000])
+                            if dom == primary_host:
+                                spectre_deep_modules.fingerprint_favicon(self.session, url, self.db, project_id, log_fn)
+                            if "whatweb" in active_ids and self._find_binary("whatweb") and dom == primary_host:
+                                ww = self._run_cli(f"whatweb --color=never -a 1 {safe_url}", log_fn, timeout=25, project_id=project_id)
+                                self.db.log_task(project_id, "SPECTRE-Agent1", "whatweb", "COMPLETED", f"whatweb {url}", ww[:200])
+                            if "wafw00f" in active_ids and self._find_binary("wafw00f") and dom == primary_host:
+                                wf = self._run_cli(f"wafw00f {safe_url}", log_fn, timeout=25, project_id=project_id)
+                                self.db.log_task(project_id, "SPECTRE-Agent1", "wafw00f", "COMPLETED", f"wafw00f {url}", wf[:200])
+                            js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)
+                            if "katana" in active_ids and self._find_binary("katana") and is_high_val:
+                                kt_out = self._run_cli(f"katana -u {safe_url} -d 2 -jc -kf all -silent", log_fn, timeout=35, project_id=project_id)
+                                for k_url in kt_out.splitlines():
+                                    u = self._record_discovered_url(project_id, k_url, url, scope, "katana")
+                                    if u and u.endswith(".js"):
+                                        js_list.append(u)
+                            if is_high_val:
+                                self._stage5_openapi_discovery(project_id, url, scope, log_fn)
+                            self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
+                            break
+
+            _prog(0.90, "Stage 6/6: Deep Post-Recon Audits (Storage, Shadow API, SSL, Backup)...")
+            spectre_deep_modules.hunt_cloud_and_storage_buckets(self.db, self.session, project_id, apex_domain, log_fn)
+            spectre_deep_modules.probe_api_versions_and_ghost_endpoints(self.db, project_id, log_fn)
+            spectre_deep_modules.classify_auth_portals_and_schema(self.db, project_id, log_fn)
+            spectre_deep_modules.analyze_badsecrets_and_cookies(self.db, project_id, apex_domain, log_fn)
+            spectre_v5_modules.audit_ssl_certificates_deep(self.db, project_id, log_fn)
+            spectre_v5_modules.audit_domain_backup_exposure(self.db, project_id, apex_domain, log_fn)
+            spectre_deep_modules.harvest_emails_and_osint(self.db, project_id, apex_domain, collected_html, log_fn)
+            spectre_deep_modules.build_custom_wordlist_and_params(self.db, project_id, apex_domain, log_fn)
+
         spectre_deep_modules.log_incremental_diff(before_snap, self.db, project_id, log_fn)
+        _prog(1.0, "✅ Recon Completed!")
+
 
 
         b_final = self.db.get_project_bundle(project_id)

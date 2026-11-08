@@ -86,6 +86,56 @@ class TriageAndChainSuperAgent:
             )
             log_fn("  [⚡ CHAIN] Redirect/SSRF Parameter + API Flow zanjiri tuzildi!")
 
+        # Dynamic Chain #4: Cloudflare WAF Bypass via Direct Backend/Origin Subdomain IP
+        domains = bundle.get("domains", [])
+        cf_hosts = [d["domain"] for d in domains if "cloudflare" in str(d.get("cdn_waf", "")).lower()]
+        direct_hosts = [f"{d['domain']} ({d['ip']})" for d in domains if d.get("ip") and "cloudflare" not in str(d.get("cdn_waf", "")).lower()]
+        if cf_hosts and direct_hosts:
+            self.db.upsert_bug_chain(
+                project_id,
+                "Chain #4: Cloudflare WAF Protected Frontend + Exposed Direct Backend/Origin Server IPs -> Full WAF Bypass",
+                "High",
+                8.8,
+                [f"Cloudflare Protected ({cf_hosts[0]})", f"Direct Non-CDN Subdomains ({', '.join(direct_hosts[:3])})", "Direct Origin HTTP/Port Access"],
+                "Asosiy sayt Cloudflare WAF ortida himoyalangan bo'lsa-da, yordamchi va backend subdomenlar to'g'ridan-to'g'ri (Direct IP) serverlarda ochiq qoldirilgan — Host header orqali WAF ni chetlab o'tish xavfi mavjud.",
+                "Cloudflare WAF qoidalarining to'liq chetlab o'tilishi va backend serverga to'g'ridan-to'g'ri murojaat.",
+                "Origin serverlarda faqat Cloudflare IP diapazonlaridan (https://www.cloudflare.com/ips/) keluvchi 80/443 ulanishlarga ruxsat bering (Authenticated Origin Pulls).",
+            )
+            log_fn("  [⚡ CHAIN] Cloudflare WAF + Direct Origin Server IP -> WAF Bypass zanjiri tuzildi!")
+
+        # Dynamic Chain #5: Shodan Known CVEs + Open Network Services (SSH/SMB/FTP/Custom Ports)
+        has_shodan_cve = any("known cves on host ip" in t for t in titles)
+        has_net_port = any("port" in t or "ssh" in t or "smb" in t for t in titles)
+        if has_shodan_cve and has_net_port:
+            self.db.upsert_bug_chain(
+                project_id,
+                "Chain #5: Exposed Network Services (SSH/SMB/FTP/Custom Web) + Unpatched Host CVEs -> Initial Access Risk",
+                "High",
+                8.9,
+                ["Publicly Exposed Network Ports", "Outdated Service CPEs (Nginx/OpenSSH/ProFTPD)", "Known Public CVEs on Host IP"],
+                "Tashqi internetga ochiq qoldirilgan tarmoq portlarida ma'lum CVE zaifliklariga ega eskirgan servis versiyalari ishlamoqda.",
+                "Serverga ruxsatsiz dastlabki kirish (Initial Access) yoki DoS/RCE xavfi.",
+                "Barcha ma'muriy va tarmoq portlarini Firewall orqali yoping hamda OS/servis paketlarini yangilang.",
+            )
+            log_fn("  [⚡ CHAIN] Exposed Network Ports + Known Host CVEs zanjiri tuzildi!")
+
+        # Dynamic Chain #6: Reconstructed Mass-Assignment Keys + State-Changing (POST/DELETE/PUT) API Routes
+        has_schema_keys = any("mass-assignment" in t or "privileged" in t for t in titles)
+        state_changing_eps = [f"{e['method']} {e['url']}" for e in endpoints if e.get("method") in ("POST", "PUT", "DELETE", "PATCH")]
+        if (has_schema_keys or has_idor) and state_changing_eps:
+            self.db.upsert_bug_chain(
+                project_id,
+                "Chain #6: State-Changing API Routes (POST/DELETE/PUT) + Object ID / Schema Parameters -> BOLA & Mass Assignment",
+                "High",
+                8.4,
+                ["JS Bundle Deconstruction", f"State-Changing Routes ({', '.join(state_changing_eps[:3])})", "Object ID / Privileged Property Manipulation"],
+                "JS fayllardan ajratib olingan POST/DELETE/PUT API endpointlari obyekt identifikatori yoki imtiyozli JSON kalitlarni qabul qiladi — BOLA/IDOR va Mass-Assignment xavfi.",
+                "Boshqa foydalanuvchi ma'lumotlarini o'zgartirish/o'chirish (Account/Session manipulation).",
+                "Har bir POST/PUT/DELETE endpointda obyekt egaligini (ownership) va ruxsat etilgan DTO maydonlar oq ro'yxatini tekshiring.",
+            )
+            log_fn("  [⚡ CHAIN] State-Changing API Routes + BOLA/Mass-Assignment zanjiri tuzildi!")
+
+
         if has_sast_inj or (not has_dom_sink and not has_cors and findings):
             self.db.upsert_bug_chain(
                 project_id,

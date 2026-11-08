@@ -130,7 +130,16 @@ CREATE TABLE IF NOT EXISTS task_logs (
     summary TEXT DEFAULT '',
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS scan_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    domains_json TEXT DEFAULT '[]',
+    ports_json TEXT DEFAULT '[]',
+    endpoints_json TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
 """
+
 
 
 class DatabaseManager:
@@ -188,9 +197,22 @@ class DatabaseManager:
 
     def delete_project(self, project_id: int):
         with self._lock, self._get_conn() as conn:
-            for tbl in ("domains", "ports", "http_services", "endpoints", "js_assets", "findings", "bug_chains", "task_logs"):
+            for tbl in ("domains", "ports", "http_services", "endpoints", "js_assets", "findings", "bug_chains", "task_logs", "scan_snapshots"):
                 conn.execute(f"DELETE FROM {tbl} WHERE project_id = ?", (project_id,))
             conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+    def save_scan_snapshot(self, project_id: int, domains: list[str], ports: list[str], endpoints: list[str]):
+        with self._lock, self._get_conn() as conn:
+            conn.execute(
+                "INSERT INTO scan_snapshots (project_id, domains_json, ports_json, endpoints_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                (project_id, json.dumps(domains), json.dumps(ports), json.dumps(endpoints), self.now()),
+            )
+
+    def get_latest_snapshot(self, project_id: int) -> dict | None:
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM scan_snapshots WHERE project_id = ? ORDER BY id DESC LIMIT 1", (project_id,)).fetchone()
+            return dict(row) if row else None
+
 
 
     def upsert_domain(self, project_id: int, domain: str, ip: str = "", cname: str = "", records: dict | None = None, cdn_waf: str = "", source: str = "recon"):

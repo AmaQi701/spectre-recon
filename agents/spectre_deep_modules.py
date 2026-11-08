@@ -354,27 +354,46 @@ def harvest_emails_and_osint(db, project_id: int, apex_domain: str, text_blobs: 
         log_fn(f"  [📧 OSINT EMAILS] {len(sorted_em)} ta korporativ email topildi: {', '.join(sorted_em[:6])}")
 
 
-# ================= #3 INCREMENTAL DIFFING ENGINE =================
+# ================= #3 INCREMENTAL DIFFING ENGINE (PERSISTENT SQLITE SNAPSHOTS) =================
 def take_recon_snapshot(db, project_id: int) -> dict:
+    prev = db.get_latest_snapshot(project_id) if hasattr(db, "get_latest_snapshot") else None
+    if prev:
+        return {
+            "domains": set(json.loads(prev.get("domains_json") or "[]")),
+            "ports": {tuple(x) for x in json.loads(prev.get("ports_json") or "[]")},
+            "endpoints": set(json.loads(prev.get("endpoints_json") or "[]")),
+            "from_db": True,
+            "snapshot_date": prev.get("created_at", ""),
+        }
     b = db.get_project_bundle(project_id)
     return {
         "domains": {d["domain"] for d in b.get("domains", [])},
         "ports": {(p["host"], p["port"]) for p in b.get("ports", [])},
         "endpoints": {e["url"] for e in b.get("endpoints", [])},
+        "from_db": False,
+        "snapshot_date": "Current Session",
     }
 
 
 def log_incremental_diff(before: dict, db, project_id: int, log_fn):
-    after = take_recon_snapshot(db, project_id)
-    new_doms = sorted(after["domains"] - before["domains"])
-    new_ports = sorted(after["ports"] - before["ports"])
-    new_eps = sorted(after["endpoints"] - before["endpoints"])
+    b = db.get_project_bundle(project_id)
+    curr_doms = {d["domain"] for d in b.get("domains", [])}
+    curr_ports = {(p["host"], p["port"]) for p in b.get("ports", [])}
+    curr_eps = {e["url"] for e in b.get("endpoints", [])}
+
+    new_doms = sorted(curr_doms - before["domains"])
+    new_ports = sorted(curr_ports - before["ports"])
+    new_eps = sorted(curr_eps - before["endpoints"])
     if new_doms or new_ports or new_eps:
-        log_fn(f"[SPECTRE Incremental Diff] 🆕 Yangi subdomenlar: +{len(new_doms)} | Yangi portlar: +{len(new_ports)} | Yangi endpointlar: +{len(new_eps)}")
+        log_fn(f"[SPECTRE Persistent Diff vs {before.get('snapshot_date')}] 🆕 Yangi subdomenlar: +{len(new_doms)} | Yangi portlar: +{len(new_ports)} | Yangi endpointlar: +{len(new_eps)}")
         for nd in new_doms[:8]:
             log_fn(f"  [🆕 NEW SUBDOMAIN] {nd}")
         for nh, np in new_ports[:8]:
             log_fn(f"  [🆕 NEW PORT] {nh}:{np}")
+
+    if hasattr(db, "save_scan_snapshot"):
+        db.save_scan_snapshot(project_id, sorted(curr_doms), [list(x) for x in sorted(curr_ports)], sorted(curr_eps))
+
 
 
 # ================= #10 PENTESTING TASK TREE (PTT) & TARGET DOSSIER =================

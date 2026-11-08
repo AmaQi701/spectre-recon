@@ -191,20 +191,30 @@ def export_project_artifacts(db, project_id: int, reports_dir: str = "/home/amaq
     }
 
 
-# ================= #5 IN-APP HTTP REQUEST/RESPONSE INSPECTOR (MINI REPEATER) =================
-def send_repeater_request(method: str, url: str, auth_header: str = "", proxy_url: str = "") -> str:
-    headers = {"User-Agent": "SPECTRE-Studio-Inspector/5.0", "Accept": "*/*"}
+# ================= #5 IN-APP HTTP REQUEST/RESPONSE INSPECTOR (FULL INTERACTIVE REPEATER) =================
+def send_repeater_request(method: str, url: str, auth_header: str = "", proxy_url: str = "", custom_headers_raw: str = "", req_body: str = "") -> str:
+    headers = {"User-Agent": "SPECTRE-Studio-Repeater/6.0", "Accept": "*/*"}
     if auth_header.strip():
         if ":" in auth_header:
             k, v = auth_header.split(":", 1)
             headers[k.strip()] = v.strip()
         else:
             headers["Cookie"] = auth_header.strip()
+
+    for line in (custom_headers_raw or "").splitlines():
+        if ":" in line:
+            hk, hv = line.split(":", 1)
+            headers[hk.strip()] = hv.strip()
+
+    body_data = req_body.encode("utf-8") if req_body and method.upper() in ("POST", "PUT", "PATCH", "DELETE") else None
+    if body_data and "Content-Type" not in headers and req_body.lstrip().startswith(("{", "[")):
+        headers["Content-Type"] = "application/json"
+
     proxies = {"http": proxy_url.strip(), "https": proxy_url.strip()} if proxy_url.strip() else None
     try:
         t0 = datetime.datetime.now()
-        r = requests.request(method.upper(), url, headers=headers, proxies=proxies, timeout=8, verify=False, allow_redirects=False, stream=True)
-        body_bytes = next(r.iter_content(chunk_size=16384), b"")
+        r = requests.request(method.upper(), url.strip(), headers=headers, data=body_data, proxies=proxies, timeout=10, verify=False, allow_redirects=False, stream=True)
+        body_bytes = next(r.iter_content(chunk_size=24576), b"")
         r.close()
         elapsed_ms = int((datetime.datetime.now() - t0).total_seconds() * 1000)
         hdr_lines = "\n".join(f"{k}: {v}" for k, v in r.headers.items())
@@ -214,14 +224,16 @@ def send_repeater_request(method: str, url: str, auth_header: str = "", proxy_ur
         except Exception:
             pass
         return (
-            f"╔══ ⚡ SPECTRE HTTP INSPECTOR ({elapsed_ms} ms) ══╗\n"
-            f"HTTP/1.1 {r.status_code} {r.reason}\n"
+            f"╔══ ⚡ SPECTRE INTERACTIVE REPEATER ({elapsed_ms} ms) ══╗\n"
+            f"▶ REQUEST: {method.upper()} {url.strip()}\n"
+            f"◀ STATUS : HTTP/1.1 {r.status_code} {r.reason}\n"
             f"{hdr_lines}\n\n"
-            f"── 📄 RESPONSE BODY ({len(body_bytes)} bytes sample) ──\n"
-            f"{body_text[:4000]}"
+            f"── 📄 RESPONSE BODY ({len(body_bytes)} bytes) ──\n"
+            f"{body_text[:5000]}"
         )
     except Exception as e:
-        return f"[HTTP INSPECTOR ERROR] So'rov yuborishda xatolik: {e}"
+        return f"[HTTP REPEATER ERROR] So'rov yuborishda xatolik: {e}"
+
 
 
 # ================= #7 AI & HEURISTIC TACTICAL ANALYST =================
