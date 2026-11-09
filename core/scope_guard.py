@@ -103,9 +103,10 @@ class ScopeGuard:
             return False, "Bo'sh yoki noto'g'ri host"
 
         # Tashqi analitika va uchinchi tomon CDN domenlarini avtomatik cheklash
+        # (Faqat foydalanuvchi o'zi In-Scope ga shu domenni kiritmagan bo'lsagina bloklanadi!)
         for cdn in self.CDN_SIGNATURES:
             cdn_l = cdn.lower()
-            if host == cdn_l or host.endswith("." + cdn_l):
+            if (host == cdn_l or host.endswith("." + cdn_l)) and not any(cdn_l in r for r in self.in_scope):
                 return False, f"Uchinchi tomon CDN/Analitika domeni ({cdn_l})"
 
         # Out-of-Scope tekshiruvi birinchi ustuvorlikda

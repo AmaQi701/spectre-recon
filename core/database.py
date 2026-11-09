@@ -138,6 +138,15 @@ CREATE TABLE IF NOT EXISTS scan_snapshots (
     endpoints_json TEXT DEFAULT '[]',
     created_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_domains_proj ON domains(project_id);
+CREATE INDEX IF NOT EXISTS idx_ports_proj ON ports(project_id);
+CREATE INDEX IF NOT EXISTS idx_http_proj ON http_services(project_id);
+CREATE INDEX IF NOT EXISTS idx_endpoints_proj ON endpoints(project_id);
+CREATE INDEX IF NOT EXISTS idx_js_proj ON js_assets(project_id);
+CREATE INDEX IF NOT EXISTS idx_findings_proj ON findings(project_id, cvss_score DESC);
+CREATE INDEX IF NOT EXISTS idx_chains_proj ON bug_chains(project_id);
+CREATE INDEX IF NOT EXISTS idx_logs_proj ON task_logs(project_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_snaps_proj ON scan_snapshots(project_id, id DESC);
 """
 
 
@@ -254,13 +263,26 @@ class DatabaseManager:
                 server = CASE WHEN excluded.server != '' THEN excluded.server ELSE http_services.server END,
                 tech_stack = CASE WHEN excluded.tech_stack != '[]' THEN excluded.tech_stack ELSE http_services.tech_stack END,
                 headers_json = CASE WHEN excluded.headers_json != '{}' THEN excluded.headers_json ELSE http_services.headers_json END,
-                security_headers_json = CASE WHEN excluded.security_headers_json != '{}' THEN excluded.security_headers_json END,
+                security_headers_json = CASE WHEN excluded.security_headers_json != '{}' THEN excluded.security_headers_json ELSE http_services.security_headers_json END,
                 cookies_json = CASE WHEN excluded.cookies_json != '[]' THEN excluded.cookies_json ELSE http_services.cookies_json END,
                 tls_json = CASE WHEN excluded.tls_json != '{}' THEN excluded.tls_json ELSE http_services.tls_json END,
                 waf = CASE WHEN excluded.waf != '' THEN excluded.waf ELSE http_services.waf END,
                 priority_score = MAX(http_services.priority_score, excluded.priority_score)""",
                 (project_id, url, int(status_code), title, server, json.dumps(tech_stack or []), int(content_length), json.dumps(headers or {}), json.dumps(security_headers or {}), json.dumps(cookies or []), json.dumps(tls_info or {}), waf, int(priority_score), source, self.now()),
             )
+
+    def merge_http_tech_stack(self, project_id: int, url: str, new_techs: list[str]):
+        if not new_techs:
+            return
+        with self._lock, self._get_conn() as conn:
+            row = conn.execute("SELECT tech_stack FROM http_services WHERE project_id = ? AND url = ?", (project_id, url)).fetchone()
+            if row:
+                try:
+                    cur_t = json.loads(row["tech_stack"] or "[]")
+                except Exception:
+                    cur_t = []
+                merged = list(dict.fromkeys([str(x) for x in (cur_t + list(new_techs)) if x]))
+                conn.execute("UPDATE http_services SET tech_stack = ? WHERE project_id = ? AND url = ?", (json.dumps(merged), project_id, url))
 
     def upsert_endpoint(self, project_id: int, url: str, method: str = "GET", params: list | None = None, category: str = "general", risk_tags: list | None = None, status_code: int = 0, source: str = "crawler"):
         with self._lock, self._get_conn() as conn:

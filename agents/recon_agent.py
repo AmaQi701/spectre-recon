@@ -998,6 +998,7 @@ class ReconSuperAgent:
             spectre_v5_modules.audit_domain_backup_exposure(self.db, project_id, apex_domain, log_fn)
             spectre_deep_modules.harvest_emails_and_osint(self.db, project_id, apex_domain, collected_html, log_fn)
             spectre_deep_modules.build_custom_wordlist_and_params(self.db, project_id, apex_domain, log_fn)
+            spectre_v5_modules.run_deep_cloud_osint_and_vuln_tools(self, project_id, apex_domain, primary_host, active_ids, log_fn)
 
         spectre_deep_modules.log_incremental_diff(before_snap, self.db, project_id, log_fn)
         _prog(1.0, "✅ Recon Completed!")
@@ -1065,6 +1066,7 @@ class ReconSuperAgent:
         spectre_ultra_modules.mine_well_known_and_mobile_links(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
         spectre_ultra_modules.trace_redirect_chains_and_oauth_flows(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
         spectre_ultra_modules.run_safe_auto_validator(self.db, self.session, project_id, log_fn)
+        spectre_v5_modules.run_deep_cloud_osint_and_vuln_tools(self, project_id, apex_domain, target_host, active_ids, log_fn)
         _prog(1.0, f"✅ Deep Scan Completed: {target_host}")
         log_fn(f"═══ ✅ SINGLE-HOST DEEP RECON YAKUNLANDI: {target_host} ═══")
 

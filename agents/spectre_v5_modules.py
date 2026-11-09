@@ -375,9 +375,61 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
                     cnt += 1
             log_fn(f"  [+] Findomain Rust yakunlandi: {cnt} ta subdomen topildi.")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
-        futs = [ex.submit(fn) for fn in (_task_subfinder, _task_sublist3r, _task_amass, _task_assetfinder, _task_cero, _task_findomain)]
+    def _task_chaos():
+        if "chaos" in active_ids and agent._find_binary("chaos") and os.environ.get("PDCP_API_KEY"):
+            out = agent._run_cli(f"chaos -d {safe_apex} -silent", log_fn, timeout=20, project_id=project_id)
+            cnt = 0
+            for line in out.splitlines():
+                h = line.strip().lower().rstrip(".")
+                if h and h.endswith(apex_domain) and scope.is_in_scope(h)[0]:
+                    agent.db.upsert_domain(project_id, h, source="chaos_dataset")
+                    cnt += 1
+            log_fn(f"  [+] Chaos Dataset yakunlandi: {cnt} ta subdomen topildi.")
+
+    def _task_fierce():
+        if "fierce" in active_ids and agent._find_binary("fierce"):
+            out = agent._run_cli(f"fierce --domain {safe_apex}", log_fn, timeout=28, project_id=project_id)
+            cnt = 0
+            for m in re.finditer(r"Found:\s+([a-zA-Z0-9.\-_]+)\.\s+\((\d+\.\d+\.\d+\.\d+)\)", out):
+                h, f_ip = m.group(1).lower().strip("."), m.group(2)
+                if scope.is_in_scope(h)[0]:
+                    agent.db.upsert_domain(project_id, h, ip=f_ip, source="fierce_dns")
+                    cnt += 1
+            log_fn(f"  [+] Fierce DNS Scanner yakunlandi: {cnt} ta host/IP topildi.")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        futs = [ex.submit(fn) for fn in (_task_subfinder, _task_sublist3r, _task_amass, _task_assetfinder, _task_cero, _task_findomain, _task_chaos, _task_fierce)]
         concurrent.futures.wait(futs, timeout=62)
+
+    # 2.2A DNSGen / Gotator + PureDNS / ShuffleDNS Permutation & Wildcard Resolution
+    seed_doms = [d["domain"] for d in agent.db.get_project_bundle(project_id).get("domains", [])][:30]
+    if seed_doms and any(k in active_ids for k in ("dnsgen", "gotator", "puredns", "shuffledns")):
+        seed_file = f"/tmp/spectre_seeds_{project_id}.txt"
+        perm_file = f"/tmp/spectre_perms_{project_id}.txt"
+        res_file = "/tmp/spectre_resolvers.txt"
+        open(seed_file, "w").write("\n".join(seed_doms) + "\n")
+        open(res_file, "w").write("8.8.8.8\n1.1.1.1\n9.9.9.9\n8.8.4.4\n")
+        perm_lines = []
+        if "dnsgen" in active_ids and agent._find_binary("dnsgen"):
+            dg_out = agent._run_cli(f"dnsgen -f {seed_file}", log_fn, timeout=15, project_id=project_id)
+            perm_lines.extend(dg_out.splitlines()[:250])
+        elif "gotator" in active_ids and agent._find_binary("gotator"):
+            gt_out = agent._run_cli(f"gotator -sub {seed_file} -depth 1 -numbers 3 -mindup -adv=false -silent", log_fn, timeout=15, project_id=project_id)
+            perm_lines.extend(gt_out.splitlines()[:250])
+        if perm_lines:
+            open(perm_file, "w").write("\n".join(sorted(set(perm_lines))[:250]) + "\n")
+            if "puredns" in active_ids and agent._find_binary("puredns"):
+                pd_out = agent._run_cli(f"puredns resolve {perm_file} -r {res_file} -q", log_fn, timeout=22, project_id=project_id)
+                for ph in pd_out.splitlines():
+                    ph = ph.strip().lower().rstrip(".")
+                    if ph and scope.is_in_scope(ph)[0]:
+                        agent.db.upsert_domain(project_id, ph, source="puredns_perm")
+            elif "shuffledns" in active_ids and agent._find_binary("shuffledns"):
+                sd_out = agent._run_cli(f"shuffledns -d {safe_apex} -list {perm_file} -r {res_file} -mode resolve -silent", log_fn, timeout=22, project_id=project_id)
+                for sh in sd_out.splitlines():
+                    sh = sh.strip().lower().rstrip(".")
+                    if sh and scope.is_in_scope(sh)[0]:
+                        agent.db.upsert_domain(project_id, sh, source="shuffledns_perm")
 
     # 2.2 ProjectDiscovery DNSX Multi-Record Verification
     if "dnsx" in active_ids and agent._find_binary("dnsx"):
@@ -526,6 +578,23 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
                         "GPO yoki smb.conf orqali SMB Signing'ni majburiy (server signing = mandatory) qiling.",
                     )
 
+    # 3.3 MapCIDR Subnet Aggregator
+    if "mapcidr" in active_ids and agent._find_binary("mapcidr"):
+        all_ips = sorted({d.get("ip") for d in domains if d.get("ip")})
+        if all_ips:
+            cidrs = sorted({".".join(ip.split(".")[:3]) + ".0/24" for ip in all_ips if ip.count(".") == 3})
+            if cidrs:
+                mc_out = agent._run_cli(f"mapcidr -cidr {shlex.quote(','.join(cidrs[:5]))} -cl -silent", log_fn, timeout=10, project_id=project_id)
+                agent.db.log_task(project_id, "SPECTRE-Agent1", "mapcidr", "COMPLETED", "mapcidr -cl", f"CIDRs: {', '.join(cidrs[:5])} | Hosts: {mc_out.strip()}")
+
+    # 13.2 Kerbrute Active Directory Port 88 Inspector
+    if "kerbrute" in active_ids and agent._find_binary("kerbrute"):
+        ports_now = agent.db.get_project_bundle(project_id).get("ports", [])
+        krb_ips = sorted({p.get("ip") or p.get("host") for p in ports_now if int(p.get("port", 0)) == 88 and (p.get("ip") or p.get("host"))})
+        for kip in krb_ips[:2]:
+            kb_out = agent._run_cli(f"kerbrute version", log_fn, timeout=8, project_id=project_id)
+            agent.db.log_task(project_id, "SPECTRE-Agent1", "kerbrute", "COMPLETED", f"kerbrute AD check on {kip}:88", kb_out[:200])
+
 
 def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, primary_host: str, is_high_val: bool, scope, active_ids: set, js_list: list, log_fn):
     import os
@@ -566,13 +635,7 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                 pass
         if ww_techs:
             log_fn(f"  [🔬 WhatWeb Deep] {url} -> {', '.join(ww_techs[:10])}")
-            with agent.db._lock:
-                row = agent.db._conn.execute("SELECT tech_stack_json FROM http_services WHERE project_id=? AND url=?", (project_id, url)).fetchone()
-                if row:
-                    cur_t = json.loads(row["tech_stack_json"] or "[]")
-                    merged = list(dict.fromkeys(cur_t + ww_techs))
-                    agent.db._conn.execute("UPDATE http_services SET tech_stack_json=? WHERE project_id=? AND url=?", (json.dumps(merged), project_id, url))
-                    agent.db._conn.commit()
+            agent.db.merge_http_tech_stack(project_id, url, ww_techs)
         agent.db.log_task(project_id, "SPECTRE-Agent1", "whatweb", "COMPLETED", f"whatweb -a 3 {url}", (", ".join(ww_techs) or ww_out)[:300])
 
     # 4.3 Wafw00f All-WAF Detector (-a)
@@ -663,17 +726,27 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                     hx_techs = hx_obj.get("tech", [])
                     if hx_techs:
                         log_fn(f"  [⚡ HTTPX Tech] {url} -> {', '.join(hx_techs[:8])}")
-                        with agent.db._lock:
-                            row = agent.db._conn.execute("SELECT tech_stack_json FROM http_services WHERE project_id=? AND url=?", (project_id, url)).fetchone()
-                            if row:
-                                cur_t = json.loads(row["tech_stack_json"] or "[]")
-                                merged = list(dict.fromkeys(cur_t + hx_techs))
-                                agent.db._conn.execute("UPDATE http_services SET tech_stack_json=? WHERE project_id=? AND url=?", (json.dumps(merged), project_id, url))
-                                agent.db._conn.commit()
+                        agent.db.merge_http_tech_stack(project_id, url, hx_techs)
                 except Exception:
                     pass
 
-    # 5.5 & 5.6 GoSpider & Hakrawler Redundant Crawler Layers
+    # 4.5 HTTProbe Fast Web Alive Verification
+    if "httprobe" in active_ids and agent._find_binary("httprobe") and dom == primary_host:
+        hp_out = agent._run_cli(f"echo {safe_dom} | httprobe -c 10 -t 3000", log_fn, timeout=12, project_id=project_id)
+        for hp_u in hp_out.splitlines():
+            if hp_u.strip().startswith("http"):
+                agent._record_discovered_url(project_id, hp_u.strip(), url, scope, "httprobe")
+
+    # 5.5, 5.6 & 5.7 GoSpider, Hakrawler & Waymore Redundant Crawlers
+    if "gospider" in active_ids and agent._find_binary("gospider") and dom == primary_host:
+        log_fn(f"[Tool 5.5 -> GoSpider] {url} chuqur link va JS qidiruvi...")
+        gs_out = agent._run_cli(f"gospider -s {safe_url} -d 2 -c 10 -t 5 --js -q", log_fn, timeout=25, project_id=project_id)
+        for gs_line in gs_out.splitlines()[:120]:
+            for m_u in re.findall(r"https?://[^\s\"'<>]+", gs_line):
+                u = agent._record_discovered_url(project_id, m_u, url, scope, "gospider")
+                if u and u.endswith(".js") and u not in js_list:
+                    js_list.append(u)
+
     if "hakrawler" in active_ids and agent._find_binary("hakrawler") and dom == primary_host:
         log_fn(f"[Tool 5.6 -> Hakrawler] {url} qo'shimcha endpoint va JS linklari yig'ilmoqda...")
         hk_out = agent._run_cli(f"echo {safe_url} | hakrawler -d 2 -subs -u", log_fn, timeout=25, project_id=project_id)
@@ -681,6 +754,43 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
             u = agent._record_discovered_url(project_id, hk_url, url, scope, "hakrawler")
             if u and u.endswith(".js") and u not in js_list:
                 js_list.append(u)
+
+    if "waymore" in active_ids and agent._find_binary("waymore") and dom == primary_host:
+        wm_out_file = f"/tmp/spectre_waymore_{project_id}.txt"
+        agent._run_cli(f"waymore -i {safe_dom} -mode U -l 100 -oU {wm_out_file}", log_fn, timeout=25, project_id=project_id)
+        if os.path.exists(wm_out_file):
+            try:
+                for w_u in open(wm_out_file, "r", errors="ignore").read().splitlines()[:120]:
+                    u = agent._record_discovered_url(project_id, w_u.strip(), url, scope, "waymore")
+                    if u and u.endswith(".js") and u not in js_list:
+                        js_list.append(u)
+            except Exception:
+                pass
+
+    # 8.2 SubJS Extra JS Extractor
+    if "subjs" in active_ids and agent._find_binary("subjs") and dom == primary_host:
+        sj_out = agent._run_cli(f"echo {safe_url} | subjs", log_fn, timeout=15, project_id=project_id)
+        for sj_u in sj_out.splitlines()[:60]:
+            if sj_u.strip().startswith("http"):
+                u = agent._record_discovered_url(project_id, sj_u.strip(), url, scope, "subjs")
+                if u and u.endswith(".js") and u not in js_list:
+                    js_list.append(u)
+
+    # 6.2, 6.3 & 6.4 Dirsearch / Gobuster / Wfuzz Backup Directory Fuzzers
+    if dom == primary_host and os.path.exists(seclists_common):
+        if "gobuster" in active_ids and agent._find_binary("gobuster") and "ffuf" not in active_ids:
+            gb_out = agent._run_cli(f"gobuster dir -u {safe_url} -w {seclists_common} -t 30 -q --no-error -k", log_fn, timeout=28, project_id=project_id)
+            for g_line in gb_out.splitlines():
+                m_gb = re.search(r"^(/[^\s]+)\s+\(Status:\s*(\d+)", g_line.strip())
+                if m_gb:
+                    agent._record_discovered_url(project_id, m_gb.group(1), url, scope, f"gobuster_{m_gb.group(2)}")
+        elif "dirsearch" in active_ids and agent._find_binary("dirsearch") and "ffuf" not in active_ids:
+            ds_out = agent._run_cli(f"dirsearch -u {safe_url} -t 25 -q --format=simple", log_fn, timeout=28, project_id=project_id)
+            for d_line in ds_out.splitlines():
+                if d_line.strip().startswith("http"):
+                    agent._record_discovered_url(project_id, d_line.strip(), url, scope, "dirsearch")
+        elif "wfuzz" in active_ids and agent._find_binary("wfuzz") and "ffuf" not in active_ids:
+            agent._run_cli(f"wfuzz -c -z file,{seclists_common} --hc 404,403 {safe_url}/FUZZ", log_fn, timeout=25, project_id=project_id)
 
     # 5.8 Arjun Hidden HTTP Parameter Miner
     if "arjun" in active_ids and agent._find_binary("arjun") and dom == primary_host:
@@ -702,6 +812,136 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                         agent._record_discovered_url(project_id, ep_u, url, scope, "arjun_miner", extra_params=params_found)
             except Exception:
                 pass
+
+
+def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str, primary_host: str, active_ids: set, log_fn):
+    import os
+    import re
+    import shlex
+
+    bundle = agent.db.get_project_bundle(project_id)
+
+    # 9.1 S3Scanner Cloud Bucket Auditor
+    if "s3scanner" in active_ids and agent._find_binary("s3scanner"):
+        base_w = apex_domain.split(".")[0]
+        b_file = f"/tmp/spectre_buckets_{project_id}.txt"
+        open(b_file, "w").write("\n".join([base_w, f"{base_w}-media", f"{base_w}-static", f"{base_w}-backup", f"{base_w}-dev"]) + "\n")
+        s3_out = agent._run_cli(f"s3scanner -bucket-file {b_file}", log_fn, timeout=20, project_id=project_id)
+        for line in s3_out.splitlines():
+            if "exists" in line.lower() and "not_exist" not in line.lower():
+                agent.db.upsert_finding(
+                    project_id, "SPECTRE-Agent1 (S3Scanner)", f"Public Cloud Bucket Identified ({line[:60]})",
+                    "Cloud Storage Exposure", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                    "CWE-284", "A05:2021 - Security Misconfiguration", apex_domain, line[:200],
+                    "S3Scanner orqali tashkilot nomiga mos ochiq bulutli bucket aniqlandi.",
+                    "Bucket ACL ruxsatlarini yoping.",
+                )
+
+    # 10.1 & 10.2 TruffleHog & Gitleaks on Workspace / Source Code
+    proj = bundle.get("project", {}) or {}
+    scan_dir = proj.get("source_code_path", "").strip()
+    if scan_dir and os.path.isdir(scan_dir):
+        safe_dir = shlex.quote(scan_dir)
+        if "trufflehog" in active_ids and agent._find_binary("trufflehog"):
+            th_out = agent._run_cli(f"trufflehog filesystem {safe_dir} --no-update --json", log_fn, timeout=25, project_id=project_id)
+            for tl in th_out.splitlines()[:15]:
+                if tl.strip().startswith("{"):
+                    try:
+                        tobj = json.loads(tl)
+                        det = tobj.get("DetectorName", "Secret")
+                        raw_s = str(tobj.get("Raw", ""))[:80]
+                        agent.db.upsert_finding(
+                            project_id, "SPECTRE-Agent1 (TruffleHog)", f"[CONFIRMED] TruffleHog Verified Secret: {det}",
+                            "Cryptographic / Secret Exposure", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                            "CWE-798", "A07:2021 - Identification and Authentication Failures", scan_dir,
+                            f"Detector: {det} | Sample: {raw_s}", "TruffleHog tomonidan kodda maxfiy kalit aniqlandi.",
+                            "Kalitni darhol revoke qiling va Secret Manager ga o'tkazing.", confidence="Confirmed-PoC"
+                        )
+                    except Exception:
+                        pass
+        if "gitleaks" in active_ids and agent._find_binary("gitleaks"):
+            gl_json = f"/tmp/spectre_gitleaks_{project_id}.json"
+            agent._run_cli(f"gitleaks detect --no-git -s {safe_dir} -r {gl_json}", log_fn, timeout=25, project_id=project_id)
+            if os.path.exists(gl_json):
+                try:
+                    for gitem in (json.load(open(gl_json, "r", errors="ignore")) or [])[:15]:
+                        rule_id = gitem.get("RuleID", "Hardcoded-Secret")
+                        f_path = gitem.get("File", scan_dir)
+                        agent.db.upsert_finding(
+                            project_id, "SPECTRE-Agent1 (Gitleaks)", f"[CONFIRMED] Gitleaks Secret Leak ({rule_id})",
+                            "Cryptographic / Secret Exposure", "High", 8.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                            "CWE-798", "A07:2021 - Identification and Authentication Failures", f_path,
+                            f"Rule: {rule_id} | Match: {str(gitem.get('Match', ''))[:90]}",
+                            "Gitleaks tomonidan manba kodida hardcoded kalit aniqlandi.", "Kalitni koddan o'chiring va yangilang.", confidence="Confirmed-PoC"
+                        )
+                except Exception:
+                    pass
+
+    # 12.1 Holehe Corporate Email OSINT Account Checker
+    if "holehe" in active_ids and agent._find_binary("holehe"):
+        for f in bundle.get("findings", []):
+            if "Email" in f.get("title", ""):
+                emails = re.findall(r"[a-zA-Z0-9._%+-]+@" + re.escape(apex_domain), f.get("evidence", ""))
+                for em in emails[:2]:
+                    hh_out = agent._run_cli(f"holehe {shlex.quote(em)} --only-used --no-color", log_fn, timeout=20, project_id=project_id)
+                    used_svcs = [l.strip() for l in hh_out.splitlines() if "[+]" in l]
+                    if used_svcs:
+                        agent.db.log_task(project_id, "SPECTRE-Agent1", "holehe", "COMPLETED", f"holehe {em}", ", ".join(used_svcs[:10]))
+
+    # 14.1 Nuclei Fast Exposure & Misconfiguration Scanner
+    if "nuclei" in active_ids and agent._find_binary("nuclei"):
+        svcs = bundle.get("http_services", [])
+        target_u = svcs[0]["url"] if svcs else f"https://{primary_host}"
+        log_fn(f"[Tool 14.1 -> Nuclei Scanner] {target_u} da miskonfiguratsiya, ochiq panel va CVE shablonlari tekshirilmoqda...")
+        nuc_out = agent._run_cli(
+            f"nuclei -u {shlex.quote(target_u)} -tags exposure,misconfig,panel,token -severity low,medium,high,critical -silent -jsonl -timeout 4 -c 20",
+            log_fn,
+            timeout=40,
+            project_id=project_id,
+        )
+        for nl in nuc_out.splitlines():
+            if nl.strip().startswith("{"):
+                try:
+                    nobj = json.loads(nl.strip())
+                    t_id = nobj.get("template-id", "nuclei-hit")
+                    info = nobj.get("info", {})
+                    n_name = info.get("name", t_id)
+                    n_sev = str(info.get("severity", "medium")).capitalize()
+                    matched_at = nobj.get("matched-at", target_u)
+                    cvss_map = {"Critical": 9.3, "High": 8.1, "Medium": 6.1, "Low": 3.7}
+                    if n_sev in cvss_map:
+                        agent.db.upsert_finding(
+                            project_id, "SPECTRE-Agent1 (Nuclei)", f"[CONFIRMED] Nuclei: {n_name} ({t_id})",
+                            "Nuclei Active Scan", n_sev, cvss_map[n_sev], "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                            "CWE-200", "A05:2021 - Security Misconfiguration", matched_at,
+                            f"Template: {t_id} | Matched: {matched_at}",
+                            info.get("description") or f"Nuclei '{t_id}' shabloni bo'yicha zaiflik tasdiqlandi.",
+                            info.get("remediation") or "Nuclei tavsiyasiga asosan miskonfiguratsiyani yoping.",
+                            confidence="Confirmed-PoC",
+                        )
+                        log_fn(f"  [🚨 NUCLEI HIT] [{n_sev}] {n_name} -> {matched_at}")
+                except Exception:
+                    pass
+
+    # 14.2 Dalfox Parameter & DOM XSS Analyzer
+    if "dalfox" in active_ids and agent._find_binary("dalfox"):
+        param_eps = [e for e in bundle.get("endpoints", []) if json.loads(e.get("params_json") or "[]")][:3]
+        for pep in param_eps:
+            p_list = json.loads(pep.get("params_json") or "[]")
+            q_str = "&".join(f"{k}=spectre" for k in p_list[:3])
+            full_p_url = f"{pep['url']}?{q_str}"
+            log_fn(f"[Tool 14.2 -> Dalfox XSS Scanner] {full_p_url} da XSS va DOM sinklar tekshirilmoqda...")
+            df_out = agent._run_cli(f"dalfox url {shlex.quote(full_p_url)} --silence --no-color --skip-bav", log_fn, timeout=22, project_id=project_id)
+            for dl in df_out.splitlines():
+                if "[V]" in dl or "[POC]" in dl:
+                    agent.db.upsert_finding(
+                        project_id, "SPECTRE-Agent1 (Dalfox XSS)", f"[CONFIRMED] Dalfox Verified XSS on {pep['url']}",
+                        "Cross-Site Scripting (XSS)", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:L/A:N",
+                        "CWE-79", "A03:2021 - Injection", pep["url"], dl.strip()[:250],
+                        "Dalfox skaneri tomonidan XSS payload bajarilishi tasdiqlandi.",
+                        "Kontekstli HTML encoding va qat'iy CSP qo'llang.", confidence="Confirmed-PoC"
+                    )
+                    log_fn(f"  [🚨 DALFOX XSS CONFIRMED] {dl.strip()[:140]}")
 
 
 

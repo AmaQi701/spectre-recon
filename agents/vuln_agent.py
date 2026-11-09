@@ -62,6 +62,50 @@ class VulnAssessmentSuperAgent:
             "pattern": re.compile(r"""(?i)(api_key|secret_key|jwt_secret|password|private_key)\s*=\s*['"][a-zA-Z0-9_\-\.!@#\$%\^&\*]{10,}['"]"""),
             "remediation": "Maxfiy kalitlarni kod ichida emas, Environment Variables (.env / Vault) orqali yuklang.",
         },
+        {
+            "title": "Potential Server-Side Request Forgery (SSRF) Sink",
+            "category": "SSRF (SAST)",
+            "severity": "High",
+            "cvss": 8.2,
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:L/A:N",
+            "cwe": "CWE-918",
+            "owasp": "A10:2021 - Server-Side Request Forgery",
+            "pattern": re.compile(r"""(?i)(requests\.(?:get|post|request)|urllib\.request\.urlopen|curl_exec|file_get_contents|http\.Get)\s*\(\s*(?:request\.|req\.|\$_(?:GET|POST|REQUEST)|params\[)"""),
+            "remediation": "Foydalanuvchi kiritgan URL manzillarini oq ro'yxat (allowlist) bilan tekshiring va ichki IP (127.0.0.1, 169.254.169.254, RFC1918) manzillarni bloklang.",
+        },
+        {
+            "title": "Potential Local File Inclusion / Path Traversal Sink",
+            "category": "LFI / Path Traversal (SAST)",
+            "severity": "High",
+            "cvss": 7.8,
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+            "cwe": "CWE-22",
+            "owasp": "A01:2021 - Broken Access Control",
+            "pattern": re.compile(r"""(?i)(send_file|open|include|require|include_once|require_once|readFileSync)\s*\(\s*.*(?:request\.|req\.|\$_(?:GET|POST|REQUEST))"""),
+            "remediation": "Fayl yo'llarini os.path.basename() yoki realpath() orqali asosiy katalog ichida ekanligini tekshiring.",
+        },
+        {
+            "title": "Server-Side Template Injection (SSTI) Sink",
+            "category": "Injection / SSTI (SAST)",
+            "severity": "Critical",
+            "cvss": 9.3,
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+            "cwe": "CWE-1336",
+            "owasp": "A03:2021 - Injection",
+            "pattern": re.compile(r"""(?i)(render_template_string|Template\s*\(\s*(?:request\.|req\.)|Twig_Loader_String)"""),
+            "remediation": "Foydalanuvchi kiritmasini shablon kodi sifatida kompilatsiya qilmang; statik shablon fayllariga kontekst o'zgaruvchisi sifatida uzating.",
+        },
+        {
+            "title": "Weak Cryptographic Hash Algorithm (MD5 / SHA1) for Security",
+            "category": "Cryptographic Failure (SAST)",
+            "severity": "Medium",
+            "cvss": 5.3,
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+            "cwe": "CWE-328",
+            "owasp": "A02:2021 - Cryptographic Failures",
+            "pattern": re.compile(r"""(?i)(hashlib\.(?:md5|sha1)\s*\(|md5\s*\(\s*\$_(?:POST|GET|REQUEST)|sha1\s*\(\s*\$_)"""),
+            "remediation": "Parollar uchun Argon2id yoki bcrypt, xeshlar uchun SHA-256 / SHA-3 ishlating.",
+        },
     ]
 
     def __init__(self, db: DatabaseManager):
@@ -119,6 +163,26 @@ class VulnAssessmentSuperAgent:
                     "Barcha tashqi originlar uchun javoblarni o'qish ruxsat etilgan.",
                     "Agar API ommaviy bo'lmasa, ruxsat berilgan originlarni qat'iy belgilang.",
                 )
+
+            # Active Dynamic Origin Reflection & HTTP Methods Probe on top services
+            try:
+                r_cors = requests.get(url, headers={"Origin": "https://evil.spectre-audit.org", "User-Agent": "SPECTRE-VulnAgent/8.5"}, timeout=4.0, verify=False, allow_redirects=False)
+                ref_acao = r_cors.headers.get("Access-Control-Allow-Origin", "")
+                ref_acac = r_cors.headers.get("Access-Control-Allow-Credentials", "").lower()
+                if ref_acao == "https://evil.spectre-audit.org":
+                    sev_c = "Critical" if ref_acac == "true" else "Medium"
+                    cvss_c = 8.8 if ref_acac == "true" else 5.3
+                    self.db.upsert_finding(
+                        project_id, "Agent-2 (Active-CORS)", f"[CONFIRMED] Arbitrary CORS Origin Reflection ({url})",
+                        "CORS Origin Reflection", sev_c, cvss_c, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:L/A:N",
+                        "CWE-942", "A05:2021 - Security Misconfiguration", url,
+                        f"Sent Origin: https://evil.spectre-audit.org -> Reflected ACAO: {ref_acao} | ACAC: {ref_acac}",
+                        "Server har qanday tashqi Origin sarlavhasini Access-Control-Allow-Origin ichida aks ettirmoqda.",
+                        "Origin sarlavhasini avtomatik aks ettirmang; qat'iy oq ro'yxat (allowlist) tekshiruvini o'rnating.",
+                        confidence="Confirmed-PoC",
+                    )
+            except Exception:
+                pass
 
             missing_headers = [
                 h for h in ("Strict-Transport-Security", "Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options")

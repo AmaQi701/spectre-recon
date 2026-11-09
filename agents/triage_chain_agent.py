@@ -19,6 +19,9 @@ class TriageAndChainSuperAgent:
     def run_triage_and_chaining(self, project_id: int, log_fn):
         bundle = self.db.get_project_bundle(project_id)
         proj = bundle.get("project", {})
+        if not proj:
+            log_fn("[ERR] Loyiha topilmadi.")
+            return
         findings = bundle.get("findings", [])
         endpoints = bundle.get("endpoints", [])
         http_svcs = bundle.get("http_services", [])
@@ -136,10 +139,24 @@ class TriageAndChainSuperAgent:
             log_fn("  [⚡ CHAIN] State-Changing API Routes + BOLA/Mass-Assignment zanjiri tuzildi!")
 
 
+        confirmed_refl = [f for f in findings if "[confirmed]" in f.get("title", "").lower() and ("reflection" in f.get("title", "").lower() or "xss" in f.get("title", "").lower())]
+        if confirmed_refl:
+            self.db.upsert_bug_chain(
+                project_id,
+                "Chain #7: Verified Unfiltered Input Reflection (XSS) + Session/Token Context -> Client-Side Account Takeover",
+                "High",
+                8.6,
+                [confirmed_refl[0]["asset"], confirmed_refl[0]["title"], "Reflected/DOM XSS Execution -> Session Theft"],
+                "Safe Auto-Validator yoki Dalfox tomonidan tasdiqlangan filtrsiz parametr refleksiyasi foydalanuvchi brauzerida zararli JS kod ishga tushirish va sessiyani egallash imkonini beradi.",
+                "Foydalanuvchi sessiyasining o'g'irlanishi (ATO) yoki foydalanuvchi nomidan amallar bajarilishi.",
+                "Parametrlarni HTML/JS kontekstida chiqarishda qat'iy kontekstli encoding va Content-Security-Policy (CSP) qo'llang.",
+            )
+            log_fn("  [⚡ CHAIN] Verified Input Reflection + Session Context -> Account Takeover zanjiri tuzildi!")
+
         if has_sast_inj or (not has_dom_sink and not has_cors and findings):
             self.db.upsert_bug_chain(
                 project_id,
-                "Chain #4: Missing Defense-in-Depth Headers + Application Layer Findings",
+                "Chain #8: Missing Defense-in-Depth Headers + Application Layer Findings",
                 "Medium",
                 6.8,
                 ["Missing CSP / Hardening Headers", "Discovered Application Endpoints / Sinks", "Reduced Browser-Side Mitigation"],
@@ -219,14 +236,18 @@ class TriageAndChainSuperAgent:
         md_content = "\n".join(md_lines)
         md_path.write_text(md_content, encoding="utf-8")
 
-        # HTML Printable Report
+        # HTML Printable Report (with proper HTML escaping for safe rendering)
+        import html as _html
         rows_html = "".join(
-            f"<tr><td><b>{f['severity']}</b> ({f['cvss_score']})</td><td>{f['title']}<br><small>{f['cwe']} | {f['owasp']}</small></td>"
-            f"<td><code>{f['asset']}</code></td><td><code>{f['evidence']}</code></td><td>{f['remediation']}</td></tr>"
+            f"<tr><td><b>{_html.escape(str(f['severity']))}</b> ({_html.escape(str(f['cvss_score']))})</td>"
+            f"<td>{_html.escape(str(f['title']))}<br><small>{_html.escape(str(f['cwe']))} | {_html.escape(str(f['owasp']))}</small></td>"
+            f"<td><code>{_html.escape(str(f['asset']))}</code></td>"
+            f"<td><code>{_html.escape(str(f['evidence']))}</code></td>"
+            f"<td>{_html.escape(str(f['remediation']))}</td></tr>"
             for f in findings
         )
         html_content = f"""<!DOCTYPE html>
-<html lang="uz"><head><meta charset="utf-8"><title>Audit Report - {proj.get('name')}</title>
+<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
 <style>
 body {{ font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; padding: 32px; }}
 h1, h2 {{ color: #38bdf8; border-bottom: 1px solid #334155; padding-bottom: 8px; }}
@@ -235,8 +256,8 @@ th, td {{ border: 1px solid #334155; padding: 10px; text-align: left; font-size:
 th {{ background: #0284c7; color: #fff; }}
 code {{ color: #f472b6; background: #0f172a; padding: 2px 5px; border-radius: 4px; }}
 </style></head><body>
-<h1>🛡️ APEX-ASM Security Audit Report: {proj.get('name')}</h1>
-<p><b>Primary Target:</b> <code>{proj.get('primary_target')}</code> | <b>In-Scope:</b> <code>{proj.get('in_scope')}</code></p>
+<h1>👻 SPECTRE v8.5 Autonomous Cyber-Recon &amp; Security Audit Report: {_html.escape(str(proj.get('name', '')))}</h1>
+<p><b>Primary Target:</b> <code>{_html.escape(str(proj.get('primary_target', '')))}</code> | <b>In-Scope:</b> <code>{_html.escape(str(proj.get('in_scope', '')))}</code></p>
 <h2>Aniqlangan Zaifliklar va Tekshiruv Nuqtalari ({len(findings)})</h2>
 <table><thead><tr><th>Severity / CVSS</th><th>Zaiflik Nomi</th><th>Asset</th><th>Dalil (Evidence)</th><th>Remediation</th></tr></thead>
 <tbody>{rows_html}</tbody></table>

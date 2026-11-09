@@ -27,6 +27,7 @@ from agents.triage_chain_agent import TriageAndChainSuperAgent
 from agents.vuln_agent import VulnAssessmentSuperAgent
 from agents import spectre_deep_modules, spectre_v5_modules
 from core.database import DatabaseManager
+from core.scope_guard import ScopeGuard
 
 DARK_CSS = b"""
 window, .background { background-color: #090d16; color: #e2e8f0; font-family: "Inter", "Ubuntu", system-ui, sans-serif; }
@@ -185,7 +186,7 @@ class ApexNativeWindow(Gtk.Window):
             it_deep = Gtk.MenuItem(label=f"🎯 Shu Hostni Chuqur Skanerlash ({host_only})")
             def _deep_host(_):
                 self._selected_domain = host_only
-                self.on_deep_scan_selected_subdomain(None)
+                self.on_deep_scan_selected_subdomain(None, explicit_host=host_only)
             it_deep.connect("activate", _deep_host)
             menu.append(it_deep)
 
@@ -557,7 +558,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v6.0 NATIVE GTK3 STUDIO] Mahalliy Ubuntu kiber-razvedka platformasi tayyor.\n")
+        self.term_buf.set_text("[SPECTRE v8.5 NATIVE GTK3 STUDIO] 49/49 Recon Arsenal • Adaptive Brain • Auto-Validator tayyor.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)
@@ -630,11 +631,18 @@ class ApexNativeWindow(Gtk.Window):
     def on_ai_dossier_analysis(self, _btn):
         if not self.current_project_id:
             return
+        pid = self.current_project_id
         dom_name = getattr(self, "_selected_domain", "")
-        ai_txt = spectre_v5_modules.generate_ai_tactical_analysis(self.db, self.current_project_id, dom_name)
-        dossier_txt = spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, dom_name)
-        self.dossier_view.get_buffer().set_text(ai_txt + "\n\n" + dossier_txt)
-        self.log_msg(f"[AI ANALYST] 🧠 '{dom_name or 'Primary Target'}' bo'yicha taktik tahlil tayyorlandi.")
+        self.dossier_view.get_buffer().set_text(f"⏳ '{dom_name or 'Primary Target'}' bo'yicha AI va taktik tahlil tayyorlanmoqda...")
+
+        def _ai_worker():
+            ai_txt = spectre_v5_modules.generate_ai_tactical_analysis(self.db, pid, dom_name)
+            dossier_txt = spectre_deep_modules.build_target_dossier(self.db, pid, dom_name)
+            full_txt = ai_txt + "\n\n" + dossier_txt
+            GLib.idle_add(lambda: self.dossier_view.get_buffer().set_text(full_txt) or False)
+            self.log_msg(f"[AI ANALYST] 🧠 '{dom_name or 'Primary Target'}' bo'yicha taktik tahlil tayyorlandi.")
+
+        threading.Thread(target=_ai_worker, daemon=True).start()
 
 
     def _periodic_refresh(self):
@@ -883,12 +891,14 @@ class ApexNativeWindow(Gtk.Window):
 
 
     def on_create_project(self, _btn, auto_start: bool = False):
-        target = self.ent_ptarget.get_text().strip()
-        if not target:
+        raw_target = self.ent_ptarget.get_text().strip()
+        if not raw_target:
             self.log_msg("[ERR] ⚠️ Asosiy nishon (Domain / IP) kiritilishi shart!")
             return
+        target = ScopeGuard.extract_host(raw_target)
+        apex_dom = ScopeGuard.extract_apex_domain(target)
         name = self.ent_pname.get_text().strip() or target
-        in_sc = self.ent_pinscope.get_text().strip() or f"{target}\n*.{target.lstrip('www.')}"
+        in_sc = self.ent_pinscope.get_text().strip() or f"{target}\n{apex_dom}\n*.{apex_dom}"
         out_sc = self.ent_poutscope.get_text().strip()
         code_p = self.ent_pcode.get_text().strip()
         pid = self.db.create_project(name, target, in_sc, out_sc, code_p)
@@ -908,6 +918,11 @@ class ApexNativeWindow(Gtk.Window):
         pid = self.current_project_id
         self.is_running_job = True
         self._switch_page("p_recon", self.nav_buttons[1])
+        # Avvalgi loyihadan qolgan custom Header/Cookie va Proxy sozlamalarini tozalash (Zero Cross-Project State Leak)
+        self.recon_agent.session.headers.clear()
+        self.recon_agent.session.headers.update({"User-Agent": "SPECTRE-ASM-Security-Audit/8.5"})
+        self.recon_agent.session.proxies.clear()
+
         auth = self.auth_entry.get_text().strip()
         if auth:
             if ":" in auth:
@@ -1097,19 +1112,20 @@ class ApexNativeWindow(Gtk.Window):
         res = self.vuln_agent.audit_jwt_token(tok)
         self.log_msg(f"[JWT AUDIT] {json.dumps(res, ensure_ascii=False)}")
 
-    def on_deep_scan_selected_subdomain(self, _btn):
+    def on_deep_scan_selected_subdomain(self, _btn, explicit_host: str = ""):
         if not self.current_project_id:
             self.log_msg("[!] Avval loyiha tanlang!")
             return
-        sel = self.tree_dom.get_selection()
-        model, treeiter = sel.get_selected()
-        if treeiter is None and len(model) > 0:
-            treeiter = model.get_iter_first()
-        if treeiter is None:
-            self.log_msg("[!] Subdomenlar jadvalidan biror qatorni tanlang.")
-            return
-        import re as _re
-        host = _re.sub(r"<[^>]+>", "", model[treeiter][0]).strip()
+        host = (explicit_host or "").strip()
+        if not host:
+            sel = self.tree_dom.get_selection()
+            model, treeiter = sel.get_selected()
+            if treeiter is None and len(model) > 0:
+                treeiter = model.get_iter_first()
+            if treeiter is None:
+                self.log_msg("[!] Subdomenlar jadvalidan biror qatorni tanlang.")
+                return
+            host = re.sub(r"<[^>]+>", "", model[treeiter][0]).strip()
         pid = self.current_project_id
         self.is_running_job = True
 
