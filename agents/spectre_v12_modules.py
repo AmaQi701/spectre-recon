@@ -246,9 +246,10 @@ def predict_and_verify_semantic_rest_endpoints(db, session, project_id: int, bas
     if not base_resources:
         return 0
 
-    cal_hash, cal_len = "", -1
+    cal_hash, cal_len, cal_status = "", -1, -1
     try:
         rc = session.get(urllib.parse.urljoin(base_url, "/api/v999_spectre_nonexistent/check"), timeout=4, verify=False, allow_redirects=False)
+        cal_status = rc.status_code
         cal_len = len(rc.text)
         cal_hash = hashlib.sha256(rc.text.encode("utf-8", errors="ignore")).hexdigest()
     except Exception:
@@ -261,10 +262,11 @@ def predict_and_verify_semantic_rest_endpoints(db, session, project_id: int, bas
             cand_u = urllib.parse.urljoin(base_url, cand_p)
             try:
                 r = session.get(cand_u, timeout=4, verify=False, allow_redirects=False)
-                if r.status_code == 200 and len(r.text) > 35 and "application/json" in r.headers.get("Content-Type", "").lower():
+                if r.status_code == 200 and len(r.text) > 20 and "application/json" in r.headers.get("Content-Type", "").lower():
                     rh = hashlib.sha256(r.text.encode("utf-8", errors="ignore")).hexdigest()
                     low_t = r.text.lower()
-                    if rh != cal_hash and abs(len(r.text) - cal_len) > 25 and '"not found"' not in low_t and '"status":404' not in low_t:
+                    is_diff = (cal_status != 200) or (rh != cal_hash and abs(len(r.text) - cal_len) > 25)
+                    if is_diff and '"not found"' not in low_t and '"status":404' not in low_t:
                         verified_preds.append(cand_p)
                         db.upsert_endpoint(project_id, cand_u, method="GET", params=[], category="api_endpoint", risk_tags=["semantic_predicted"], status_code=200, source="semantic_predictor")
             except Exception:
