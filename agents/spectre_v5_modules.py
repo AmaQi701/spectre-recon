@@ -307,7 +307,7 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
                     os.remove(out_file)
             except Exception:
                 pass
-            out = agent._run_cli(f"subfinder -d {safe_apex} -all -timeout 8 -max-time 1 -silent -o {out_file}", log_fn, timeout=45, project_id=project_id)
+            out = agent._run_cli(f"subfinder -d {safe_apex} -all -es commoncrawl,waybackarchive,riddler -timeout 5 -silent -o {out_file}", log_fn, timeout=25, project_id=project_id)
             lines = open(out_file, "r", errors="ignore").read().splitlines() if os.path.exists(out_file) else out.splitlines()
             cnt = 0
             for line in lines:

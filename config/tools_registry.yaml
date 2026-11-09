@@ -12,12 +12,12 @@ tools:
     command_template: "builtin:osint_mesh {domain}"
 
   - id: subfinder
-    name: "1.2 Subfinder (All Sources Deep -all -recursive)"
+    name: "1.2 Subfinder (All Fast Sources -all -es commoncrawl)"
     stage: "1_subdomain_enum"
     binary: "subfinder"
     enabled: true
-    description: "Barcha passiv manbalardan rekursiv subdomen qidirish"
-    command_template: "subfinder -d {domain} -all -recursive -silent"
+    description: "Barcha passiv manbalardan tezkor subdomen qidirish (3s)"
+    command_template: "subfinder -d {domain} -all -es commoncrawl,waybackarchive,riddler -timeout 5 -silent"
 
   - id: sublist3r
     name: "1.3 Sublist3r (Search Engines OSINT)"
