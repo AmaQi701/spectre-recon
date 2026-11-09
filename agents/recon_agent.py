@@ -247,8 +247,39 @@ class ReconSuperAgent:
             except Exception:
                 pass
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
-            futures = [ex.submit(fn) for fn in (fetch_crtsh, fetch_otx, fetch_hackertarget, fetch_urlscan, fetch_anubis)]
+        def fetch_certspotter():
+            try:
+                r = self.session.get(f"https://api.certspotter.com/v1/issuances?domain={domain}&include_subdomains=true&expand=dns_names", timeout=10)
+                if r.status_code == 200 and isinstance(r.json(), list):
+                    for item in r.json():
+                        for d_name in item.get("dns_names", []):
+                            discovered.add((str(d_name).strip().lower().lstrip("*."), "certspotter"))
+            except Exception:
+                pass
+
+        def fetch_rapiddns():
+            try:
+                r = self.session.get(f"https://rapiddns.io/subdomain/{domain}?full=1", timeout=12)
+                if r.status_code == 200:
+                    for m in re.findall(r"([a-zA-Z0-9_\-\.]+\." + re.escape(domain) + r")", r.text):
+                        discovered.add((m.strip().lower().lstrip("*."), "rapiddns"))
+            except Exception:
+                pass
+
+        def fetch_wayback_hosts():
+            try:
+                r = self.session.get(f"http://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=json&fl=original&collapse=urlkey&limit=250", timeout=12)
+                if r.status_code == 200:
+                    for row in r.json()[1:]:
+                        if row:
+                            h = ScopeGuard.extract_host(row[0])
+                            if h and h.endswith(domain):
+                                discovered.add((h, "wayback_osint"))
+            except Exception:
+                pass
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            futures = [ex.submit(fn) for fn in (fetch_crtsh, fetch_otx, fetch_hackertarget, fetch_urlscan, fetch_anubis, fetch_certspotter, fetch_rapiddns, fetch_wayback_hosts)]
             concurrent.futures.wait(futures, timeout=16)
 
         added = 0
@@ -360,20 +391,42 @@ class ReconSuperAgent:
                 if ip_val or cname_val:
                     log_fn(f"  [+] DNS Active: {cand} -> {ip_val or cname_val} {f'(Records: {list(records.keys())})' if len(records)>1 else ''}")
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as ex:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=35) as ex:
             list(ex.map(check_candidate, sorted(candidates)))
 
-        # Smart Subdomain Permutation Pass (like alterx / dnsgen)
-        active_subs = [d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", []) if d.get("ip") and d["domain"] != apex_domain]
+        # Smart Subdomain Permutation Pass + Recursive 3rd-Level Sub-Zone Discovery
+        all_dom_rows = self.db.get_project_bundle(project_id).get("domains", [])
+        active_subs = [d["domain"] for d in all_dom_rows if d.get("ip") and d["domain"] != apex_domain]
         perm_candidates = set()
-        for sub in active_subs[:10]:
+        subzones = set()
+
+        for d in all_dom_rows:
+            dn = d["domain"]
+            if dn.endswith("." + apex_domain):
+                rel = dn[: -(len(apex_domain) + 1)]
+                parts = rel.split(".")
+                if len(parts) >= 2 and parts[-1] not in ("www", "mail", "ns", "ns1", "ns2"):
+                    subzones.add(f"{parts[-1]}.{apex_domain}")
+
+        for sz in sorted(subzones)[:12]:
+            for sz_pref in ("www", "api", "admin", "my", "portal", "mail", "dev", "auth"):
+                perm_candidates.add(f"{sz_pref}.{sz}")
+
+        for sub in active_subs[:25]:
             prefix = sub.replace("." + apex_domain, "").split(".")[0]
-            if prefix and prefix not in ("www", "mail"):
-                for mut in (f"{prefix}-dev", f"{prefix}-stage", f"{prefix}-test", f"{prefix}-v2", f"dev-{prefix}", f"old-{prefix}", f"admin-{prefix}"):
+            if prefix and prefix not in ("www", "mail", "ns1", "ns2"):
+                for mut in (
+                    f"{prefix}-dev", f"{prefix}-stage", f"{prefix}-test", f"{prefix}-prod",
+                    f"{prefix}-api", f"{prefix}-ip", f"{prefix}-admin", f"{prefix}-v2",
+                    f"dev-{prefix}", f"api-{prefix}", f"admin-{prefix}", f"old-{prefix}",
+                ):
                     perm_candidates.add(f"{mut}.{apex_domain}")
+
+        existing_set = {d["domain"] for d in all_dom_rows}
+        perm_candidates -= existing_set
         if perm_candidates:
-            log_fn(f"[SPECTRE Smart Mutator] Topilgan faol subdomenlar asosida {len(perm_candidates)} ta mutatsiya (dev/stage/v2/old) tekshirilmoqda...")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=15) as ex:
+            log_fn(f"[SPECTRE Smart Mutator & Sub-Zone Engine] {len(perm_candidates)} ta mutatsiya va 3-darajali sub-zonalar ({len(subzones)} sub-zones) tekshirilmoqda...")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=35) as ex:
                 list(ex.map(check_candidate, sorted(perm_candidates)))
 
 

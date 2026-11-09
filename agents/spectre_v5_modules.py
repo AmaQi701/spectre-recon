@@ -402,51 +402,53 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
         concurrent.futures.wait(futs, timeout=62)
 
     # 2.2A DNSGen / Gotator + PureDNS / ShuffleDNS Permutation & Wildcard Resolution
-    seed_doms = [d["domain"] for d in agent.db.get_project_bundle(project_id).get("domains", [])][:30]
+    seed_doms = [d["domain"] for d in agent.db.get_project_bundle(project_id).get("domains", [])][:35]
     if seed_doms and any(k in active_ids for k in ("dnsgen", "gotator", "puredns", "shuffledns")):
         seed_file = f"/tmp/spectre_seeds_{project_id}.txt"
         perm_file = f"/tmp/spectre_perms_{project_id}.txt"
         res_file = "/tmp/spectre_resolvers.txt"
         open(seed_file, "w").write("\n".join(seed_doms) + "\n")
-        open(res_file, "w").write("8.8.8.8\n1.1.1.1\n9.9.9.9\n8.8.4.4\n")
+        open(res_file, "w").write("8.8.8.8\n1.1.1.1\n9.9.9.9\n8.8.4.4\n1.0.0.1\n208.67.222.222\n")
         perm_lines = []
         if "dnsgen" in active_ids and agent._find_binary("dnsgen"):
-            dg_out = agent._run_cli(f"dnsgen -f {seed_file}", log_fn, timeout=15, project_id=project_id)
-            perm_lines.extend(dg_out.splitlines()[:250])
-        elif "gotator" in active_ids and agent._find_binary("gotator"):
+            dg_out = agent._run_cli(f"dnsgen {seed_file}", log_fn, timeout=15, project_id=project_id)
+            perm_lines.extend(dg_out.splitlines()[:300])
+        if "gotator" in active_ids and agent._find_binary("gotator"):
             gt_out = agent._run_cli(f"gotator -sub {seed_file} -depth 1 -numbers 3 -mindup -adv=false -silent", log_fn, timeout=15, project_id=project_id)
-            perm_lines.extend(gt_out.splitlines()[:250])
+            perm_lines.extend(gt_out.splitlines()[:300])
         if perm_lines:
-            open(perm_file, "w").write("\n".join(sorted(set(perm_lines))[:250]) + "\n")
+            open(perm_file, "w").write("\n".join(sorted(set(perm_lines))[:500]) + "\n")
             if "puredns" in active_ids and agent._find_binary("puredns"):
-                pd_out = agent._run_cli(f"puredns resolve {perm_file} -r {res_file} -q", log_fn, timeout=22, project_id=project_id)
+                pd_out = agent._run_cli(f"puredns resolve {perm_file} -r {res_file} -q", log_fn, timeout=25, project_id=project_id)
                 for ph in pd_out.splitlines():
                     ph = ph.strip().lower().rstrip(".")
                     if ph and scope.is_in_scope(ph)[0]:
                         agent.db.upsert_domain(project_id, ph, source="puredns_perm")
-            elif "shuffledns" in active_ids and agent._find_binary("shuffledns"):
-                sd_out = agent._run_cli(f"shuffledns -d {safe_apex} -list {perm_file} -r {res_file} -mode resolve -silent", log_fn, timeout=22, project_id=project_id)
+            if "shuffledns" in active_ids and agent._find_binary("shuffledns"):
+                sd_out = agent._run_cli(f"shuffledns -d {safe_apex} -list {perm_file} -r {res_file} -mode resolve -silent", log_fn, timeout=25, project_id=project_id)
                 for sh in sd_out.splitlines():
                     sh = sh.strip().lower().rstrip(".")
                     if sh and scope.is_in_scope(sh)[0]:
                         agent.db.upsert_domain(project_id, sh, source="shuffledns_perm")
 
-    # 2.2 ProjectDiscovery DNSX Multi-Record Verification
+    # 2.2 ProjectDiscovery DNSX Multi-Record Verification (Up to 500 hosts + A & CNAME)
     if "dnsx" in active_ids and agent._find_binary("dnsx"):
         doms_now = [d["domain"] for d in agent.db.get_project_bundle(project_id).get("domains", [])]
         if doms_now:
             dom_file = f"/tmp/spectre_dnsx_in_{project_id}.txt"
-            open(dom_file, "w").write("\n".join(doms_now[:150]) + "\n")
-            log_fn(f"[Tool 2.2 -> ProjectDiscovery DNSX] {len(doms_now[:150])} ta subdomen A/CNAME yozuvlari tezkor tekshirilmoqda...")
-            dx_out = agent._run_cli(f"dnsx -l {dom_file} -a -cname -resp -silent", log_fn, timeout=25, project_id=project_id)
+            open(dom_file, "w").write("\n".join(doms_now[:500]) + "\n")
+            log_fn(f"[Tool 2.2 -> ProjectDiscovery DNSX] {len(doms_now[:500])} ta subdomen A/CNAME yozuvlari tezkor tekshirilmoqda...")
+            dx_out = agent._run_cli(f"dnsx -l {dom_file} -a -cname -resp -silent", log_fn, timeout=30, project_id=project_id)
             for line in dx_out.splitlines():
                 clean_l = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
                 parts = clean_l.split()
-                if len(parts) >= 3 and "[A]" in clean_l:
+                if len(parts) >= 3:
                     h = parts[0].strip().lower()
-                    ip_val = parts[-1].strip("[]")
-                    if re.match(r"^\d+\.\d+\.\d+\.\d+$", ip_val) and scope.is_in_scope(h)[0]:
-                        agent.db.upsert_domain(project_id, h, ip=ip_val, source="dnsx_verified")
+                    val = parts[-1].strip("[]").rstrip(".")
+                    if "[A]" in clean_l and re.match(r"^\d+\.\d+\.\d+\.\d+$", val) and scope.is_in_scope(h)[0]:
+                        agent.db.upsert_domain(project_id, h, ip=val, source="dnsx_verified")
+                    elif "[CNAME]" in clean_l and "." in val and scope.is_in_scope(h)[0]:
+                        agent.db.upsert_domain(project_id, h, cname=val, source="dnsx_verified")
 
     # 2.3 Dig Deep DNS & Zone Transfer (AXFR) Audit
     if "dig" in active_ids and agent._find_binary("dig"):
