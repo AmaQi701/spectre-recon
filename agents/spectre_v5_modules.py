@@ -301,9 +301,16 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
 
     def _task_subfinder():
         if "subfinder" in active_ids and agent._find_binary("subfinder"):
-            out = agent._run_cli(f"subfinder -d {safe_apex} -all -recursive -silent", log_fn, timeout=45, project_id=project_id)
+            out_file = f"/tmp/spectre_subfinder_{project_id}.txt"
+            try:
+                if os.path.exists(out_file):
+                    os.remove(out_file)
+            except Exception:
+                pass
+            out = agent._run_cli(f"subfinder -d {safe_apex} -all -timeout 8 -max-time 1 -silent -o {out_file}", log_fn, timeout=45, project_id=project_id)
+            lines = open(out_file, "r", errors="ignore").read().splitlines() if os.path.exists(out_file) else out.splitlines()
             cnt = 0
-            for line in out.splitlines():
+            for line in lines:
                 h = line.strip().lower().rstrip(".")
                 if h and scope.is_in_scope(h)[0]:
                     agent.db.upsert_domain(project_id, h, source="subfinder_deep")
@@ -312,13 +319,14 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
 
     def _task_sublist3r():
         if "sublist3r" in active_ids and agent._find_binary("sublist3r"):
+            subl_bin = "/home/amaqi/.local/bin/sublist3r" if os.path.exists("/home/amaqi/.local/bin/sublist3r") else "sublist3r"
             out_file = f"/tmp/spectre_sublist3r_{project_id}.txt"
             try:
                 if os.path.exists(out_file):
                     os.remove(out_file)
             except Exception:
                 pass
-            agent._run_cli(f"sublist3r -d {safe_apex} -n -o {out_file}", log_fn, timeout=40, project_id=project_id)
+            agent._run_cli(f"{subl_bin} -d {safe_apex} -n -e crtsh,threatcrowd,netcraft -o {out_file}", log_fn, timeout=30, project_id=project_id)
             cnt = 0
             if os.path.exists(out_file):
                 try:
@@ -388,7 +396,8 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
 
     def _task_fierce():
         if "fierce" in active_ids and agent._find_binary("fierce"):
-            out = agent._run_cli(f"fierce --domain {safe_apex}", log_fn, timeout=28, project_id=project_id)
+            f_subs = "www api dev stage test admin portal mail my auth sso id vpn git lms chat erp crm zabbix doc pay cabinet"
+            out = agent._run_cli(f"fierce --domain {safe_apex} --dns-servers 8.8.8.8 1.1.1.1 --subdomains {f_subs}", log_fn, timeout=22, project_id=project_id)
             cnt = 0
             for m in re.finditer(r"Found:\s+([a-zA-Z0-9.\-_]+)\.\s+\((\d+\.\d+\.\d+\.\d+)\)", out):
                 h, f_ip = m.group(1).lower().strip("."), m.group(2)

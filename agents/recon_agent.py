@@ -192,8 +192,8 @@ class ReconSuperAgent:
 
     # ================= STAGE 1: MULTI-SOURCE PASSIVE OSINT & DNS =================
     def _stage1_crtsh(self, project_id: int, domain: str, scope: ScopeGuard, log_fn):
-        log_fn(f"[SPECTRE Stage 1] 5 ta Global OSINT Baza (CRT.sh, AlienVault OTX, HackerTarget, URLScan, Anubis) parallel qidiruvi: {domain}")
-        discovered = set()
+        log_fn(f"[SPECTRE Stage 1] 8 ta Global OSINT Baza (CRT.sh, SubdomainCenter, RapidDNS, CertSpotter, HackerTarget, URLScan, Wayback, OTX) parallel qidiruvi: {domain}")
+        discovered: set[tuple[str, str, str]] = set()
 
         def fetch_crtsh():
             try:
@@ -201,18 +201,20 @@ class ReconSuperAgent:
                 if r.status_code == 200:
                     for item in r.json():
                         for sub in str(item.get("name_value", "")).splitlines():
-                            discovered.add((sub.strip().lower().lstrip("*."), "crt.sh"))
+                            discovered.add((sub.strip().lower().lstrip("*."), "", "crt.sh"))
             except Exception:
                 pass
 
         def fetch_otx():
             try:
-                r = self.session.get(f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns", timeout=12)
+                r = self.session.get(f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns", timeout=10)
                 if r.status_code == 200:
                     for row in r.json().get("passive_dns", []):
                         h = str(row.get("hostname", "")).strip().lower()
+                        addr = str(row.get("address", "")).strip()
+                        ip_h = addr if re.match(r"^\d+\.\d+\.\d+\.\d+$", addr) else ""
                         if h:
-                            discovered.add((h, "alienvault_otx"))
+                            discovered.add((h, ip_h, "alienvault_otx"))
             except Exception:
                 pass
 
@@ -223,7 +225,8 @@ class ReconSuperAgent:
                     for line in r.text.splitlines():
                         parts = line.split(",")
                         if parts and "." in parts[0]:
-                            discovered.add((parts[0].strip().lower(), "hackertarget"))
+                            ip_h = parts[1].strip() if len(parts) > 1 and re.match(r"^\d+\.\d+\.\d+\.\d+$", parts[1].strip()) else ""
+                            discovered.add((parts[0].strip().lower(), ip_h, "hackertarget"))
             except Exception:
                 pass
 
@@ -232,18 +235,21 @@ class ReconSuperAgent:
                 r = self.session.get(f"https://urlscan.io/api/v1/search/?q=domain:{domain}&size=100", timeout=10)
                 if r.status_code == 200:
                     for res in r.json().get("results", []):
-                        d_val = str(res.get("page", {}).get("domain", "")).strip().lower()
-                        if d_val:
-                            discovered.add((d_val, "urlscan.io"))
+                        for sec in ("page", "task"):
+                            d_val = str(res.get(sec, {}).get("domain", "")).strip().lower()
+                            ip_v = str(res.get("page", {}).get("ip", "")).strip() if sec == "page" else ""
+                            ip_h = ip_v if re.match(r"^\d+\.\d+\.\d+\.\d+$", ip_v) else ""
+                            if d_val and d_val.endswith(domain):
+                                discovered.add((d_val, ip_h, "urlscan.io"))
             except Exception:
                 pass
 
-        def fetch_anubis():
+        def fetch_subdomain_center():
             try:
-                r = self.session.get(f"https://jonlu.ca/anubis/subdomains/{domain}", timeout=10)
+                r = self.session.get(f"https://api.subdomain.center/?domain={domain}", timeout=10)
                 if r.status_code == 200 and isinstance(r.json(), list):
                     for sub in r.json():
-                        discovered.add((str(sub).strip().lower(), "anubis_db"))
+                        discovered.add((str(sub).strip().lower().lstrip("*."), "", "subdomain_center"))
             except Exception:
                 pass
 
@@ -253,7 +259,7 @@ class ReconSuperAgent:
                 if r.status_code == 200 and isinstance(r.json(), list):
                     for item in r.json():
                         for d_name in item.get("dns_names", []):
-                            discovered.add((str(d_name).strip().lower().lstrip("*."), "certspotter"))
+                            discovered.add((str(d_name).strip().lower().lstrip("*."), "", "certspotter"))
             except Exception:
                 pass
 
@@ -262,7 +268,7 @@ class ReconSuperAgent:
                 r = self.session.get(f"https://rapiddns.io/subdomain/{domain}?full=1", timeout=12)
                 if r.status_code == 200:
                     for m in re.findall(r"([a-zA-Z0-9_\-\.]+\." + re.escape(domain) + r")", r.text):
-                        discovered.add((m.strip().lower().lstrip("*."), "rapiddns"))
+                        discovered.add((m.strip().lower().lstrip("*."), "", "rapiddns"))
             except Exception:
                 pass
 
@@ -274,19 +280,19 @@ class ReconSuperAgent:
                         if row:
                             h = ScopeGuard.extract_host(row[0])
                             if h and h.endswith(domain):
-                                discovered.add((h, "wayback_osint"))
+                                discovered.add((h, "", "wayback_osint"))
             except Exception:
                 pass
 
         ex = concurrent.futures.ThreadPoolExecutor(max_workers=8)
-        futures = [ex.submit(fn) for fn in (fetch_crtsh, fetch_otx, fetch_hackertarget, fetch_urlscan, fetch_anubis, fetch_certspotter, fetch_rapiddns, fetch_wayback_hosts)]
+        futures = [ex.submit(fn) for fn in (fetch_crtsh, fetch_otx, fetch_hackertarget, fetch_urlscan, fetch_subdomain_center, fetch_certspotter, fetch_rapiddns, fetch_wayback_hosts)]
         concurrent.futures.wait(futures, timeout=16)
         ex.shutdown(wait=False, cancel_futures=True)
 
         added = 0
-        for sub, src in sorted(discovered):
+        for sub, ip_hint, src in sorted(discovered):
             if "." in sub and scope.is_in_scope(sub)[0]:
-                self.db.upsert_domain(project_id, sub, source=src)
+                self.db.upsert_domain(project_id, sub, ip=ip_hint, source=src)
                 added += 1
         log_fn(f"  [+] Passive OSINT Mesh yakunlandi: {added} ta in-scope subdomen bazaga qo'shildi.")
 
