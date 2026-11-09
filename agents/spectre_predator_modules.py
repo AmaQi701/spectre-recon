@@ -206,6 +206,7 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
                     break
             except Exception:
                 pass
+    return unpacked_count
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -351,6 +352,16 @@ def mine_hidden_query_parameters(db, session, project_id: int, base_url: str, lo
                     project_id, "SPECTRE-Predator (Param-Miner)",
                     f"Hidden Query Parameters Discovered ({urllib.parse.urlparse(target_u).path or '/'})",
                     "Hidden Attack Surface", "Low", 3.7,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A04:2021 - Insecure Design",
+                    target_u,
+                    f"Reactive Hidden Parameters: {', '.join(found_for_url)}",
+                    "Arjun-uslubidagi differensial va kanareyka tahlili orqali sahifada ko'rinmaydigan, ammo backend qabul qiladigan GET parametrlar aniqlandi.",
+                    "Ishlatilmaydigan debug/redirect/query parametrlarini o'chiring va barcha kiruvchi parametrlarni qat'iy validatsiya qiling.",
+                )
+                log_fn(f"  [🧩 PARAM MINER] {target_u} -> Yashirin parametrlar topildi: {', '.join(found_for_url)}")
+        except Exception:
+            pass
+    return discovered_total
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -464,6 +475,9 @@ def enumerate_multicloud_and_containers(db, session, project_id: int, apex_domai
                     "Ushbu endpointni reverse-proxy orqali bloklang yoki mTLS/Basic-Auth bilan himoyalang.",
                 )
                 log_fn(f"  [☁️ INFRA EXPOSED] {title}: {u}")
+        except Exception:
+            pass
+    return hits
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -565,6 +579,16 @@ def hunt_dependency_confusion_risks(db, session, project_id: int, js_urls: list[
                 db.upsert_finding(
                     project_id, "SPECTRE-Predator (Dep-Confusion)",
                     f"[CONFIRMED] Unclaimed Private NPM Package ({pkg}) — Dependency Confusion",
+                    "Supply-Chain / Dependency Confusion", "Critical", 9.8,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H", "CWE-427", "A08:2021 - Software and Data Integrity Failures",
+                    base_url, f"Package '{pkg}' referenced in client bundle returned HTTP 404 on https://registry.npmjs.org/{pkg}",
+                    "Loyiha ichida ishlatilgan xususiy (private) NPM paketi ommaviy NPM reestrida band qilinmagan (Dependency Confusion xavfi).",
+                    "Ichki paket scope nomini (@org) npmjs.com da rasman band qiling va .npmrc faylida scoped registryni qat'iy belgilang.",
+                )
+                log_fn(f"  [📦 DEPENDENCY CONFUSION] Ommaviy reestrda bo'sh qolgan paket topildi: {pkg}!")
+        except Exception:
+            pass
+    return unclaimed
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -659,6 +683,12 @@ def harvest_and_audit_jwt_tokens(db, session, project_id: int, apex_domain: str,
                     "Authentication Intelligence", "Medium" if not has_exp else "Info", 5.3 if not has_exp else 0.0,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-613", "A07:2021 - Identification and Authentication Failures",
                     base_url, f"Header: {json.dumps(hdr)} | Payload Keys: [{claims_keys}]",
+                    "Sayt/JS ichida JWT token topildi va dekod qilindi." + (" Tokenda 'exp' (muddati tugash) maydoni yo'q!" if not has_exp else ""),
+                    "JWT tokenlarda qisqa yashash muddati ('exp') belgilang va ularni JS kodda ochiq saqlamang.",
+                )
+        except Exception:
+            pass
+    return audited
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -786,40 +816,5 @@ def run_predator_recon_suite(agent, project_id: int, apex_domain: str, base_url:
     harvest_and_audit_jwt_tokens(db, session, project_id, apex_domain, base_url, js_urls, log_fn)
     hunt_broken_external_links_and_script_hijack(db, session, project_id, base_url, log_fn)
 
-                    "Sayt/JS ichida JWT token topildi va dekod qilindi." + (" Tokenda 'exp' (muddati tugash) maydoni yo'q!" if not has_exp else ""),
-                    "JWT tokenlarda qisqa yashash muddati ('exp') belgilang va ularni JS kodda ochiq saqlamang.",
-                )
-        except Exception:
-            pass
-    return audited
-
-                    "Supply-Chain / Dependency Confusion", "Critical", 9.8,
-                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H", "CWE-427", "A08:2021 - Software and Data Integrity Failures",
-                    base_url, f"Package '{pkg}' referenced in client bundle returned HTTP 404 on https://registry.npmjs.org/{pkg}",
-                    "Loyiha ichida ishlatilgan xususiy (private) NPM paketi ommaviy NPM reestrida band qilinmagan (Dependency Confusion xavfi).",
-                    "Ichki paket scope nomini (@org) npmjs.com da rasman band qiling va .npmrc faylida scoped registryni qat'iy belgilang.",
-                )
-                log_fn(f"  [📦 DEPENDENCY CONFUSION] Ommaviy reestrda bo'sh qolgan paket topildi: {pkg}!")
-        except Exception:
-            pass
-    return unclaimed
-
-        except Exception:
-            pass
-    return hits
-
-                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A04:2021 - Insecure Design",
-                    target_u,
-                    f"Reactive Hidden Parameters: {', '.join(found_for_url)}",
-                    "Arjun-uslubidagi differensial va kanareyka tahlili orqali sahifada ko'rinmaydigan, ammo backend qabul qiladigan GET parametrlar aniqlandi.",
-                    "Ishlatilmaydigan debug/redirect/query parametrlarini o'chiring va barcha kiruvchi parametrlarni qat'iy validatsiya qiling.",
-                )
-                log_fn(f"  [🧩 PARAM MINER] {target_u} -> Yashirin parametrlar topildi: {', '.join(found_for_url)}")
-        except Exception:
-            pass
-    return discovered_total
-
-
-    return unpacked_count
 
 
