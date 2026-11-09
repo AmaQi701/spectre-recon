@@ -878,6 +878,8 @@ def run_predator_recon_suite(agent, project_id: int, apex_domain: str, base_url:
     hunt_dependency_confusion_risks(db, session, project_id, js_urls, base_url, log_fn)
     harvest_and_audit_jwt_tokens(db, session, project_id, apex_domain, base_url, js_urls, log_fn)
     hunt_broken_external_links_and_script_hijack(db, session, project_id, base_url, log_fn)
+    db.log_task(project_id, "SPECTRE-Predator", "predator_v9_suite", "COMPLETED", f"predator_suite {base_url}", f"Executed 10 Predator modules on {base_url} ({len(js_urls)} JS bundles)")
+
 
 
 

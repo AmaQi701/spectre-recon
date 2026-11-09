@@ -69,7 +69,10 @@ class ReconSuperAgent:
         self.db = db
         self.registry_path = Path(registry_path)
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "APEX-ASM-Security-Audit/2.0"})
+        adapter = requests.adapters.HTTPAdapter(pool_connections=50, pool_maxsize=50)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
+        self.session.headers.update({"User-Agent": "SPECTRE-ASM-Security-Audit/10.2"})
         self.active_procs: dict[int, list[subprocess.Popen]] = {}
         self.abort_flags: set[int] = set()
 
@@ -467,11 +470,13 @@ class ReconSuperAgent:
 
     # ================= STAGE 3: WEB PROBING & TECH STACK =================
     def _stage3_http_probe(self, project_id: int, url: str, tls_info: dict, scope: ScopeGuard, log_fn) -> str:
+        self._last_probe_status = 0
         ok, reason = scope.is_in_scope(url)
         if not ok:
             return ""
         try:
             resp = self.session.get(url, timeout=10, verify=False, allow_redirects=True)
+            self._last_probe_status = resp.status_code
             headers = {k: v for k, v in resp.headers.items()}
             headers_l = {k.lower(): v for k, v in headers.items()}
 
@@ -570,6 +575,8 @@ class ReconSuperAgent:
                 source="http_prober",
             )
             log_fn(f"  [+] HTTP {resp.status_code} | {url} | Title: '{title[:45]}' | Tech: {', '.join(tech) or 'N/A'}")
+            if resp.status_code in (500, 502, 503, 504):
+                return ""
             return resp.text
         except Exception as e:
             log_fn(f"  [-] HTTP probe javob bermadi ({url}): {e}")
@@ -833,9 +840,14 @@ class ReconSuperAgent:
 
                 self.db.upsert_js_asset(project_id, js_url, endpoints=sorted_eps, params=sorted(extracted_params), sinks=sinks, secrets_hints=secrets)
                 for ep in sorted_eps:
-                    ep_params = sorted(extracted_params)[:12] if ("/api" in ep or "{param}" in ep or "?" in ep) else []
-                    if "{param}" in ep and "id" not in ep_params:
+                    ep_params = []
+                    if "{param}" in ep:
                         ep_params.append("id")
+                    if "?" in ep:
+                        ep_qs = urllib.parse.parse_qs(urllib.parse.urlparse(ep).query)
+                        for qk in ep_qs.keys():
+                            if qk not in ep_params:
+                                ep_params.append(qk)
                     http_m = method_map.get(ep, "GET")
                     self._record_discovered_url(project_id, ep, base_url, scope, "js_intelligence", method=http_m, extra_params=ep_params)
 
@@ -983,6 +995,8 @@ class ReconSuperAgent:
                             if is_high_val:
                                 spectre_predator_modules.run_predator_recon_suite(self, project_id, apex_domain, url, js_list, log_fn)
                                 spectre_v10_modules.run_v10_enterprise_suite(self, project_id, apex_domain, url, js_list, log_fn)
+                            break
+                        if scheme == "https" and getattr(self, "_last_probe_status", 0) > 0:
                             break
 
             _prog(0.90, "Stage 6/6: Adaptive Brain, Auto-Validator, SPA Manifests, Secrets v2 & Mobile/OIDC...")

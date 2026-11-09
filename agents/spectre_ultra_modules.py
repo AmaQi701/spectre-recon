@@ -249,10 +249,12 @@ def deconstruct_spa_manifests_and_ssr_state(db, session: requests.Session, proje
                 (r"var\s+dle_(?:root|admin|login_hash|group|skin)\s*=\s*['\"]([^'\"]*)['\"]", "DLE State"),
                 (r"window\.__NUXT__\s*=\s*(\{[^\n;]{5,180})", "Nuxt SSR State"),
                 (r"wpApiSettings\s*=\s*(\{[^\n;]{5,180})", "WordPress REST API Config"),
-                (r"window\.(?:__INITIAL_STATE__|__APP_CONFIG__|ENV)\s*=\s*(\{[^\n;]{5,180})", "SPA Global Config"),
+                (r"window\.(?:__INITIAL_STATE__|__APP_CONFIG__|ENV)\s*=\s*(\{\s*['\"][a-zA-Z0-9_]+['\"]\s*:[^\n;]{5,180})", "SPA Global Config"),
             ]:
                 for m_v in re.finditer(var_rgx, html):
-                    cms_vars.append(f"{v_label}: {m_v.group(0)[:90]}")
+                    val_str = m_v.group(0)[:90]
+                    if "function(" not in val_str and "createElement" not in val_str:
+                        cms_vars.append(f"{v_label}: {val_str}")
             if cms_vars:
                 log_fn(f"  [🧩 Frontend/CMS State] {base_url} -> {' | '.join(cms_vars[:4])}")
                 if any("dle_" in x for x in cms_vars) and record_url_fn:

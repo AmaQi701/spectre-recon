@@ -633,6 +633,8 @@ def run_v10_enterprise_suite(agent, project_id: int, apex_domain: str, base_url:
     correlate_analytics_and_tag_ids(db, session, project_id, base_url, js_urls, log_fn)
     verify_archive_magic_bytes_range(db, session, project_id, apex_domain, base_url, log_fn)
     extract_client_storage_keys_and_checks(db, session, project_id, base_url, js_urls, log_fn)
+    db.log_task(project_id, "SPECTRE-v10", "v10_enterprise_suite", "COMPLETED", f"v10_suite {base_url}", f"Executed 12 v10 Deep Architecture modules on {base_url}")
+
 
 
 
