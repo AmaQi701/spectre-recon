@@ -646,9 +646,8 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
         if m_waf:
             waf_name = re.sub(r"\x1b\[[0-9;]*m", "", m_waf.group(1)).strip()
             log_fn(f"  [🛡️ Wafw00f] Aniqlangan WAF: {waf_name}")
-            with agent.db._lock:
-                agent.db._conn.execute("UPDATE http_services SET waf=? WHERE project_id=? AND url=?", (waf_name[:80], project_id, url))
-                agent.db._conn.commit()
+            with agent.db._lock, agent.db._get_conn() as conn:
+                conn.execute("UPDATE http_services SET waf=? WHERE project_id=? AND url=?", (waf_name[:80], project_id, url))
         agent.db.log_task(project_id, "SPECTRE-Agent1", "wafw00f", "COMPLETED", f"wafw00f -a {url}", wf_out[:250])
 
     # 5.1 Katana Deep JS & Form Crawler (-d 3 -jc -kf all -fx)

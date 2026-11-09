@@ -254,13 +254,18 @@ def audit_reverse_proxy_acl_misconfigs(db, session, project_id: int, base_url: s
 
     home_len, notfound_len = -1, -1
     home_hash, notfound_hash = "", ""
+    supports_x_orig = False
     try:
-        rh = session.get(base_url, timeout=5, verify=False)
+        rh = session.get(base_url, timeout=5, verify=False, allow_redirects=False)
         home_len = len(rh.text)
         home_hash = hashlib.sha256(rh.text.encode("utf-8", errors="ignore")).hexdigest()
         rn = session.get(urllib.parse.urljoin(base_url, "/spectre-acl-nonexistent-91827"), timeout=5, verify=False, allow_redirects=False)
         notfound_len = len(rn.text)
         notfound_hash = hashlib.sha256(rn.text.encode("utf-8", errors="ignore")).hexdigest()
+        # Calibration: agar X-Original-URL: /nonexistent yuborilganda ham 200 OK (homepage) qaytsa, server X-Original-URL ni umuman ishlatmaydi!
+        rx_cal = session.get(base_url, headers={"X-Original-URL": "/spectre-acl-nonexistent-91827"}, timeout=5, verify=False, allow_redirects=False)
+        if rx_cal.status_code in (400, 403, 404):
+            supports_x_orig = True
     except Exception:
         pass
 
@@ -275,18 +280,19 @@ def audit_reverse_proxy_acl_misconfigs(db, session, project_id: int, base_url: s
             base_block_hash = hashlib.sha256(r_base.text.encode("utf-8", errors="ignore")).hexdigest()
             clean_p = path.lstrip("/")
             probes = [
-                ("Header: X-Original-URL", base_url, {"X-Original-URL": path}),
-                ("Header: X-Rewrite-URL", base_url, {"X-Rewrite-URL": path}),
                 ("Header: X-Forwarded-For: 127.0.0.1", full_u, {"X-Forwarded-For": "127.0.0.1", "X-Real-IP": "127.0.0.1"}),
                 ("Path: /%2e/" + clean_p, urllib.parse.urljoin(base_url, f"/%2e/{clean_p}"), {}),
                 ("Path: /" + clean_p + "/..;/", urllib.parse.urljoin(base_url, f"/{clean_p}/..;/"), {}),
                 ("Path: /" + clean_p + ".json", urllib.parse.urljoin(base_url, f"/{clean_p}.json"), {}),
             ]
+            if supports_x_orig:
+                probes.insert(0, ("Header: X-Original-URL", base_url, {"X-Original-URL": path}))
+                probes.insert(1, ("Header: X-Rewrite-URL", base_url, {"X-Rewrite-URL": path}))
             for label, p_url, hdrs in probes:
                 rp = session.get(p_url, headers=hdrs, timeout=5, verify=False, allow_redirects=False)
                 if rp.status_code == 200 and len(rp.text) > 40:
                     rp_hash = hashlib.sha256(rp.text.encode("utf-8", errors="ignore")).hexdigest()
-                    if rp_hash not in (home_hash, notfound_hash, base_block_hash) and abs(len(rp.text) - base_block_len) > 25:
+                    if rp_hash not in (home_hash, notfound_hash, base_block_hash) and abs(len(rp.text) - base_block_len) > 25 and abs(len(rp.text) - home_len) > max(40, int(home_len * 0.05)):
                         confirmed += 1
                         db.upsert_finding(
                             project_id, "SPECTRE-Predator (ACL-Auditor)",
@@ -333,24 +339,26 @@ def mine_hidden_query_parameters(db, session, project_id: int, base_url: str, lo
 
     discovered_total = 0
 
-    def _response_differs(r_test, base_status: int, base_len: int, max_jitter: int, canaries: dict[str, str]) -> bool:
+    def _response_differs(r_test, base_status: int, base_len: int, max_jitter: int, canaries: dict[str, str], reflects_query_url: bool) -> bool:
         if r_test.status_code != base_status:
             return True
-        if any(cv in r_test.text for cv in canaries.values()):
+        if not reflects_query_url and any(cv in r_test.text for cv in canaries.values()):
             return True
-        if abs(len(r_test.text) - base_len) > max(120, max_jitter * 3):
+        if abs(len(r_test.text) - base_len) > max(180, max_jitter * 4):
             return True
         return False
 
     for target_u in candidates[:5]:
         try:
             r1 = session.get(target_u, timeout=5, verify=False, allow_redirects=False)
-            r2 = session.get(target_u, timeout=5, verify=False, allow_redirects=False)
-            if r1.status_code >= 500:
+            if r1.status_code != 200:
                 continue
+            r2 = session.get(target_u, timeout=5, verify=False, allow_redirects=False)
+            r_cal = session.get(f"{target_u}?spectre_cal_991=spcal991v", timeout=5, verify=False, allow_redirects=False)
             base_status = r1.status_code
             base_len = len(r1.text)
-            jitter = abs(len(r1.text) - len(r2.text))
+            reflects_query_url = "spcal991v" in r_cal.text
+            jitter = max(abs(len(r1.text) - len(r2.text)), abs(len(r1.text) - len(r_cal.text)))
 
             found_for_url = []
             for idx in range(0, len(COMMON_HIDDEN_PARAMS), 20):
@@ -358,30 +366,30 @@ def mine_hidden_query_parameters(db, session, project_id: int, base_url: str, lo
                 canaries = {p: f"sp7{i}x" for i, p in enumerate(chunk)}
                 q_str = urllib.parse.urlencode(canaries)
                 r_chunk = session.get(f"{target_u}?{q_str}", timeout=5, verify=False, allow_redirects=False)
-                if not _response_differs(r_chunk, base_status, base_len, jitter, canaries):
+                if not _response_differs(r_chunk, base_status, base_len, jitter, canaries, reflects_query_url):
                     continue
 
                 # Binary search to isolate the exact reactive parameter(s)
                 queue = [chunk]
                 while queue:
                     sub = queue.pop(0)
-                    if not sub:
+                    if not sub or len(found_for_url) > 5:
                         continue
                     if len(sub) == 1:
                         p_one = sub[0]
                         c_one = {p_one: "sp99z"}
                         r_one = session.get(f"{target_u}?{urllib.parse.urlencode(c_one)}", timeout=5, verify=False, allow_redirects=False)
-                        if _response_differs(r_one, base_status, base_len, jitter, c_one):
+                        if _response_differs(r_one, base_status, base_len, jitter, c_one, reflects_query_url):
                             found_for_url.append(p_one)
                         continue
                     mid = len(sub) // 2
                     for half in (sub[:mid], sub[mid:]):
                         c_half = {p: f"sp8{i}y" for i, p in enumerate(half)}
                         r_half = session.get(f"{target_u}?{urllib.parse.urlencode(c_half)}", timeout=5, verify=False, allow_redirects=False)
-                        if _response_differs(r_half, base_status, base_len, jitter, c_half):
+                        if _response_differs(r_half, base_status, base_len, jitter, c_half, reflects_query_url):
                             queue.append(half)
 
-            if found_for_url:
+            if 0 < len(found_for_url) <= 5:
                 discovered_total += len(found_for_url)
                 db.upsert_endpoint(project_id, target_u, method="GET", params=found_for_url, category="high_value_endpoint", risk_tags=["hidden_params"], source="arjun_param_miner")
                 db.upsert_finding(

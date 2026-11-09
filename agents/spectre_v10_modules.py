@@ -208,11 +208,15 @@ def audit_cache_policy_and_headers(db, session, project_id: int, base_url: str, 
         for api_p in ("/api/me", "/api/user", "/api/profile", "/account"):
             u_api = urllib.parse.urljoin(base_url, api_p)
             r_api = session.get(u_api, timeout=4, verify=False, allow_redirects=False)
-            if r_api.status_code == 200 and "application/json" in r_api.headers.get("Content-Type", "").lower():
+            if r_api.status_code == 200 and len(r_api.text) > 60 and "application/json" in r_api.headers.get("Content-Type", "").lower():
+                low_body = r_api.text.lower()
+                if any(err_k in low_body for err_k in ('"unauthorized"', '"unauthenticated"', '"not found"', '"status":401', '"status":403', '"status":404')):
+                    continue
                 u_ext = urllib.parse.urljoin(base_url, f"{api_p}/spectre_check.css")
                 r_ext = session.get(u_ext, timeout=4, verify=False, allow_redirects=False)
                 ext_cache = (r_ext.headers.get("CF-Cache-Status") or r_ext.headers.get("X-Cache") or "").upper()
-                if r_ext.status_code == 200 and r_ext.text == r_api.text and any(k in ext_cache for k in ("MISS", "HIT", "DYNAMIC")):
+                # Faqat haqiqiy keshlangan (HIT / MISS / EXPIRED) holatni olish (DYNAMIC = keshlanmagan!)
+                if r_ext.status_code == 200 and r_ext.text == r_api.text and any(k in ext_cache for k in ("HIT", "MISS", "EXPIRED")):
                     issues += 1
                     db.upsert_finding(
                         project_id, "SPECTRE-v10 (Cache-Auditor)",
@@ -520,31 +524,44 @@ ARCHIVE_SIGNATURES: list[tuple[bytes, str]] = [
 def verify_archive_magic_bytes_range(db, session, project_id: int, apex_domain: str, base_url: str, log_fn) -> int:
     brand = apex_domain.split(".")[0].lower()
     candidates = [
-        "/backup.zip", "/backup.tar.gz", "/db.sql", "/db.sql.gz", "/database.sqlite",
-        f"/{brand}.zip", f"/{brand}.sql.gz", "/www.zip", "/site.zip", "/dump.sql",
+        ("/backup.zip", b"PK\x03\x04", "ZIP Archive"),
+        ("/backup.tar.gz", b"\x1f\x8b\x08", "GZIP Archive"),
+        ("/db.sql", b"-- MySQL dump", "MySQL Database Dump"),
+        ("/db.sql.gz", b"\x1f\x8b\x08", "GZIP SQL Archive"),
+        ("/database.sqlite", b"SQLite format 3", "SQLite3 Database File"),
+        (f"/{brand}.zip", b"PK\x03\x04", "ZIP Archive"),
+        (f"/{brand}.sql.gz", b"\x1f\x8b\x08", "GZIP SQL Archive"),
+        ("/www.zip", b"PK\x03\x04", "ZIP Archive"),
+        ("/site.zip", b"PK\x03\x04", "ZIP Archive"),
+        ("/dump.sql", b"-- PostgreSQL database dump", "PostgreSQL Database Dump"),
     ]
     verified = 0
-    for path in candidates:
+    for path, exp_sig, fmt_name in candidates:
         u = urllib.parse.urljoin(base_url, path)
         try:
-            r = session.get(u, headers={"Range": "bytes=0-63"}, timeout=4, verify=False, allow_redirects=False)
-            if r.status_code not in (200, 206) or len(r.content) < 4:
+            # Accept-Encoding: identity majburiy — aks holda Nginx oddiy HTML sahifani gzip (\x1f\x8b\x08) qilib yuboradi!
+            r = session.get(u, headers={"Range": "bytes=0-63", "Accept-Encoding": "identity"}, timeout=4, verify=False, allow_redirects=False)
+            if r.status_code not in (200, 206) or len(r.content) < 8:
+                continue
+            ctype = r.headers.get("Content-Type", "").lower()
+            cenc = r.headers.get("Content-Encoding", "").lower()
+            if "text/html" in ctype or "application/json" in ctype or cenc == "gzip":
                 continue
             head_bytes = r.content[:64]
-            for sig, fmt_name in ARCHIVE_SIGNATURES:
-                if head_bytes.startswith(sig) or sig in head_bytes[:32]:
-                    verified += 1
-                    db.upsert_finding(
-                        project_id, "SPECTRE-v10 (MagicByte-Verifier)",
-                        f"[CONFIRMED] Binary-Verified Exposed Archive / DB ({path} — {fmt_name})",
-                        "Sensitive Backup Exposure", "Critical", 9.1,
-                        "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-530", "A05:2021 - Security Misconfiguration",
-                        u, f"HTTP {r.status_code} | Verified Magic Bytes: {head_bytes[:16]!r} ({fmt_name})",
-                        "HTTP Range (0-63 bayt) tekshiruvi orqali veb-serverda haqiqiy arxiv yoki ma'lumotlar bazasi fayli ochiq qolgani matematik tasdiqlandi.",
-                        "Zaxira nusxalarini (.zip, .sql, .gz, .sqlite) veb-serverning ommaviy katalogidan darhol o'chiring.",
-                    )
-                    log_fn(f"  [🗃️ MAGIC-BYTE VERIFIED] {u} -> Haqiqiy {fmt_name} fayli tasdiqlandi!")
-                    break
+            if head_bytes.lstrip()[:15].lower().startswith((b"<!doctype", b"<html", b"<head", b"<body", b"<script", b"{")):
+                continue
+            if head_bytes.startswith(exp_sig) or (exp_sig.startswith(b"--") and exp_sig in head_bytes[:48]):
+                verified += 1
+                db.upsert_finding(
+                    project_id, "SPECTRE-v10 (MagicByte-Verifier)",
+                    f"[CONFIRMED] Binary-Verified Exposed Archive / DB ({path} — {fmt_name})",
+                    "Sensitive Backup Exposure", "Critical", 9.1,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-530", "A05:2021 - Security Misconfiguration",
+                    u, f"HTTP {r.status_code} | Content-Type: {ctype} | Verified Magic Bytes: {head_bytes[:16]!r} ({fmt_name})",
+                    "HTTP Range (0-63 bayt, identity encoding) tekshiruvi orqali veb-serverda haqiqiy arxiv yoki ma'lumotlar bazasi fayli ochiq qolgani matematik tasdiqlandi.",
+                    "Zaxira nusxalarini (.zip, .sql, .gz, .sqlite) veb-serverning ommaviy katalogidan darhol o'chiring.",
+                )
+                log_fn(f"  [🗃️ MAGIC-BYTE VERIFIED] {u} -> Haqiqiy {fmt_name} fayli tasdiqlandi!")
         except Exception:
             pass
     return verified
@@ -555,9 +572,9 @@ def verify_archive_magic_bytes_range(db, session, project_id: int, apex_domain: 
 # ══════════════════════════════════════════════════════════════════════════════
 
 def extract_client_storage_keys_and_checks(db, session, project_id: int, base_url: str, js_urls: list[str], log_fn) -> list[str]:
-    storage_re = re.compile(r"""(?:localStorage|sessionStorage)\.(?:getItem|setItem)\s*\(\s*['"]([a-zA-Z0-9_\-\.]{2,45})['"]""")
+    storage_re = re.compile(r"""(?:localStorage|sessionStorage)\.(?:getItem|setItem)\s*\(\s*['"]([a-zA-Z0-9_\-\.]{2,45})['"]\s*[,)]""")
     idb_re = re.compile(r"""indexedDB\.open\s*\(\s*['"]([a-zA-Z0-9_\-\.]{2,45})['"]""")
-    role_cmp_re = re.compile(r"""(?:localStorage|sessionStorage)\.getItem\s*\(\s*['"]([^'"]+)['"]\s*\)\s*[!=]==?\s*['"]([^'"]+)['"]""")
+    role_cmp_re = re.compile(r"""(?:localStorage|sessionStorage)\.getItem\s*\(\s*['"]([a-zA-Z0-9_\-\.]{2,35})['"]\s*\)\s*[!=]==?\s*['"]([a-zA-Z0-9_\-\.]{2,35})['"]""")
 
     keys: set[str] = set()
     role_checks: list[str] = []
