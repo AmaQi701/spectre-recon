@@ -225,7 +225,7 @@ def hunt_cloud_and_storage_buckets(db, session, project_id: int, apex_domain: st
         shost, path = item
         url = f"https://{shost}{path}"
         try:
-            r = requests.get(url, headers={"User-Agent": "SPECTRE-Recon/4.0"}, timeout=(2.5, 3.0), verify=False, stream=True)
+            r = session.get(url, timeout=(2.5, 3.0), verify=False, stream=True)
             chunk = next(r.iter_content(chunk_size=16384), b"").decode("utf-8", errors="ignore")
             r.close()
             if r.status_code == 200 and any(sig in chunk for sig in ("Index of /", "<ListBucketResult", "Directory listing for", "<EnumerationResults")):
@@ -468,13 +468,33 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn):
         return
     log_fn(f"[SPECTRE API Shadow & Ghost Prober] {len(shadow_candidates)} ta API versiya egizaklari va {len(wayback_eps)} ta tarixiy URL tekshirilmoqda...")
 
+    # Calibrate each origin against a nonexistent /v999 path to filter out catch-all 401/403/200 API gateways
+    host_cal: dict[str, tuple[int, int]] = {}
+    for mut_u, _ in shadow_candidates:
+        p_u = urllib.parse.urlparse(mut_u)
+        origin = f"{p_u.scheme}://{p_u.netloc}"
+        if origin and origin not in host_cal:
+            try:
+                rc = requests.get(f"{origin}/v999_nonexistent_spectre/check", headers={"User-Agent": "SPECTRE-Recon/11.2"}, timeout=3.0, verify=False, allow_redirects=False)
+                host_cal[origin] = (rc.status_code, len(rc.content))
+            except Exception:
+                host_cal[origin] = (-1, -1)
+
     def check_shadow(item):
         mut_url, orig_url = item
+        p_u = urllib.parse.urlparse(mut_url)
+        origin = f"{p_u.scheme}://{p_u.netloc}"
+        cal_stat, cal_len = host_cal.get(origin, (-1, -1))
         try:
-            r = requests.get(mut_url, headers={"User-Agent": "SPECTRE-Recon/4.0"}, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True)
+            r = requests.get(mut_url, headers={"User-Agent": "SPECTRE-Recon/11.2"}, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True)
             chunk = next(r.iter_content(chunk_size=8192), b"").decode("utf-8", errors="ignore")
             r.close()
-            if r.status_code in (200, 401, 403, 405) and "text/html" not in r.headers.get("Content-Type", "").lower():
+            if r.status_code == cal_stat and abs(len(chunk) - cal_len) < 40:
+                return
+            if r.status_code == 200 and len(chunk) > 20 and "text/html" not in r.headers.get("Content-Type", "").lower():
+                low_c = chunk.lower()
+                if '"not found"' in low_c or '"status":404' in low_c or '"status":401' in low_c:
+                    return
                 db.upsert_endpoint(project_id, mut_url, method="GET", category="api_endpoint", risk_tags=["API_Shadow_Twin"], status_code=r.status_code, source="shadow_twin")
                 db.upsert_finding(
                     project_id, "SPECTRE-Agent1 (ShadowAPI)", f"Active Shadow / Alternate API Version ({mut_url})",
