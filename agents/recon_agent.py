@@ -278,9 +278,10 @@ class ReconSuperAgent:
             except Exception:
                 pass
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-            futures = [ex.submit(fn) for fn in (fetch_crtsh, fetch_otx, fetch_hackertarget, fetch_urlscan, fetch_anubis, fetch_certspotter, fetch_rapiddns, fetch_wayback_hosts)]
-            concurrent.futures.wait(futures, timeout=16)
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+        futures = [ex.submit(fn) for fn in (fetch_crtsh, fetch_otx, fetch_hackertarget, fetch_urlscan, fetch_anubis, fetch_certspotter, fetch_rapiddns, fetch_wayback_hosts)]
+        concurrent.futures.wait(futures, timeout=16)
+        ex.shutdown(wait=False, cancel_futures=True)
 
         added = 0
         for sub, src in sorted(discovered):
@@ -296,29 +297,35 @@ class ReconSuperAgent:
         for prefix in self.COMMON_SUBDOMAINS:
             candidates.add(f"{prefix}.{apex_domain}")
 
-        # Load top 220 prefixes from SecLists if available on system
+        # Load top 1,200 prefixes from SecLists if available on system
         seclist_dns = Path("/home/amaqi/SecLists/Discovery/DNS/subdomains-top1million-5000.txt")
         if seclist_dns.exists():
             try:
-                for line in seclist_dns.read_text(encoding="utf-8", errors="ignore").splitlines()[:220]:
+                for line in seclist_dns.read_text(encoding="utf-8", errors="ignore").splitlines()[:1200]:
                     w = line.strip().lower()
                     if w and not w.startswith("#"):
                         candidates.add(f"{w}.{apex_domain}")
             except Exception:
                 pass
 
-        for reg_p in ("1c", "bitrix", "edo", "hr", "jira", "confluence", "payme", "click", "uzum", "accounts", "svc", "vod", "upload", "open", "reja", "zakovat", "fikr"):
+        for reg_p in (
+            "1c", "bitrix", "edo", "hr", "jira", "confluence", "payme", "click", "uzum",
+            "accounts", "svc", "vod", "upload", "open", "reja", "zakovat", "fikr",
+            "cabinet", "lex", "norma", "ijro", "edo-db", "minio", "keycloak", "sso", "id",
+        ):
             candidates.add(f"{reg_p}.{apex_domain}")
 
         existing = self.db.get_project_bundle(project_id).get("domains", [])
+        already_resolved = {d["domain"] for d in existing if d.get("ip") and d["domain"] not in (base_domain, apex_domain)}
         for d in existing:
-            candidates.add(d["domain"])
+            if d["domain"] not in already_resolved:
+                candidates.add(d["domain"])
         log_fn(f"[Stage 1] Chuqur DNS yozuvlari va {len(candidates)} ta subdomen (SecLists + Regional) parallel tekshiruvi: {apex_domain}")
 
-
-        resolver = dns.resolver.Resolver()
-        resolver.timeout = 2.0
-        resolver.lifetime = 3.0
+        resolver = dns.resolver.Resolver(configure=False)
+        resolver.nameservers = ["8.8.8.8", "1.1.1.1", "9.9.9.9", "8.8.4.4", "1.0.0.1"]
+        resolver.timeout = 1.8
+        resolver.lifetime = 2.5
 
         wildcard_ips = set()
         try:
@@ -336,7 +343,8 @@ class ReconSuperAgent:
             records = {}
             ip_val = ""
             cname_val = ""
-            rtypes = ("A", "AAAA", "CNAME", "MX", "TXT", "NS", "SOA") if cand in (base_domain, apex_domain) else ("A", "CNAME")
+            is_root = cand in (base_domain, apex_domain)
+            rtypes = ("A", "AAAA", "CNAME", "MX", "TXT", "NS", "SOA") if is_root else ("A",)
             for rtype in rtypes:
                 try:
                     ans = resolver.resolve(cand, rtype)
@@ -344,6 +352,11 @@ class ReconSuperAgent:
                     records[rtype] = vals
                     if rtype == "A" and vals:
                         ip_val = vals[0]
+                        if hasattr(ans, "canonical_name") and ans.canonical_name:
+                            cn = str(ans.canonical_name).rstrip(".").lower()
+                            if cn and cn != cand:
+                                cname_val = cn
+                                records["CNAME"] = [cn]
                     elif rtype == "CNAME" and vals:
                         cname_val = vals[0]
                     elif rtype == "MX":
@@ -371,6 +384,17 @@ class ReconSuperAgent:
                 except Exception:
                     pass
 
+            # Only query CNAME separately for non-root hosts if A record resolution returned no IP (to catch Dangling CNAMEs)
+            if not is_root and not ip_val:
+                try:
+                    ans_c = resolver.resolve(cand, "CNAME")
+                    c_vals = [str(r).rstrip(".") for r in ans_c]
+                    if c_vals:
+                        cname_val = c_vals[0]
+                        records["CNAME"] = c_vals
+                except Exception:
+                    pass
+
             if cand not in (base_domain, apex_domain) and ip_val and ip_val in wildcard_ips:
                 return
             if cname_val and not ip_val:
@@ -391,8 +415,28 @@ class ReconSuperAgent:
                 if ip_val or cname_val:
                     log_fn(f"  [+] DNS Active: {cand} -> {ip_val or cname_val} {f'(Records: {list(records.keys())})' if len(records)>1 else ''}")
 
+        # Hybrid Fast-Path: Pre-filter large candidate sets with Go dnsx before deep dnspython inspection
+        dnsx_bin = self._find_binary("dnsx")
+        res_file = "/tmp/spectre_resolvers.txt"
+        if not Path(res_file).exists():
+            Path(res_file).write_text("8.8.8.8\n1.1.1.1\n9.9.9.9\n8.8.4.4\n1.0.0.1\n", encoding="utf-8")
+
+        def _prefilter_with_dnsx(cand_set: set[str]) -> list[str]:
+            if not dnsx_bin or len(cand_set) < 40:
+                return sorted(cand_set)
+            c_file = f"/tmp/spectre_s1_cands_{project_id}.txt"
+            Path(c_file).write_text("\n".join(sorted(cand_set)) + "\n", encoding="utf-8")
+            dx_out = self._run_cli(f"{dnsx_bin} -l {c_file} -r {res_file} -a -cname -silent", log_fn, timeout=22, project_id=project_id)
+            alive = {base_domain, apex_domain} & cand_set
+            for ln in dx_out.splitlines():
+                h_clean = ln.strip().split()[0].lower().rstrip(".") if ln.strip() else ""
+                if h_clean:
+                    alive.add(h_clean)
+            return sorted(alive)
+
+        filtered_cands = _prefilter_with_dnsx(candidates)
         with concurrent.futures.ThreadPoolExecutor(max_workers=35) as ex:
-            list(ex.map(check_candidate, sorted(candidates)))
+            list(ex.map(check_candidate, filtered_cands))
 
         # Smart Subdomain Permutation Pass + Recursive 3rd-Level Sub-Zone Discovery
         all_dom_rows = self.db.get_project_bundle(project_id).get("domains", [])
@@ -426,8 +470,9 @@ class ReconSuperAgent:
         perm_candidates -= existing_set
         if perm_candidates:
             log_fn(f"[SPECTRE Smart Mutator & Sub-Zone Engine] {len(perm_candidates)} ta mutatsiya va 3-darajali sub-zonalar ({len(subzones)} sub-zones) tekshirilmoqda...")
+            filtered_perms = _prefilter_with_dnsx(perm_candidates)
             with concurrent.futures.ThreadPoolExecutor(max_workers=35) as ex:
-                list(ex.map(check_candidate, sorted(perm_candidates)))
+                list(ex.map(check_candidate, filtered_perms))
 
 
     def _stage2_shodan_internetdb(self, project_id: int, scope: ScopeGuard, log_fn):

@@ -301,7 +301,7 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
 
     def _task_subfinder():
         if "subfinder" in active_ids and agent._find_binary("subfinder"):
-            out = agent._run_cli(f"subfinder -d {safe_apex} -all -silent", log_fn, timeout=45, project_id=project_id)
+            out = agent._run_cli(f"subfinder -d {safe_apex} -all -recursive -silent", log_fn, timeout=45, project_id=project_id)
             cnt = 0
             for line in out.splitlines():
                 h = line.strip().lower().rstrip(".")
@@ -355,7 +355,7 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
 
     def _task_cero():
         if "cero" in active_ids and agent._find_binary("cero"):
-            out = agent._run_cli(f"cero {safe_apex}", log_fn, timeout=18, project_id=project_id)
+            out = agent._run_cli(f"cero -d {safe_apex}", log_fn, timeout=18, project_id=project_id)
             cnt = 0
             for line in out.splitlines():
                 h = line.strip().lower().lstrip("*.").rstrip(".")
@@ -397,18 +397,20 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
                     cnt += 1
             log_fn(f"  [+] Fierce DNS Scanner yakunlandi: {cnt} ta host/IP topildi.")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-        futs = [ex.submit(fn) for fn in (_task_subfinder, _task_sublist3r, _task_amass, _task_assetfinder, _task_cero, _task_findomain, _task_chaos, _task_fierce)]
-        concurrent.futures.wait(futs, timeout=62)
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+    futs = [ex.submit(fn) for fn in (_task_subfinder, _task_sublist3r, _task_amass, _task_assetfinder, _task_cero, _task_findomain, _task_chaos, _task_fierce)]
+    concurrent.futures.wait(futs, timeout=62)
+    ex.shutdown(wait=False, cancel_futures=True)
+
+    res_file = "/tmp/spectre_resolvers.txt"
+    open(res_file, "w").write("8.8.8.8\n1.1.1.1\n9.9.9.9\n8.8.4.4\n1.0.0.1\n208.67.222.222\n")
 
     # 2.2A DNSGen / Gotator + PureDNS / ShuffleDNS Permutation & Wildcard Resolution
     seed_doms = [d["domain"] for d in agent.db.get_project_bundle(project_id).get("domains", [])][:35]
     if seed_doms and any(k in active_ids for k in ("dnsgen", "gotator", "puredns", "shuffledns")):
         seed_file = f"/tmp/spectre_seeds_{project_id}.txt"
         perm_file = f"/tmp/spectre_perms_{project_id}.txt"
-        res_file = "/tmp/spectre_resolvers.txt"
         open(seed_file, "w").write("\n".join(seed_doms) + "\n")
-        open(res_file, "w").write("8.8.8.8\n1.1.1.1\n9.9.9.9\n8.8.4.4\n1.0.0.1\n208.67.222.222\n")
         perm_lines = []
         if "dnsgen" in active_ids and agent._find_binary("dnsgen"):
             dg_out = agent._run_cli(f"dnsgen {seed_file}", log_fn, timeout=15, project_id=project_id)
@@ -438,7 +440,7 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
             dom_file = f"/tmp/spectre_dnsx_in_{project_id}.txt"
             open(dom_file, "w").write("\n".join(doms_now[:500]) + "\n")
             log_fn(f"[Tool 2.2 -> ProjectDiscovery DNSX] {len(doms_now[:500])} ta subdomen A/CNAME yozuvlari tezkor tekshirilmoqda...")
-            dx_out = agent._run_cli(f"dnsx -l {dom_file} -a -cname -resp -silent", log_fn, timeout=30, project_id=project_id)
+            dx_out = agent._run_cli(f"dnsx -l {dom_file} -r {res_file} -a -cname -resp -silent", log_fn, timeout=30, project_id=project_id)
             for line in dx_out.splitlines():
                 clean_l = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
                 parts = clean_l.split()
