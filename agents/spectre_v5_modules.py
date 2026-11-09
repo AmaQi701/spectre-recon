@@ -547,10 +547,12 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
                 except Exception as ex:
                     log_fn(f"  [!] Nmap Deep XML parse ogohlantirish: {ex}")
 
-    # 3.2 Naabu Fast Top-1000 Port Scanner
+    # 3.2 Naabu Fast Top-1000 Port Scanner (Multi-IP & Primary Host)
     if "naabu" in active_ids and agent._find_binary("naabu"):
-        log_fn(f"[Tool 3.2 -> Naabu] {primary_host} da Top-1000 portlar tezkor tekshirilmoqda...")
-        nb_out = agent._run_cli(f"naabu -host {shlex.quote(primary_host)} -top-ports 1000 -silent", log_fn, timeout=45, project_id=project_id)
+        nb_targets = [primary_host] + sorted({d.get("ip") for d in domains if d.get("ip")})[:4]
+        nb_joined = ",".join(nb_targets)
+        log_fn(f"[Tool 3.2 -> Naabu] {nb_joined} da Top-1000 portlar tezkor tekshirilmoqda...")
+        nb_out = agent._run_cli(f"naabu -host {shlex.quote(nb_joined)} -top-ports 1000 -silent", log_fn, timeout=55, project_id=project_id)
         for line in nb_out.splitlines():
             if ":" in line:
                 h_part, p_part = line.strip().rsplit(":", 1)
@@ -686,7 +688,8 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
 
     # 6.1 FFUF Auto-Calibrated SecLists Fuzzer (-ac -of json)
     seclists_common = "/home/amaqi/SecLists/Discovery/Web-Content/common.txt"
-    if "ffuf" in active_ids and agent._find_binary("ffuf") and os.path.exists(seclists_common) and dom == primary_host:
+    is_fuzz_target = (dom == primary_host) or any(k in dom.split(".")[0].lower() for k in ("api", "admin", "my", "id", "auth", "sso", "portal"))
+    if "ffuf" in active_ids and agent._find_binary("ffuf") and os.path.exists(seclists_common) and is_fuzz_target:
         ffuf_json = f"/tmp/spectre_ffuf_{project_id}.json"
         try:
             if os.path.exists(ffuf_json):
@@ -746,7 +749,7 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                 if u and u.endswith(".js") and u not in js_list:
                     js_list.append(u)
 
-    if "hakrawler" in active_ids and agent._find_binary("hakrawler") and dom == primary_host:
+    if "hakrawler" in active_ids and agent._find_binary("hakrawler") and is_high_val:
         log_fn(f"[Tool 5.6 -> Hakrawler] {url} qo'shimcha endpoint va JS linklari yig'ilmoqda...")
         hk_out = agent._run_cli(f"echo {safe_url} | hakrawler -d 2 -subs -u", log_fn, timeout=25, project_id=project_id)
         for hk_url in hk_out.splitlines()[:120]:
@@ -767,7 +770,7 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                 pass
 
     # 8.2 SubJS Extra JS Extractor
-    if "subjs" in active_ids and agent._find_binary("subjs") and dom == primary_host:
+    if "subjs" in active_ids and agent._find_binary("subjs") and is_high_val:
         sj_out = agent._run_cli(f"echo {safe_url} | subjs", log_fn, timeout=15, project_id=project_id)
         for sj_u in sj_out.splitlines()[:60]:
             if sj_u.strip().startswith("http"):

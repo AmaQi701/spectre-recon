@@ -671,6 +671,23 @@ class ReconSuperAgent:
                 if u and u.endswith(".js"):
                     js_urls.add(u)
 
+            # Vite / Vue 3 / Modern Bundler <link rel="modulepreload" href="...js"> extractor
+            for lnk in soup.find_all("link", href=True):
+                rel_s = " ".join(lnk.get("rel") or []).lower()
+                href_v = lnk["href"].strip()
+                if ("modulepreload" in rel_s or "preload" in rel_s or href_v.endswith(".js")) and ".js" in href_v:
+                    u = self._record_discovered_url(project_id, href_v, base_url, scope, "modulepreload_js")
+                    if u and u.endswith(".js"):
+                        js_urls.add(u)
+
+            # Inline <script> route & subdomain extractor
+            inline_ep_re = re.compile(r"""['"`]((?:/api/v\d+/|/api/|/v1/|/v2/|/v3/|/graphql|/auth/|/admin/|/internal/)[a-zA-Z0-9_\-/\.?=&{}]+)['"`]""")
+            for isc in soup.find_all("script", src=False):
+                stxt = isc.string or isc.get_text() or ""
+                if len(stxt) > 15:
+                    for iep in inline_ep_re.findall(stxt[:60000]):
+                        self._record_discovered_url(project_id, iep, base_url, scope, "inline_script")
+
 
         wb_url = f"http://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=json&fl=original&collapse=urlkey&limit=80"
         try:
@@ -953,52 +970,78 @@ class ReconSuperAgent:
 
 
 
-        # Stage 3, 4, 5, 6: Web, API & JS Bundles (across all High-Value Subdomains!)
+        # Stage 3, 4, 5, 6: Web, API & JS Bundles (Smart Priority Sorting + Parallel HTTP Sweep)
         if recon_mode in ("full", "web_js"):
-            _prog(0.70, "Stage 3-6: Web Probing, Katana SPA Crawl & JS Deconstruction...")
-            high_value_prefixes = ("id.", "api.", "backend.", "accounts.", "my.", "admin.", "portal.", "dev.", "svc.", "auth.", "sso.")
+            _prog(0.70, "Stage 3-6: Parallel Web Probing, Katana SPA Crawl & JS Deconstruction...")
+            hv_tokens = ("id", "api", "backend", "accounts", "my", "admin", "portal", "dev", "svc", "auth", "sso", "erp", "crm", "lms", "chat", "zabbix", "git", "doc", "document", "smart", "check", "cabinet", "pay", "huquq")
+            low_prefixes = ("ns1.", "ns2.", "ns3.", "ns.", "www.ns", "www.mail.")
+
+            def _dom_priority(d_name: str) -> int:
+                if d_name == primary_host:
+                    return 100
+                if any(d_name.startswith(lp) for lp in low_prefixes):
+                    return 10
+                first_lbl = d_name.split(".")[0].lower()
+                if any(tok in first_lbl for tok in hv_tokens):
+                    return 90
+                return 60
+
             probed_domains = set()
             for pass_num in (1, 2):
                 if pass_num == 2 and recon_mode == "full":
                     self._stage1_dns_enum(project_id, primary_host, scope, log_fn)
                     self._stage2_shodan_internetdb(project_id, scope, log_fn)
                     spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
-                domains = [d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", []) if d.get("ip") or d.get("cname") or d["domain"] == primary_host]
-                if primary_host not in domains:
-                    domains.insert(0, primary_host)
-                new_batch = [d for d in domains if d not in probed_domains][:14]
-                if not new_batch:
+                raw_domains = [d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", []) if d.get("ip") or d.get("cname") or d["domain"] == primary_host]
+                if primary_host not in raw_domains:
+                    raw_domains.insert(0, primary_host)
+                domains = sorted(set(raw_domains), key=lambda x: (-_dom_priority(x), x))
+                unprobed = [d for d in domains if d not in probed_domains]
+                if not unprobed:
                     break
-                if pass_num == 2 and recon_mode == "full":
-                    log_fn(f"[SPECTRE Recursive Loop] 2-to'lqinda DNS tasdiqlangan {len(new_batch)} ta tirik subdomen tekshirilmoqda: {', '.join(new_batch)}")
 
-                for dom in new_batch:
-                    probed_domains.add(dom)
+                # Phase A: Fast parallel HTTP/HTTPS probe across up to 60 unprobed live subdomains
+                probe_results: dict[str, tuple[str, str]] = {}
+
+                def _fast_probe_host(dom_item: str):
+                    if project_id in self.abort_flags:
+                        return
+                    for sch in ("https", "http"):
+                        u_cand = f"{sch}://{dom_item}"
+                        h_body = self._stage3_http_probe(project_id, u_cand, tls_info if dom_item == primary_host else {}, scope, log_fn)
+                        if h_body:
+                            probe_results[dom_item] = (u_cand, h_body)
+                            break
+                        if sch == "https" and getattr(self, "_last_probe_status", 0) > 0:
+                            break
+
+                batch_to_probe = unprobed[:60]
+                for d_p in batch_to_probe:
+                    probed_domains.add(d_p)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=12) as ex_p:
+                    list(ex_p.map(_fast_probe_host, batch_to_probe))
+
+                # Phase B: Deep Inspection on top-priority live web services
+                live_sorted = sorted(probe_results.keys(), key=lambda x: (-_dom_priority(x), x))
+                for dom in live_sorted[:18]:
                     if project_id in self.abort_flags:
                         break
-                    is_high_val = (dom == primary_host) or any(dom.startswith(hp) for hp in high_value_prefixes)
-                    for scheme in ("https", "http"):
-                        url = f"{scheme}://{dom}"
-                        safe_url = shlex.quote(url)
-                        html = self._stage3_http_probe(project_id, url, tls_info if dom == primary_host else {}, scope, log_fn)
-                        if html:
-                            collected_html.append(html[:50000])
-                            if dom == primary_host:
-                                spectre_deep_modules.fingerprint_favicon(self.session, url, self.db, project_id, log_fn)
-                            js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)
-                            spectre_v5_modules.run_deep_web_and_fuzz_tools(
-                                self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn
-                            )
-                            if is_high_val:
-                                self._stage5_openapi_discovery(project_id, url, scope, log_fn)
-                            self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
-                            if is_high_val:
-                                spectre_predator_modules.run_predator_recon_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                                spectre_v10_modules.run_v10_enterprise_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                                spectre_v11_modules.run_v11_apex_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                            break
-                        if scheme == "https" and getattr(self, "_last_probe_status", 0) > 0:
-                            break
+                    url, html = probe_results[dom]
+                    is_high_val = _dom_priority(dom) >= 60
+                    collected_html.append(html[:50000])
+                    if dom == primary_host:
+                        spectre_deep_modules.fingerprint_favicon(self.session, url, self.db, project_id, log_fn)
+                    js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)
+                    spectre_v5_modules.run_deep_web_and_fuzz_tools(
+                        self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn
+                    )
+                    if is_high_val:
+                        self._stage5_openapi_discovery(project_id, url, scope, log_fn)
+                    self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
+                    if is_high_val:
+                        spectre_predator_modules.run_predator_recon_suite(self, project_id, apex_domain, url, js_list, log_fn)
+                        spectre_v10_modules.run_v10_enterprise_suite(self, project_id, apex_domain, url, js_list, log_fn)
+                        spectre_v11_modules.run_v11_apex_suite(self, project_id, apex_domain, url, js_list, log_fn)
 
             _prog(0.90, "Stage 6/6: Adaptive Brain, Auto-Validator, SPA Manifests, Secrets v2 & Mobile/OIDC...")
             spectre_ultra_modules.run_adaptive_brain_strategy(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
