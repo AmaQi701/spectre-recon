@@ -20,7 +20,7 @@ from bs4 import BeautifulSoup, Comment
 
 from core.database import DatabaseManager
 from core.scope_guard import ScopeGuard
-from agents import spectre_deep_modules, spectre_v5_modules, spectre_ultra_modules, spectre_predator_modules, spectre_v10_modules, spectre_v11_modules
+from agents import spectre_deep_modules, spectre_v5_modules, spectre_ultra_modules, spectre_predator_modules, spectre_v10_modules, spectre_v11_modules, spectre_v12_modules
 
 urllib3_disable = getattr(requests.packages, "urllib3", None)
 if urllib3_disable:
@@ -1177,6 +1177,7 @@ class ReconSuperAgent:
                         spectre_predator_modules.run_predator_recon_suite(self, project_id, apex_domain, url, js_list, log_fn)
                         spectre_v10_modules.run_v10_enterprise_suite(self, project_id, apex_domain, url, js_list, log_fn)
                         spectre_v11_modules.run_v11_apex_suite(self, project_id, apex_domain, url, js_list, log_fn)
+                        spectre_v12_modules.run_v12_titan_suite(self, project_id, apex_domain, primary_host, url, js_list, log_fn)
 
             _prog(0.90, "Stage 6/6: Adaptive Brain, Auto-Validator, SPA Manifests, Secrets v2 & Mobile/OIDC...")
             spectre_ultra_modules.run_adaptive_brain_strategy(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
@@ -1257,6 +1258,7 @@ class ReconSuperAgent:
                 spectre_predator_modules.run_predator_recon_suite(self, project_id, apex_domain, url, js_list, log_fn)
                 spectre_v10_modules.run_v10_enterprise_suite(self, project_id, apex_domain, url, js_list, log_fn)
                 spectre_v11_modules.run_v11_apex_suite(self, project_id, apex_domain, url, js_list, log_fn)
+                spectre_v12_modules.run_v12_titan_suite(self, project_id, apex_domain, target_host, url, js_list, log_fn)
                 break
 
         _prog(0.85, f"Single-Host Adaptive Brain, Auto-Validator, SPA Manifest & SecretHunter v2: {target_host}...")
