@@ -44,6 +44,20 @@ KNOWN_FAVICON_HASHES: dict[int, str] = {
     -1205024243: "Harbor Container Registry",
     -1581907337: "MinIO Object Storage",
     516963061: "phpMyAdmin",
+    -1695259674: "Hikvision IP Camera / NVR",
+    -1742087623: "MikroTik RouterOS WebFig",
+    -1409986931: "Proxmox Virtual Environment (PVE)",
+    -1424036600: "Portainer Container Management",
+    892542951: "Zabbix Monitoring",
+    1065745209: "RabbitMQ Management Console",
+    -1255326364: "VMware ESXi / vSphere",
+    -631511155: "Palo Alto GlobalProtect Portal",
+    1279085681: "ArgoCD Kubernetes GitOps",
+    -1048569984: "HashiCorp Vault UI",
+    -1566156368: "Sonatype Nexus Repository",
+    -1997542297: "JFrog Artifactory",
+    -1179873469: "Odoo ERP",
+    1363895724: "FastAPI / Swagger UI",
 }
 
 
@@ -163,6 +177,7 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
         return 0
     unpacked_count = 0
     route_re = re.compile(r"""['"`]((?:/api/v\d+/|/api/|/v1/|/v2/|/internal/|/admin/|/graphql|/auth/)[a-zA-Z0-9_\-/\.?=&{}]+)['"`]""")
+    out_dir = BASE_DIR / "workspaces" / "sourcemaps" / f"project_{project_id}"
 
     for js_u in js_urls[:25]:
         map_candidates = [js_u + ".map"]
@@ -185,7 +200,23 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
                     sources = [str(s) for s in (data.get("sources") or []) if s]
                     contents = [str(c) for c in (data.get("sourcesContent") or []) if c]
                     extracted_routes = set()
-                    for src_code in contents[:40]:
+                    saved_files = 0
+                    out_dir.mkdir(parents=True, exist_ok=True)
+
+                    for idx_s, src_code in enumerate(contents[:60]):
+                        if not src_code or not isinstance(src_code, str):
+                            continue
+                        raw_name = sources[idx_s] if idx_s < len(sources) else f"module_{idx_s}.ts"
+                        safe_rel = re.sub(r"[^a-zA-Z0-9_\-\./]", "_", raw_name.replace("webpack://", "").replace("../", "")).lstrip("/.")
+                        if not safe_rel or safe_rel.endswith("/"):
+                            safe_rel = f"unpacked_{idx_s}.ts"
+                        dest_f = out_dir / safe_rel
+                        try:
+                            dest_f.parent.mkdir(parents=True, exist_ok=True)
+                            dest_f.write_text(src_code[:400000], encoding="utf-8", errors="ignore")
+                            saved_files += 1
+                        except Exception:
+                            pass
                         for rt in route_re.findall(src_code):
                             extracted_routes.add(rt)
                             db.upsert_endpoint(project_id, urllib.parse.urljoin(base_url, rt), method="GET", params=[], category="api_endpoint", source="sourcemap_unpacked")
@@ -198,11 +229,11 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
                         "Source Code Exposure", "High", 7.5,
                         "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-540", "A05:2021 - Security Misconfiguration",
                         map_u,
-                        f"Original Source Files ({len(sources)}): {sample_files} | Hidden Routes: {len(extracted_routes)}",
-                        "Production serverda .js.map (SourceMap) fayli ochiq qolgan — dasturning asl TypeScript/JSX manba kodini 100% tiklash mumkin.",
+                        f"Original Source Files ({len(sources)}): {sample_files} | Disk Reconstructed: {saved_files} files in {out_dir} | Hidden Routes: {len(extracted_routes)}",
+                        "Production serverda .js.map (SourceMap) fayli ochiq qolgan — dasturning asl TypeScript/JSX manba kodini 100% tiklash va SAST orqali tahlil qilish mumkin.",
                         "Build jarayonida 'productionSourceMap: false' o'rnating yoki Nginx'da *.map fayllariga kirishni bloklang.",
                     )
-                    log_fn(f"  [🧬 SOURCEMAP UNPACKED] {map_u} -> {len(sources)} ta asl kod fayli va {len(extracted_routes)} ta ichki route tiklandi!")
+                    log_fn(f"  [🧬 SOURCEMAP UNPACKED] {map_u} -> {saved_files} ta asl fayl '{out_dir.name}' ga tiklandi ({len(extracted_routes)} ta ichki route)!")
                     break
             except Exception:
                 pass
@@ -222,11 +253,14 @@ def audit_reverse_proxy_acl_misconfigs(db, session, project_id: int, base_url: s
             candidate_paths.append(p)
 
     home_len, notfound_len = -1, -1
+    home_hash, notfound_hash = "", ""
     try:
         rh = session.get(base_url, timeout=5, verify=False)
         home_len = len(rh.text)
+        home_hash = hashlib.sha256(rh.text.encode("utf-8", errors="ignore")).hexdigest()
         rn = session.get(urllib.parse.urljoin(base_url, "/spectre-acl-nonexistent-91827"), timeout=5, verify=False, allow_redirects=False)
         notfound_len = len(rn.text)
+        notfound_hash = hashlib.sha256(rn.text.encode("utf-8", errors="ignore")).hexdigest()
     except Exception:
         pass
 
@@ -238,6 +272,7 @@ def audit_reverse_proxy_acl_misconfigs(db, session, project_id: int, base_url: s
             if r_base.status_code not in (401, 403):
                 continue
             base_block_len = len(r_base.text)
+            base_block_hash = hashlib.sha256(r_base.text.encode("utf-8", errors="ignore")).hexdigest()
             clean_p = path.lstrip("/")
             probes = [
                 ("Header: X-Original-URL", base_url, {"X-Original-URL": path}),
@@ -249,8 +284,9 @@ def audit_reverse_proxy_acl_misconfigs(db, session, project_id: int, base_url: s
             ]
             for label, p_url, hdrs in probes:
                 rp = session.get(p_url, headers=hdrs, timeout=5, verify=False, allow_redirects=False)
-                if rp.status_code == 200 and len(rp.text) > 80:
-                    if abs(len(rp.text) - home_len) > 80 and abs(len(rp.text) - notfound_len) > 80 and abs(len(rp.text) - base_block_len) > 50:
+                if rp.status_code == 200 and len(rp.text) > 40:
+                    rp_hash = hashlib.sha256(rp.text.encode("utf-8", errors="ignore")).hexdigest()
+                    if rp_hash not in (home_hash, notfound_hash, base_block_hash) and abs(len(rp.text) - base_block_len) > 25:
                         confirmed += 1
                         db.upsert_finding(
                             project_id, "SPECTRE-Predator (ACL-Auditor)",
@@ -491,7 +527,7 @@ def introspect_graphql_field_suggestions(db, session, project_id: int, base_url:
     """
     gql_paths = ("/graphql", "/api/graphql", "/v1/graphql", "/query")
     suggestion_re = re.compile(r'Did you mean\s+([^?]+)\?', re.IGNORECASE)
-    quoted_re = re.compile(r'"([a-zA-Z0-9_]+)"')
+    quoted_re = re.compile(r'\\?"([a-zA-Z0-9_]+)\\?"')
     discovered_fields: set[str] = set()
 
     for gp in gql_paths:
@@ -501,12 +537,26 @@ def introspect_graphql_field_suggestions(db, session, project_id: int, base_url:
             if r_chk.status_code not in (200, 400) or ("data" not in r_chk.text and "errors" not in r_chk.text):
                 continue
 
-            probe_query = "{ usr adm cfg tok pay ord acc prof sec int }"
-            r_sug = session.post(gurl, json={"query": probe_query}, timeout=5, verify=False)
-            if "Did you mean" in r_sug.text:
-                for m in suggestion_re.findall(r_sug.text):
-                    for fld in quoted_re.findall(m):
-                        discovered_fields.add(fld)
+            for probe_query in ("{ usr adm cfg tok pay ord acc prof sec int }", "mutation { log reg upd del pay rst tok adm }"):
+                r_sug = session.post(gurl, json={"query": probe_query}, timeout=5, verify=False)
+                if "Did you mean" in r_sug.text:
+                    for m in suggestion_re.findall(r_sug.text):
+                        for fld in quoted_re.findall(m):
+                            discovered_fields.add(fld)
+
+            # Check GraphQL Array Batching vulnerability ([{query}, {query}])
+            r_batch = session.post(gurl, json=[{"query": "{__typename}"}, {"query": "{__typename}"}], timeout=4.5, verify=False)
+            if r_batch.status_code == 200 and r_batch.text.lstrip().startswith("[") and r_batch.text.count("__typename") >= 2:
+                db.upsert_finding(
+                    project_id, "SPECTRE-Predator (GraphQL-Batching)",
+                    f"[CONFIRMED] GraphQL Query Array Batching Enabled ({gp})",
+                    "API Rate-Limit Bypass / DoS", "Medium", 5.3,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L", "CWE-770", "A04:2021 - Insecure Design",
+                    gurl, "Sent JSON array of 2 queries -> Server executed both in a single HTTP request.",
+                    "GraphQL serveri bitta HTTP so'rov ichida massiv ko'rinishidagi ko'plab so'rovlarni (Batching) cheklovsiz bajarmoqda (2FA/OTP brute-force xavfi).",
+                    "GraphQL serverda query batching limitini o'rnating yoki array batching'ni o'chiring.",
+                )
+                log_fn(f"  [🧠 GRAPHQL BATCHING] {gurl} -> Array Batching yoqilgan!")
 
             if discovered_fields:
                 fld_list = sorted(discovered_fields)
@@ -637,7 +687,11 @@ def harvest_and_audit_jwt_tokens(db, session, project_id: int, apex_domain: str,
             pass
 
     brand = apex_domain.split(".")[0].lower()
-    candidate_secrets = list(DEFAULT_JWT_SECRETS) + [apex_domain, brand, f"{brand}123", f"{brand}_secret"]
+    candidate_secrets = list(DEFAULT_JWT_SECRETS) + [
+        apex_domain, brand, f"{brand}123", f"{brand}_secret", f"{brand}_jwt",
+        f"{brand}2024", f"{brand}2025", f"{brand}2026", "jwt", "token", "auth",
+        "access_token", "refresh_token", "spring", "nodejs", "express", "fastapi",
+    ]
 
     audited = 0
     for tok in list(found_tokens)[:8]:
@@ -664,6 +718,7 @@ def harvest_and_audit_jwt_tokens(db, session, project_id: int, apex_domain: str,
             audited += 1
             claims_keys = ", ".join(list(payload.keys())[:10])
             has_exp = "exp" in payload
+            risky_hdrs = [h for h in ("jku", "x5u", "jwk", "kid") if h in hdr]
 
             if matched_secret or alg.lower() == "none":
                 db.upsert_finding(
@@ -679,12 +734,12 @@ def harvest_and_audit_jwt_tokens(db, session, project_id: int, apex_domain: str,
             else:
                 db.upsert_finding(
                     project_id, "SPECTRE-Predator (JWT-Auditor)",
-                    f"Discovered JWT Token Structure (alg={alg}, exp={'Yes' if has_exp else 'MISSING'})",
-                    "Authentication Intelligence", "Medium" if not has_exp else "Info", 5.3 if not has_exp else 0.0,
+                    f"Discovered JWT Token Structure (alg={alg}, exp={'Yes' if has_exp else 'MISSING'})" + (f" [Headers: {','.join(risky_hdrs)}]" if risky_hdrs else ""),
+                    "Authentication Intelligence", "Medium" if (not has_exp or risky_hdrs) else "Info", 5.3 if (not has_exp or risky_hdrs) else 0.0,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-613", "A07:2021 - Identification and Authentication Failures",
                     base_url, f"Header: {json.dumps(hdr)} | Payload Keys: [{claims_keys}]",
-                    "Sayt/JS ichida JWT token topildi va dekod qilindi." + (" Tokenda 'exp' (muddati tugash) maydoni yo'q!" if not has_exp else ""),
-                    "JWT tokenlarda qisqa yashash muddati ('exp') belgilang va ularni JS kodda ochiq saqlamang.",
+                    "Sayt/JS ichida JWT token topildi va dekod qilindi." + (" Tokenda 'exp' (muddati tugash) maydoni yo'q!" if not has_exp else "") + (f" Динамик kalit sarlavhalari mavjud: {risky_hdrs}" if risky_hdrs else ""),
+                    "JWT tokenlarda qisqa yashash muddati ('exp') belgilang va jku/x5u/kid sarlavhalarini qat'iy oq ro'yxatdan o'tkazing.",
                 )
         except Exception:
             pass

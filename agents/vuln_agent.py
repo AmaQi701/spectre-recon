@@ -106,6 +106,17 @@ class VulnAssessmentSuperAgent:
             "pattern": re.compile(r"""(?i)(hashlib\.(?:md5|sha1)\s*\(|md5\s*\(\s*\$_(?:POST|GET|REQUEST)|sha1\s*\(\s*\$_)"""),
             "remediation": "Parollar uchun Argon2id yoki bcrypt, xeshlar uchun SHA-256 / SHA-3 ishlating.",
         },
+        {
+            "title": "DOM-Based XSS Sink in Source Code (innerHTML / dangerouslySetInnerHTML)",
+            "category": "Cross-Site Scripting (SAST)",
+            "severity": "High",
+            "cvss": 7.5,
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+            "cwe": "CWE-79",
+            "owasp": "A03:2021 - Injection",
+            "pattern": re.compile(r"""(?i)(\.innerHTML\s*=|\.outerHTML\s*=|dangerouslySetInnerHTML|document\.write\s*\(|v-html\s*=)"""),
+            "remediation": "innerHTML o'rniga textContent ishlating yoki DOMPurify orqali HTML kiritmani sanitizatsiya qiling.",
+        },
     ]
 
     def __init__(self, db: DatabaseManager):
@@ -347,7 +358,7 @@ class VulnAssessmentSuperAgent:
             log_fn(f"  [!] SAST: Ko'rsatilgan kod papkasi topilmadi ({code_path_str})")
             return
         log_fn(f"[SAST] White-box Source Code tahlili boshlandi: {root}")
-        exts = {".py", ".php", ".js", ".ts", ".go", ".java", ".rb", ".env"}
+        exts = {".py", ".php", ".js", ".ts", ".tsx", ".jsx", ".vue", ".go", ".java", ".rb", ".env"}
         files = [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in exts and "node_modules" not in str(p) and ".git" not in str(p)]
         hits = 0
         for fpath in files[:150]:
@@ -382,6 +393,10 @@ class VulnAssessmentSuperAgent:
         self._audit_endpoints_and_js(project_id, bundle.get("endpoints", []), bundle.get("js_assets", []), log_fn)
         if proj.get("source_code_path"):
             self._run_sast_scan(project_id, proj["source_code_path"], log_fn)
+        smap_dir = Path(__file__).resolve().parent.parent / "workspaces" / "sourcemaps" / f"project_{project_id}"
+        if smap_dir.is_dir() and any(smap_dir.rglob("*")):
+            log_fn(f"  [🧬 SOURCEMAP->SAST] 1-SuperAgent tiklagan asl manba kodlari ({smap_dir.name}) White-Box SAST orqali tekshirilmoqda...")
+            self._run_sast_scan(project_id, str(smap_dir), log_fn)
         self.db.update_project_status(project_id, "VULN_AUDIT_COMPLETED")
         log_fn("═══ ✅ 2-SUPERAGENT: ZAIFLIKLAR TAHLILI YAKUNLANDI ═══")
 
