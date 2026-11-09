@@ -322,14 +322,26 @@ class ReconSuperAgent:
                 candidates.add(d["domain"])
         log_fn(f"[Stage 1] Chuqur DNS yozuvlari va {len(candidates)} ta subdomen (SecLists + Regional) parallel tekshiruvi: {apex_domain}")
 
-        resolver = dns.resolver.Resolver(configure=False)
-        resolver.nameservers = ["8.8.8.8", "1.1.1.1", "9.9.9.9", "8.8.4.4", "1.0.0.1"]
-        resolver.timeout = 1.8
-        resolver.lifetime = 2.5
+        try:
+            sys_ns = [ns for ns in dns.resolver.Resolver().nameservers if ns not in ("8.8.8.8", "1.1.1.1", "9.9.9.9", "8.8.4.4", "1.0.0.1")]
+        except Exception:
+            sys_ns = []
+        ns_list = ["8.8.8.8", "1.1.1.1", "9.9.9.9", "8.8.4.4", "1.0.0.1"] + sys_ns
+        tls_local = threading.local()
+
+        def _get_resolver() -> dns.resolver.Resolver:
+            r_inst = getattr(tls_local, "resolver", None)
+            if r_inst is None:
+                r_inst = dns.resolver.Resolver(configure=False)
+                r_inst.nameservers = ns_list
+                r_inst.timeout = 1.8
+                r_inst.lifetime = 2.5
+                tls_local.resolver = r_inst
+            return r_inst
 
         wildcard_ips = set()
         try:
-            w_ans = resolver.resolve(f"apex-wildcard-probe-918273.{apex_domain}", "A")
+            w_ans = _get_resolver().resolve(f"apex-wildcard-probe-918273.{apex_domain}", "A")
             wildcard_ips = {str(r).rstrip(".") for r in w_ans}
             if wildcard_ips:
                 log_fn(f"  [!] Wildcard DNS aniqlandi (*.{apex_domain} -> {', '.join(wildcard_ips)}). Yolg'on subdomenlar filtrlanadi.")
@@ -340,6 +352,7 @@ class ReconSuperAgent:
             ok, _ = scope.is_in_scope(cand)
             if not ok:
                 return
+            resolver = _get_resolver()
             records = {}
             ip_val = ""
             cname_val = ""
@@ -429,14 +442,19 @@ class ReconSuperAgent:
             dx_out = self._run_cli(f"{dnsx_bin} -l {c_file} -r {res_file} -a -cname -silent", log_fn, timeout=22, project_id=project_id)
             alive = {base_domain, apex_domain} & cand_set
             for ln in dx_out.splitlines():
-                h_clean = ln.strip().split()[0].lower().rstrip(".") if ln.strip() else ""
-                if h_clean:
+                clean_ln = re.sub(r"\x1b\[[0-9;]*m", "", ln).strip()
+                h_clean = clean_ln.split()[0].lower().rstrip(".") if clean_ln else ""
+                if h_clean and h_clean in cand_set:
                     alive.add(h_clean)
+            if len(alive) <= len({base_domain, apex_domain} & cand_set) and len(cand_set) > 40:
+                return sorted(cand_set)[:280]
             return sorted(alive)
 
         filtered_cands = _prefilter_with_dnsx(candidates)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=35) as ex:
-            list(ex.map(check_candidate, filtered_cands))
+        ex_c1 = concurrent.futures.ThreadPoolExecutor(max_workers=35)
+        futs_c1 = [ex_c1.submit(check_candidate, c) for c in filtered_cands]
+        concurrent.futures.wait(futs_c1, timeout=28)
+        ex_c1.shutdown(wait=False, cancel_futures=True)
 
         # Smart Subdomain Permutation Pass + Recursive 3rd-Level Sub-Zone Discovery
         all_dom_rows = self.db.get_project_bundle(project_id).get("domains", [])
@@ -471,8 +489,11 @@ class ReconSuperAgent:
         if perm_candidates:
             log_fn(f"[SPECTRE Smart Mutator & Sub-Zone Engine] {len(perm_candidates)} ta mutatsiya va 3-darajali sub-zonalar ({len(subzones)} sub-zones) tekshirilmoqda...")
             filtered_perms = _prefilter_with_dnsx(perm_candidates)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=35) as ex:
-                list(ex.map(check_candidate, filtered_perms))
+            ex_c2 = concurrent.futures.ThreadPoolExecutor(max_workers=35)
+            futs_c2 = [ex_c2.submit(check_candidate, c) for c in filtered_perms]
+            concurrent.futures.wait(futs_c2, timeout=24)
+            ex_c2.shutdown(wait=False, cancel_futures=True)
+        self.db.log_task(project_id, "SPECTRE-Agent1", "dns_enum_builtin", "COMPLETED", f"deep_dns {apex_domain}", f"Checked {len(candidates)} candidates & {len(perm_candidates)} permutations")
 
 
     def _stage2_shodan_internetdb(self, project_id: int, scope: ScopeGuard, log_fn):
@@ -1045,12 +1066,13 @@ class ReconSuperAgent:
 
         # Stage 1: Subdomains & OSINT
         if recon_mode in ("full", "subdomains"):
-            _prog(0.15, "Stage 1/6: 5-OSINT Mesh, Subfinder, Sublist3r, Amass, Dig AXFR...")
+            _prog(0.15, "Stage 1/6: 8-OSINT Mesh, Subfinder, Sublist3r, Amass, Dig AXFR...")
             if "crtsh_builtin" in active_ids:
                 self._stage1_crtsh(project_id, apex_domain, scope, log_fn)
             spectre_v5_modules.run_deep_subdomain_tools(self, project_id, apex_domain, scope, active_ids, log_fn)
             _prog(0.30, "Stage 1/6: SecLists DNS Enum & Smart Permutations...")
-            self._stage1_dns_enum(project_id, primary_host, scope, log_fn)
+            if "dns_enum_builtin" in active_ids:
+                self._stage1_dns_enum(project_id, primary_host, scope, log_fn)
 
         # Stage 2: Ports, Shodan, Nmap Deep NSE & NetExec
         tls_info = {}

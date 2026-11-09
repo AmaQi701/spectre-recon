@@ -484,6 +484,8 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
             summary = " | ".join(info_bits[:8]) if info_bits else w_out[:220].replace("\n", " ")
             log_fn(f"  [📋 WHOIS Intel] {summary[:180]}")
             agent.db.log_task(project_id, "SPECTRE-Agent1", "whois", "COMPLETED", f"whois {apex_domain}", summary[:400])
+    total_s1 = len(agent.db.get_project_bundle(project_id).get("domains", []))
+    agent.db.log_task(project_id, "SPECTRE-Agent1", "stage1_subdomain_suite", "COMPLETED", f"stage1_suite {apex_domain}", f"Total in-scope subdomains after Stage 1: {total_s1}")
 
 
 def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, active_ids: set, log_fn):
