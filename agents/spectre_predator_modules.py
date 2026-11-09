@@ -139,7 +139,7 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
     candidate_ips = {
         (d.get("ip") or "").strip()
         for d in bundle.get("domains", [])
-        if (d.get("ip") or "").strip() and "." in (d.get("ip") or "") and not any(k in (d.get("cdn_provider") or "").lower() for k in cdn_keywords)
+        if (d.get("ip") or "").strip() and "." in (d.get("ip") or "") and not any(k in (d.get("cdn_waf") or "").lower() for k in cdn_keywords)
     }
 
     matched_origins = []

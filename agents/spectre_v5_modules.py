@@ -667,13 +667,13 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                 conn.execute("UPDATE http_services SET waf=? WHERE project_id=? AND url=?", (waf_name[:80], project_id, url))
         agent.db.log_task(project_id, "SPECTRE-Agent1", "wafw00f", "COMPLETED", f"wafw00f -a {url}", wf_out[:250])
 
-    # 5.1 Katana Deep JS & Form Crawler (-d 3 -jc -kf all -fx)
+    # 5.1 Katana Deep JS & Form Crawler (-d 2 -jc -kf robotstxt -fs rdn -fx)
     if "katana" in active_ids and agent._find_binary("katana") and is_high_val:
-        log_fn(f"[Tool 5.1 -> Katana Deep -d 3 -jc -kf all -fx] {url} chuqur crawl qilinmoqda...")
+        log_fn(f"[Tool 5.1 -> Katana Deep -d 2 -jc -fs rdn] {url} chuqur crawl qilinmoqda...")
         kt_out = agent._run_cli(
-            f"katana -u {safe_url} -d 3 -jc -kf all -fx -silent -ef woff,woff2,ttf,css,png,jpg,jpeg,gif,svg,ico -c 15",
+            f"katana -u {safe_url} -d 2 -jc -kf robotstxt -fs rdn -fx -timeout 5 -ct 15s -silent -ef woff,woff2,ttf,css,png,jpg,jpeg,gif,svg,ico -c 15",
             log_fn,
-            timeout=42,
+            timeout=25,
             project_id=project_id,
         )
         kt_cnt = 0
@@ -689,9 +689,9 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
     if dom == primary_host:
         for hist_bin in ("waybackurls", "gau"):
             if hist_bin in active_ids and agent._find_binary(hist_bin):
-                cmd = f"waybackurls {safe_dom}" if hist_bin == "waybackurls" else f"gau {safe_dom} --subs"
+                cmd = f"echo {safe_dom} | waybackurls" if hist_bin == "waybackurls" else f"gau {safe_dom} --subs --providers otx,urlscan --timeout 5"
                 log_fn(f"[Tool 5 -> {hist_bin.upper()}] {dom} tarixiy arxiv URL'lari yig'ilmoqda...")
-                h_out = agent._run_cli(cmd, log_fn, timeout=30, project_id=project_id)
+                h_out = agent._run_cli(cmd, log_fn, timeout=18, project_id=project_id)
                 h_cnt = 0
                 for h_url in h_out.splitlines()[:250]:
                     u = agent._record_discovered_url(project_id, h_url, url, scope, hist_bin)
@@ -854,10 +854,16 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
                     "Bucket ACL ruxsatlarini yoping.",
                 )
 
-    # 10.1 & 10.2 TruffleHog & Gitleaks on Workspace / Source Code
+    # 10.1 & 10.2 TruffleHog & Gitleaks on Workspace / Source Code & Downloaded JS Cache
     proj = bundle.get("project", {}) or {}
-    scan_dir = proj.get("source_code_path", "").strip()
-    if scan_dir and os.path.isdir(scan_dir):
+    scan_dirs = []
+    if proj.get("source_code_path", "").strip() and os.path.isdir(proj.get("source_code_path", "").strip()):
+        scan_dirs.append(proj.get("source_code_path", "").strip())
+    js_cache_d = f"/tmp/spectre_js_cache_{project_id}"
+    if os.path.isdir(js_cache_d) and os.listdir(js_cache_d):
+        scan_dirs.append(js_cache_d)
+
+    for scan_dir in scan_dirs:
         safe_dir = shlex.quote(scan_dir)
         if "trufflehog" in active_ids and agent._find_binary("trufflehog"):
             th_out = agent._run_cli(f"trufflehog filesystem {safe_dir} --no-update --json", log_fn, timeout=25, project_id=project_id)

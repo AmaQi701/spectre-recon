@@ -158,6 +158,7 @@ class ReconSuperAgent:
             proc = subprocess.Popen(
                 cmd,
                 shell=True,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -928,12 +929,20 @@ class ReconSuperAgent:
         method_ep_regex = re.compile(r"""(?i)\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]{3,120})['"`]""")
         discovered_chunks = set()
 
+        js_cache_dir = Path(f"/tmp/spectre_js_cache_{project_id}")
+        js_cache_dir.mkdir(parents=True, exist_ok=True)
+
         def analyze_one_js(js_url: str):
             try:
                 r = self.session.get(js_url, timeout=10, verify=False)
                 if r.status_code != 200 or "html" in r.headers.get("Content-Type", "").lower():
                     return
                 content = r.text[:500000]
+                try:
+                    safe_jname = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", js_url.split("/")[-1].split("?")[0])[-60:] or "bundle.js"
+                    (js_cache_dir / safe_jname).write_text(content, encoding="utf-8", errors="ignore")
+                except Exception:
+                    pass
                 for ch in chunk_regex.findall(content):
                     ch_full = urllib.parse.urljoin(base_url, "/" + ch.lstrip("/")).replace("/assets/assets/", "/assets/")
                     if ch_full not in clean_js_urls:
