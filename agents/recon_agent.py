@@ -20,7 +20,7 @@ from bs4 import BeautifulSoup, Comment
 
 from core.database import DatabaseManager
 from core.scope_guard import ScopeGuard
-from agents import spectre_deep_modules, spectre_v5_modules, spectre_ultra_modules, spectre_predator_modules, spectre_v10_modules
+from agents import spectre_deep_modules, spectre_v5_modules, spectre_ultra_modules, spectre_predator_modules, spectre_v10_modules, spectre_v11_modules
 
 urllib3_disable = getattr(requests.packages, "urllib3", None)
 if urllib3_disable:
@@ -995,6 +995,7 @@ class ReconSuperAgent:
                             if is_high_val:
                                 spectre_predator_modules.run_predator_recon_suite(self, project_id, apex_domain, url, js_list, log_fn)
                                 spectre_v10_modules.run_v10_enterprise_suite(self, project_id, apex_domain, url, js_list, log_fn)
+                                spectre_v11_modules.run_v11_apex_suite(self, project_id, apex_domain, url, js_list, log_fn)
                             break
                         if scheme == "https" and getattr(self, "_last_probe_status", 0) > 0:
                             break
@@ -1016,6 +1017,7 @@ class ReconSuperAgent:
             spectre_deep_modules.harvest_emails_and_osint(self.db, project_id, apex_domain, collected_html, log_fn)
             spectre_deep_modules.build_custom_wordlist_and_params(self.db, project_id, apex_domain, log_fn)
             spectre_v5_modules.run_deep_cloud_osint_and_vuln_tools(self, project_id, apex_domain, primary_host, active_ids, log_fn)
+            spectre_v11_modules.cluster_subdomains_by_dom_structure(self.db, self.session, project_id, log_fn)
 
         spectre_deep_modules.log_incremental_diff(before_snap, self.db, project_id, log_fn)
         _prog(1.0, "✅ Recon Completed!")
@@ -1076,6 +1078,7 @@ class ReconSuperAgent:
                 self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
                 spectre_predator_modules.run_predator_recon_suite(self, project_id, apex_domain, url, js_list, log_fn)
                 spectre_v10_modules.run_v10_enterprise_suite(self, project_id, apex_domain, url, js_list, log_fn)
+                spectre_v11_modules.run_v11_apex_suite(self, project_id, apex_domain, url, js_list, log_fn)
                 break
 
         _prog(0.85, f"Single-Host Adaptive Brain, Auto-Validator, SPA Manifest & SecretHunter v2: {target_host}...")

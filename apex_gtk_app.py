@@ -558,7 +558,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v10.0 PHANTOM GTK3 STUDIO] 49/49 Recon Tools • 10 Predator + 12 v10 Deep Architecture Engines tayyor.\n")
+        self.term_buf.set_text("[SPECTRE v11.0 APEX GTK3 STUDIO] 49/49 Recon Tools • Predator v9 + Phantom v10 + Apex v11 Intelligence tayyor.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)
