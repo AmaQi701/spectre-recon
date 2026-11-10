@@ -43,14 +43,16 @@ class ReconSuperAgent:
     ]
 
     COMMON_SUBDOMAINS = [
-        "www", "api", "dev", "staging", "stage", "test", "admin", "portal",
+        "www", "api", "dev", "staging", "stage", "test", "admin", "adm", "portal",
         "mail", "webmail", "smtp", "pop", "imap", "vpn", "auth", "sso", "id",
         "beta", "cdn", "static", "media", "files", "storage", "s3", "minio",
-        "docs", "app", "my", "cabinet", "client", "dashboard", "cp", "panel",
+        "docs", "doc", "app", "my", "cabinet", "client", "dashboard", "cp", "panel",
         "internal", "intranet", "git", "gitlab", "jenkins", "ci", "grafana",
-        "kibana", "prometheus", "status", "monitor", "m", "mobile", "old",
+        "kibana", "prometheus", "zabbix", "status", "monitor", "m", "mobile", "old",
         "new", "v1", "v2", "back", "backend", "cms", "crm", "erp", "pay",
-        "billing", "live", "stream", "tv", "radio", "news", "press", "db"
+        "billing", "live", "stream", "tv", "radio", "news", "press", "db",
+        "lms", "cctv", "reg", "student", "jurnal", "kpi", "syllabus", "hemis",
+        "library", "exam", "qabul", "edu", "conference", "verify", "check", "chat",
     ]
 
     API_DOC_PATHS = [
@@ -86,7 +88,7 @@ class ReconSuperAgent:
                 resp = _orig_get(url, **kwargs)
                 if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
                     resp.encoding = "utf-8"
-                if resp.status_code in (200, 401, 403, 404) and len(resp.content) < 600000:
+                if resp.status_code == 200 and len(resp.content) < 600000:
                     with self._cache_lock:
                         if len(self._http_get_cache) > 160:
                             self._http_get_cache.clear()
@@ -519,7 +521,8 @@ class ReconSuperAgent:
                 if len(parts) >= 2 and parts[-1] not in ("www", "mail", "ns", "ns1", "ns2"):
                     subzones.add(f"{parts[-1]}.{apex_domain}")
 
-        for sz in sorted(subzones)[:12]:
+        for sz in sorted(subzones)[:15]:
+            perm_candidates.add(sz)
             for sz_pref in ("www", "api", "admin", "my", "portal", "mail", "dev", "auth"):
                 perm_candidates.add(f"{sz_pref}.{sz}")
 

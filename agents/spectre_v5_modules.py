@@ -459,7 +459,8 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
             step_gt = max(1, len(gt_all) // 350)
             perm_lines.extend(gt_all[::step_gt][:350])
         if perm_lines:
-            open(perm_file, "w").write("\n".join(sorted(set(perm_lines))[:600]) + "\n")
+            valid_perms = sorted({p.strip().lower().rstrip(".") for p in perm_lines if p.strip().lower().rstrip(".").endswith("." + apex_domain)})[:600]
+            open(perm_file, "w").write("\n".join(valid_perms) + "\n")
             resolved_by_pd = False
             if "puredns" in active_ids and agent._find_binary("puredns"):
                 pd_out = agent._run_cli(f"puredns resolve {perm_file} -r {res_file} -q", log_fn, timeout=25, project_id=project_id)
