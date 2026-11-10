@@ -542,42 +542,63 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
 
     bundle = agent.db.get_project_bundle(project_id)
     domains = bundle.get("domains", [])
+    cf_prefixes = ("104.16.", "104.17.", "104.18.", "104.19.", "104.20.", "104.21.", "172.64.", "172.67.", "188.114.")
     cdn_tokens = ("cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "imperva", "sucuri", "ddos-guard")
-    non_cdn_ips = sorted({
-        d.get("ip") for d in domains
-        if d.get("ip") and not any(c in str(d.get("cdn_waf", "")).lower() for c in cdn_tokens)
-    })
 
-    # 3.1 Naabu Fast Top-1000 Port Scanner FIRST (Multi-IP & Primary Host -> Feeds Nmap Deep NSE!)
-    if "naabu" in active_ids and agent._find_binary("naabu"):
-        nb_targets = [primary_host] + [ip for ip in non_cdn_ips if ip != primary_host][:4]
+    def _rank_h(h_name: str) -> int:
+        if h_name == primary_host:
+            return 3
+        if h_name.startswith(("ns1.", "ns2.", "ns.", "www.ns")):
+            return 0
+        if any(k in h_name.split(".")[0] for k in ("api", "admin", "my", "id", "auth", "sso", "portal")):
+            return 2
+        return 1
+
+    ip_to_hosts: dict[str, list[str]] = {}
+    for d in domains:
+        ip = (d.get("ip") or "").strip()
+        cdn = str(d.get("cdn_waf", "")).lower()
+        if ip and not ip.startswith(cf_prefixes) and not any(c in cdn for c in cdn_tokens):
+            ip_to_hosts.setdefault(ip, []).append(d["domain"])
+
+    ip_to_primary_host: dict[str, str] = {}
+    for ip, h_list in ip_to_hosts.items():
+        ip_to_primary_host[ip] = sorted(h_list, key=lambda x: (-_rank_h(x), len(x)))[0]
+
+    non_cdn_ips = sorted(ip_to_primary_host.keys(), key=lambda ip_k: (0 if ip_to_primary_host[ip_k] == primary_host else 1, ip_k))
+
+    # 3.1 Naabu Fast Top-1000 Port Scanner FIRST (Unique Non-CDN Origin IPs -> Feeds Nmap Deep NSE!)
+    if "naabu" in active_ids and agent._find_binary("naabu") and non_cdn_ips:
+        nb_targets = non_cdn_ips[:5]
         nb_joined = ",".join(nb_targets)
-        log_fn(f"[Tool 3.1 -> Naabu] {nb_joined} da Top-1000 portlar tezkor tekshirilmoqda...")
+        log_fn(f"[Tool 3.1 -> Naabu] {nb_joined} ({len(nb_targets)} ta noyob Origin IP) da Top-1000 portlar tezkor tekshirilmoqda...")
         nb_out = agent._run_cli(f"naabu -host {shlex.quote(nb_joined)} -top-ports 1000 -silent", log_fn, timeout=45, project_id=project_id)
         for line in nb_out.splitlines():
             if ":" in line:
                 h_part, p_part = line.strip().rsplit(":", 1)
                 if p_part.isdigit():
                     ip_val = h_part if re.match(r"^\d+\.\d+\.\d+\.\d+$", h_part) else ""
-                    agent.db.upsert_port(project_id, h_part, int(p_part), "tcp", ip=ip_val, service="tcp-open", source="naabu")
+                    canon_h = ip_to_primary_host.get(ip_val, h_part)
+                    agent.db.upsert_port(project_id, canon_h, int(p_part), "tcp", ip=ip_val, service="tcp-open", source="naabu")
 
-    # 3.2 Nmap Deep NSE Recon Scanner SECOND (Smart Port Chaining from Shodan + Naabu + Core Ports)
-    if "nmap" in active_ids and agent._find_binary("nmap"):
-        nmap_targets = [primary_host] + [ip for ip in non_cdn_ips if ip not in (primary_host,)][:2]
+    # 3.2 Nmap Deep NSE Recon Scanner SECOND (Smart Port Chaining on Unique Non-CDN IPs)
+    if "nmap" in active_ids and agent._find_binary("nmap") and non_cdn_ips:
+        nmap_ips = non_cdn_ips[:3]
         known_ports_rows = agent.db.get_project_bundle(project_id).get("ports", [])
 
-        for n_target in nmap_targets:
+        for n_ip in nmap_ips:
             if project_id in agent.abort_flags:
                 break
-            safe_t = shlex.quote(n_target)
+            canon_host = ip_to_primary_host.get(n_ip, n_ip)
+            safe_t = shlex.quote(n_ip)
             target_ports = {21, 22, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5432, 6379, 8080, 8443}
             for pr in known_ports_rows:
-                if pr.get("host") == n_target or pr.get("ip") == n_target:
+                if pr.get("ip") == n_ip or pr.get("host") in (n_ip, canon_host):
                     p_int = int(pr.get("port", 0))
                     if 1 <= p_int <= 65535:
                         target_ports.add(p_int)
             port_spec = ",".join(str(p) for p in sorted(target_ports)[:45])
-            log_fn(f"[Tool 3.2 -> Nmap Deep NSE] {n_target} (Portlar: {len(target_ports)} ta) da servis versiyalari va NSE skriptlari ishga tushirilmoqda...")
+            log_fn(f"[Tool 3.2 -> Nmap Deep NSE] {canon_host} ({n_ip} | Portlar: {len(target_ports)} ta) da servis versiyalari va NSE skriptlari ishga tushirilmoqda...")
             xml_out = agent._run_cli(
                 f"nmap -Pn -sV -T4 -p {port_spec} --script=banner,http-title,http-headers,http-methods,ssl-cert,ftp-anon,smb-os-discovery,smb-protocols -oX - {safe_t}",
                 log_fn,
@@ -591,7 +612,7 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
                     root = ET.fromstring(xml_out[s : e + 10])
                     for h in root.findall("host"):
                         addr_el = h.find("address")
-                        ip_addr = addr_el.get("addr", "") if addr_el is not None else n_target
+                        ip_addr = addr_el.get("addr", "") if addr_el is not None else n_ip
                         for p in h.findall(".//port"):
                             state_el = p.find("state")
                             if state_el is not None and state_el.get("state") == "open":
@@ -611,37 +632,45 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
                                         nse_notes.append(f"[{sid}: {sout[:75]}]")
                                     if sid == "ftp-anon" and "Anonymous FTP login allowed" in sout:
                                         agent.db.upsert_finding(
-                                            project_id, "SPECTRE-Agent1 (Nmap NSE)", f"Anonymous FTP Login Enabled on {n_target}:{port_id}",
+                                            project_id, "SPECTRE-Agent1 (Nmap NSE)", f"Anonymous FTP Login Enabled on {canon_host}:{port_id} ({n_ip})",
                                             "Authentication Bypass", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
-                                            "CWE-287", "A07:2021 - Identification and Authentication Failures", f"{n_target}:{port_id}",
+                                            "CWE-287", "A07:2021 - Identification and Authentication Failures", f"{canon_host}:{port_id}",
                                             sout[:500], "FTP serverda anonim (parolsiz) kirish ruxsat etilgan.", "FTP konfiguratsiyasida anonymous_enable=NO qiling.",
                                         )
                                 full_ver = f"{product} {ver} {extra} {' '.join(nse_notes[:2])}".strip()
-                                agent.db.upsert_port(project_id, n_target, port_id, proto, ip=ip_addr, service=svc_name, version=full_ver[:220], source="nmap_deep_nse")
-                                log_fn(f"  [🔬 Nmap Deep] {n_target}:{port_id}/{proto} -> {svc_name} | {full_ver[:120]}")
+                                agent.db.upsert_port(project_id, canon_host, port_id, proto, ip=ip_addr, service=svc_name, version=full_ver[:220], source="nmap_deep_nse")
+                                log_fn(f"  [🔬 Nmap Deep] {canon_host} ({n_ip}):{port_id}/{proto} -> {svc_name} | {full_ver[:120]}")
                 except Exception as ex:
                     log_fn(f"  [!] Nmap Deep XML parse ogohlantirish: {ex}")
 
-    # 13.1 NetExec (nxc) SMB & SSH Deep Service / AD Domain Inspector
+    # 13.1 NetExec (nxc) SMB (445) & SSH (22) Deep Service / AD Domain Inspector
     nxc_bin = agent._find_binary("nxc") or agent._find_binary("netexec")
     if "netexec" in active_ids and nxc_bin:
         ports_now = agent.db.get_project_bundle(project_id).get("ports", [])
         smb_ips = sorted({p.get("ip") or p.get("host") for p in ports_now if int(p.get("port", 0)) == 445 and (p.get("ip") or p.get("host"))})
         for sip in smb_ips[:3]:
+            canon_h = ip_to_primary_host.get(sip, sip)
             log_fn(f"[Tool 13.1 -> NetExec (nxc) SMB] {sip}:445 da OS versiyasi, Domain nomi va SMB Signing tekshirilmoqda...")
             nxc_out = agent._run_cli(f"{nxc_bin} smb {shlex.quote(sip)}", log_fn, timeout=20, project_id=project_id)
             if nxc_out.strip():
                 clean_line = nxc_out.strip().splitlines()[-1]
                 log_fn(f"  [🛡️ NetExec SMB] {clean_line}")
-                agent.db.upsert_port(project_id, sip, 445, "tcp", ip=sip, service="microsoft-ds", version=clean_line[:200], source="netexec_smb")
+                agent.db.upsert_port(project_id, canon_h, 445, "tcp", ip=sip, service="microsoft-ds", version=clean_line[:200], source="netexec_smb")
                 if "signing:false" in clean_line.lower():
                     agent.db.upsert_finding(
-                        project_id, "SPECTRE-Agent1 (NetExec SMB)", f"SMB Signing Not Required on {sip}:445 (NTLM Relay Vector)",
+                        project_id, "SPECTRE-Agent1 (NetExec SMB)", f"SMB Signing Not Required on {canon_h} ({sip}:445) (NTLM Relay Vector)",
                         "Network Protocol Misconfiguration", "Medium", 6.5, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N",
-                        "CWE-300", "A05:2021 - Security Misconfiguration", f"{sip}:445",
+                        "CWE-300", "A05:2021 - Security Misconfiguration", f"{canon_h}:445 ({sip})",
                         clean_line, "SMB serverda raqamli imzo (SMB Signing) majburiy emas — bu NTLM Relay hujumlariga yo'l ochadi.",
                         "GPO yoki smb.conf orqali SMB Signing'ni majburiy (server signing = mandatory) qiling.",
                     )
+        ssh_ips = sorted({p.get("ip") or p.get("host") for p in ports_now if int(p.get("port", 0)) == 22 and (p.get("ip") or p.get("host"))})
+        for ship in ssh_ips[:2]:
+            canon_h = ip_to_primary_host.get(ship, ship)
+            nxc_ssh = agent._run_cli(f"{nxc_bin} ssh {shlex.quote(ship)}", log_fn, timeout=12, project_id=project_id)
+            if nxc_ssh.strip():
+                ssh_line = nxc_ssh.strip().splitlines()[-1]
+                agent.db.upsert_port(project_id, canon_h, 22, "tcp", ip=ship, service="ssh", version=ssh_line[:180], source="netexec_ssh")
 
     # 3.3 MapCIDR Subnet Aggregator
     if "mapcidr" in active_ids and agent._find_binary("mapcidr"):
