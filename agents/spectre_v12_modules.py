@@ -144,7 +144,7 @@ def audit_csp_deep_and_static_nonce(db, session, project_id: int, base_url: str,
         csp1 = r1.headers.get("Content-Security-Policy") or r1.headers.get("Content-Security-Policy-Report-Only") or ""
         if not csp1:
             return 0
-        r2 = session.get(base_url, timeout=5, verify=False)
+        r2 = session.get(base_url, headers={"Cache-Control": "no-cache"}, timeout=5, verify=False)
         csp2 = r2.headers.get("Content-Security-Policy") or r2.headers.get("Content-Security-Policy-Report-Only") or ""
 
         nonces1 = set(nonce_re.findall(csp1))
@@ -418,7 +418,7 @@ def run_v12_titan_suite(agent, project_id: int, apex_domain: str, primary_host: 
     audit_csp_deep_and_static_nonce(db, session, project_id, base_url, apex_domain, log_fn)
     predict_and_verify_semantic_rest_endpoints(db, session, project_id, base_url, log_fn)
     analyze_wasm_binaries_and_server_timing(db, session, project_id, base_url, js_urls, log_fn)
-    if base_url.endswith("://" + primary_host):
+    if urllib.parse.urlparse(base_url).hostname == primary_host.split(":")[0].lower():
         resolve_and_probe_ipv6_dual_stack(db, session, project_id, apex_domain, primary_host, log_fn)
         probe_udp_services_safe(db, project_id, log_fn)
         build_corporate_org_and_backend_correlation_graph(db, session, project_id, apex_domain, log_fn)

@@ -665,18 +665,17 @@ class ApexNativeWindow(Gtk.Window):
 
         q = (self.search_entry.get_text() or "").strip().lower() if hasattr(self, "search_entry") else ""
         f_mode = self.finding_filter_combo.get_active_id() if hasattr(self, "finding_filter_combo") else "all"
-        sig = (self.current_project_id, len(doms), len(ports), len(https), len(eps), len(js_list), len(finds), len(chains), q, f_mode)
+        ip_cnt = sum(1 for d in doms if d.get("ip"))
+        fp_cnt = sum(1 for f in finds if f.get("triage_status") == "False-Positive")
+        sig = (self.current_project_id, len(doms), ip_cnt, len(ports), len(https), len(eps), len(js_list), len(finds), fp_cnt, len(chains), q, f_mode)
         if preserve_if_unchanged and sig == self._last_data_sig:
             return
         self._last_data_sig = sig
 
-
-        self.lbl_stat_dom.set_text(f"{len(doms)} ta subdomen")
+        self.lbl_stat_dom.set_text(f"{len(doms)} ta subdomen ({ip_cnt} IP)")
         self.lbl_stat_http.set_text(f"{len(ports)} port  •  {len(https)} web")
         self.lbl_stat_ep.set_text(f"{len(eps)} route  •  {len(js_list)} JS")
         self.lbl_stat_find.set_text(f"{len(finds)} topilma  •  {len(chains)} zanjir")
-
-        q = (self.search_entry.get_text() or "").strip().lower() if hasattr(self, "search_entry") else ""
 
         self.store_http.clear()
         for s in https:

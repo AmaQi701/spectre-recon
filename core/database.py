@@ -291,6 +291,7 @@ class DatabaseManager:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(project_id, url, method) DO UPDATE SET
                 params_json = CASE WHEN excluded.params_json != '[]' THEN excluded.params_json ELSE endpoints.params_json END,
+                category = CASE WHEN excluded.category NOT IN ('general', 'web_page') THEN excluded.category ELSE endpoints.category END,
                 risk_tags_json = CASE WHEN excluded.risk_tags_json != '[]' THEN excluded.risk_tags_json ELSE endpoints.risk_tags_json END,
                 status_code = CASE WHEN excluded.status_code > 0 THEN excluded.status_code ELSE endpoints.status_code END""",
                 (project_id, url, method.upper(), json.dumps(params or []), category, json.dumps(risk_tags or []), int(status_code), source, self.now()),

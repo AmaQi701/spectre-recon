@@ -139,8 +139,10 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
                 "Serverda faqat ruxsat etilgan WAF/Proxy IP manzillaridan keluvchi trafikni qabul qilishni sozlang.",
             )
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
-        list(ex.map(check_candidate_ip, sorted(candidate_ips)[:25]))
+    ex_o = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+    futs_o = [ex_o.submit(check_candidate_ip, ip_c) for ip_c in sorted(candidate_ips)[:25]]
+    concurrent.futures.wait(futs_o, timeout=16)
+    ex_o.shutdown(wait=False, cancel_futures=True)
 
 
 # ================= #2 FULL /24 SUBNET NEIGHBOR PTR & INFRASTRUCTURE SWEEPER =================
@@ -184,8 +186,10 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
         except Exception:
             pass
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=40) as ex:
-        list(ex.map(check_neighbor, neighbor_candidates))
+    ex_p = concurrent.futures.ThreadPoolExecutor(max_workers=40)
+    futs_p = [ex_p.submit(check_neighbor, n_c) for n_c in neighbor_candidates]
+    concurrent.futures.wait(futs_p, timeout=14)
+    ex_p.shutdown(wait=False, cancel_futures=True)
 
     if ptr_map:
         sample_ptrs = [f"{k} -> {v}" for k, v in sorted(ptr_map.items())[:12]]
@@ -571,6 +575,12 @@ def run_safe_auto_validator(db, session: requests.Session, project_id: int, log_
     log_fn("[SPECTRE Ultra #9 -> Safe Auto-Validator] Shubhali parametrli endpointlarda (Open Redirect, Canary Reflection) xavfsiz PoC validatsiya bajarilmoqda...")
     redir_params = {"url", "redirect", "redirect_uri", "next", "return", "returnurl", "return_to", "goto", "dest", "destination"}
 
+    def _set_url_param(orig_url: str, key: str, val: str) -> str:
+        p = urllib.parse.urlparse(orig_url)
+        qs = urllib.parse.parse_qs(p.query, keep_blank_values=True)
+        qs[key] = [val]
+        return urllib.parse.urlunparse(p._replace(query=urllib.parse.urlencode(qs, doseq=True)))
+
     for ep in endpoints[:40]:
         u = ep["url"]
         params = json.loads(ep.get("params_json") or "[]")
@@ -579,12 +589,11 @@ def run_safe_auto_validator(db, session: requests.Session, project_id: int, log_
 
         matched_r_params = [p for p in params if p.lower() in redir_params]
         for rp_name in matched_r_params[:2]:
-            sep = "&" if "?" in u else "?"
-            test_u = f"{u}{sep}{rp_name}=https://example.org/spectre_check"
+            test_u = _set_url_param(u, rp_name, "https://example.org/spectre_check")
             try:
                 r = session.get(test_u, timeout=4.0, verify=False, allow_redirects=False)
                 loc = r.headers.get("Location", "")
-                if r.status_code in (301, 302, 303, 307, 308) and loc.startswith("https://example.org"):
+                if r.status_code in (301, 302, 303, 307, 308) and urllib.parse.urlparse(loc).hostname == "example.org":
                     log_fn(f"  [✅ CONFIRMED OPEN REDIRECT] {test_u} -> Location: {loc}")
                     db.upsert_finding(
                         project_id, "SPECTRE-Agent1 (Auto-Validator)", f"[CONFIRMED] Verified Open Redirect via '{rp_name}' Parameter",
@@ -601,19 +610,18 @@ def run_safe_auto_validator(db, session: requests.Session, project_id: int, log_
         for p_name in params[:2]:
             if p_name.lower() in redir_params:
                 continue
-            sep = "&" if "?" in u else "?"
-            canary = "spectre7x9q"
-            test_u = f"{u}{sep}{p_name}={canary}"
+            canary = 'spectre7x9q"<>'
+            test_u = _set_url_param(u, p_name, canary)
             try:
                 r = session.get(test_u, timeout=4.0, verify=False)
                 if r.status_code == 200 and canary in r.text and "text/html" in r.headers.get("Content-Type", "").lower():
-                    log_fn(f"  [🔎 REFLECTION CONFIRMED] Parameter '{p_name}' reflects input in HTML body: {u}")
+                    log_fn(f"  [🔎 REFLECTION CONFIRMED] Parameter '{p_name}' reflects unencoded HTML chars in body: {u}")
                     db.upsert_finding(
-                        project_id, "SPECTRE-Agent1 (Auto-Validator)", f"[CONFIRMED] Unfiltered Input Reflection on Parameter '{p_name}'",
-                        "Input Reflection / XSS Candidate (Validated)", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                        project_id, "SPECTRE-Agent1 (Auto-Validator)", f"[CONFIRMED] Unfiltered HTML Character Reflection on Parameter '{p_name}'",
+                        "Input Reflection / XSS Candidate (Validated)", "High", 7.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
                         "CWE-79", "A03:2021 - Injection", u,
-                        f"Probe URL: {test_u} -> Canary '{canary}' reflected directly in text/html response.",
-                        f"'{p_name}' parametriga yuborilgan qiymat HTML sahifa tarkibida aks etishi tasdiqlandi.",
+                        f"Probe URL: {test_u} -> Unencoded HTML chars '{canary}' reflected directly in text/html response.",
+                        f"'{p_name}' parametriga yuborilgan maxsus HTML belgilar (\"<>) kodlanmasdan sahifada aks etishi tasdiqlandi.",
                         "Foydalanuvchi kiritgan barcha parametrlarni HTML kontekstida chiqarishdan oldin kontekstli encoding qiling.",
                         confidence="Confirmed-PoC",
                     )

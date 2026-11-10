@@ -12,9 +12,21 @@ import requests
 
 # ================= #1 ASN, ISP, SUBNET (/24) & GEOLOCATION MAPPER =================
 def enrich_asn_and_isp_intel(db, project_id: int, log_fn):
+    import ipaddress
+
     bundle = db.get_project_bundle(project_id)
     domains = bundle.get("domains", [])
-    unique_ips = sorted({d["ip"] for d in domains if d.get("ip")})
+    unique_ips = []
+    for d in domains:
+        ip_s = (d.get("ip") or "").strip()
+        if ip_s and ip_s not in unique_ips:
+            try:
+                ip_obj = ipaddress.ip_address(ip_s)
+                if not ip_obj.is_private and not ip_obj.is_loopback:
+                    unique_ips.append(ip_s)
+            except ValueError:
+                pass
+    unique_ips.sort()
     if not unique_ips:
         return
 
@@ -41,13 +53,15 @@ def enrich_asn_and_isp_intel(db, project_id: int, log_fn):
     except Exception as e:
         log_fn(f"  [!] ASN lookup ogohlantirish: {e}")
 
+    cdn_isp_keywords = ("cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "imperva", "ddos-guard", "sucuri", "qrator")
     for d in domains:
         ip = d.get("ip", "")
         if ip and ip in ip_info_map:
             info = ip_info_map[ip]
             recs = json.loads(d.get("records_json") or "{}")
             recs["asn_intel"] = info
-            cdn_label = d.get("cdn_waf") or info["label"]
+            isp_low = str(info.get("isp", "")).lower()
+            cdn_label = d.get("cdn_waf") or (info["label"] if any(ck in isp_low for ck in cdn_isp_keywords) else "")
             db.upsert_domain(project_id, d["domain"], ip=ip, cname=d.get("cname", ""), records=recs, cdn_waf=cdn_label, source=d.get("source", ""))
 
 
@@ -75,7 +89,8 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
                     not_after_str = cert.get("notAfter", "")
                     if not_after_str:
                         exp_dt = datetime.datetime.strptime(not_after_str, "%b %d %H:%M:%S %Y %Z")
-                        days_left = (exp_dt - datetime.datetime.utcnow()).days
+                        now_utc = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+                        days_left = (exp_dt - now_utc).days
                         if days_left < 0:
                             db.upsert_finding(
                                 project_id, "SPECTRE-v5 (TLS-Audit)", f"Expired SSL/TLS Certificate ({host}:{port})",
@@ -933,15 +948,18 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
                     if used_svcs:
                         agent.db.log_task(project_id, "SPECTRE-Agent1", "holehe", "COMPLETED", f"holehe {em}", ", ".join(used_svcs[:10]))
 
-    # 14.1 Nuclei Fast Exposure & Misconfiguration Scanner
+    # 14.1 Nuclei Fast Exposure & Misconfiguration Scanner (Top 6 Live Web Services)
     if "nuclei" in active_ids and agent._find_binary("nuclei"):
-        svcs = bundle.get("http_services", [])
-        target_u = svcs[0]["url"] if svcs else f"https://{primary_host}"
-        log_fn(f"[Tool 14.1 -> Nuclei Scanner] {target_u} da miskonfiguratsiya, ochiq panel va CVE shablonlari tekshirilmoqda...")
+        svcs = [s["url"] for s in bundle.get("http_services", []) if int(s.get("status_code") or 0) in (200, 401, 403)][:6]
+        if not svcs:
+            svcs = [f"https://{primary_host}"]
+        nuc_list_file = f"/tmp/spectre_nuclei_targets_{project_id}.txt"
+        open(nuc_list_file, "w").write("\n".join(svcs) + "\n")
+        log_fn(f"[Tool 14.1 -> Nuclei Scanner] {len(svcs)} ta asosiy servisda miskonfiguratsiya, ochiq panel va CVE shablonlari tekshirilmoqda...")
         nuc_out = agent._run_cli(
-            f"nuclei -u {shlex.quote(target_u)} -tags exposure,misconfig,panel,token -severity low,medium,high,critical -silent -jsonl -timeout 4 -c 20",
+            f"nuclei -l {nuc_list_file} -tags exposure,misconfig,panel,token -severity low,medium,high,critical -silent -jsonl -timeout 4 -c 25",
             log_fn,
-            timeout=40,
+            timeout=45,
             project_id=project_id,
         )
         for nl in nuc_out.splitlines():
@@ -952,7 +970,7 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
                     info = nobj.get("info", {})
                     n_name = info.get("name", t_id)
                     n_sev = str(info.get("severity", "medium")).capitalize()
-                    matched_at = nobj.get("matched-at", target_u)
+                    matched_at = nobj.get("matched-at", svcs[0])
                     cvss_map = {"Critical": 9.3, "High": 8.1, "Medium": 6.1, "Low": 3.7}
                     if n_sev in cvss_map:
                         agent.db.upsert_finding(

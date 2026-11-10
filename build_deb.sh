@@ -14,7 +14,7 @@ mkdir -p "${DIST_DIR}"
 
 cat << 'EOF' > "${PKG_DIR}/DEBIAN/control"
 Package: spectre-recon
-Version: 8.5
+Version: 12.2
 Section: utils
 Priority: optional
 Architecture: all
@@ -36,7 +36,7 @@ Version=1.0
 Type=Application
 Name=SPECTRE Recon Studio
 GenericName=Cyber-Recon & Attack Surface Studio
-Comment=SPECTRE v8.5 Autonomous Recon, Vulnerability Assessment, Bug Chaining & Report Studio
+Comment=SPECTRE v12.2 Autonomous Recon, Vulnerability Assessment, Bug Chaining & Report Studio
 Exec=/bin/bash /opt/apex-asm-studio/launch_apex.sh
 Path=/opt/apex-asm-studio
 Icon=/opt/apex-asm-studio/ui/apex-icon.svg
@@ -46,5 +46,5 @@ Keywords=pentest;recon;security;audit;spectre;scanner;
 StartupNotify=true
 EOF
 
-dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_8.5_all.deb"
-echo "[+] Built package: ${DIST_DIR}/spectre-recon_8.5_all.deb"
+dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_12.2_all.deb"
+echo "[+] Built package: ${DIST_DIR}/spectre-recon_12.2_all.deb"

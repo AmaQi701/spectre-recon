@@ -272,11 +272,9 @@ def verify_jwt_weak_secret(token: str) -> str | None:
 
 def analyze_badsecrets_and_cookies(db, project_id: int, apex_domain: str, log_fn):
     http_svcs = db.get_project_bundle(project_id).get("http_services", [])
-    jwt_regex = re.compile(r"eyJ[a-zA-Z0-9_\-]{10,}\.eyJ[a-zA-Z0-9_\-]{10,}\.[a-zA-Z0-9_\-]{10,}")
     for svc in http_svcs:
         url = svc["url"]
         cookies = json.loads(svc.get("cookies_json") or "[]")
-        headers_blob = svc.get("headers_json") or "{}"
         for ck in cookies:
             raw = ck.get("raw", "")
             if f"domain=.{apex_domain}" in raw.lower() or f"domain={apex_domain}" in raw.lower():
@@ -289,19 +287,6 @@ def analyze_badsecrets_and_cookies(db, project_id: int, apex_domain: str, log_fn
                     "Sessiya cookie'larida Domain atributini faqat aniq host uchun cheklang (HostOnly cookie).",
                 )
                 log_fn(f"  [!] Wildcard Cookie Scope (.{apex_domain}) aniqlandi: {url}")
-
-        for cand_jwt in jwt_regex.findall(headers_blob):
-            cracked = verify_jwt_weak_secret(cand_jwt)
-            if cracked:
-                db.upsert_finding(
-                    project_id, "SPECTRE-Agent1 (BadSecrets)", f"JWT Signed with Weak Default Secret ('{cracked}')",
-                    "Cryptographic Failure (BadSecrets)", "Critical", 9.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
-                    "CWE-798", "A02:2021 - Cryptographic Failures", url,
-                    f"Cracked HMAC-SHA256 Secret: '{cracked}' | Token: {cand_jwt[:60]}...",
-                    "JWT token ma'lum standart/zaif kalit bilan imzolangan — har qanday foydalanuvchi nomidan token yasash (Account Takeover) mumkin.",
-                    "Kamida 256-bitli kriptografik tasodifiy kalit yoki RS256/ES256 asimmetrik kalit juftligidan foydalaning.",
-                )
-                log_fn(f"  [🚨 BADSECRETS] JWT zaif kaliti topildi ({url}): '{cracked}'!")
 
 
 

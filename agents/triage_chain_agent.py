@@ -91,9 +91,10 @@ class TriageAndChainSuperAgent:
 
         # Dynamic Chain #4: Cloudflare WAF Bypass via Direct Backend/Origin Subdomain IP
         domains = bundle.get("domains", [])
+        pt_host = proj.get("primary_target", "").lower()
         cf_hosts = [d["domain"] for d in domains if "cloudflare" in str(d.get("cdn_waf", "")).lower()]
         direct_hosts = [f"{d['domain']} ({d['ip']})" for d in domains if d.get("ip") and "cloudflare" not in str(d.get("cdn_waf", "")).lower()]
-        if cf_hosts and direct_hosts:
+        if cf_hosts and direct_hosts and any(pt_host in ch or ch in pt_host for ch in cf_hosts):
             self.db.upsert_bug_chain(
                 project_id,
                 "Chain #4: Cloudflare WAF Protected Frontend + Exposed Direct Backend/Origin Server IPs -> Full WAF Bypass",
@@ -153,16 +154,16 @@ class TriageAndChainSuperAgent:
             )
             log_fn("  [⚡ CHAIN] Verified Input Reflection + Session Context -> Account Takeover zanjiri tuzildi!")
 
-        if has_sast_inj or (not has_dom_sink and not has_cors and findings):
+        if has_sast_inj:
             self.db.upsert_bug_chain(
                 project_id,
-                "Chain #8: Missing Defense-in-Depth Headers + Application Layer Findings",
-                "Medium",
-                6.8,
-                ["Missing CSP / Hardening Headers", "Discovered Application Endpoints / Sinks", "Reduced Browser-Side Mitigation"],
-                "Himoya headerlarining (CSP, HSTS, X-Frame-Options) yo'qligi ilova darajasidagi kamchiliklarning (Clickjacking, XSS, MITM) ta'sir darajasini oshiradi.",
-                "Mijoz tomonidagi xavfsizlik cheklovlarining aylanib o'tilishi.",
-                "Barcha javoblarda qat'iy CSP, HSTS va X-Frame-Options: DENY siyosatini joriy qiling.",
+                "Chain #8: White-Box SAST Injection Sink + Exposed Endpoint -> High-Risk Exploitation Path",
+                "High",
+                8.8,
+                ["Source Code Injection Sink (SAST)", "Reachable Web/API Endpoint", "Backend Command/SQL Execution"],
+                "Manba kodida (yoki tiklangan SourceMap'da) aniqlangan Injection nuqtasi ochiq API endpoint bilan birgalikda to'g'ridan-to'g'ri ekspluatatsiya zanjirini hosil qiladi.",
+                "Ma'lumotlar bazasi yoki server ustidan nazoratni qo'lga kiritish.",
+                "Parametrlangan so'rovlar (Prepared Statements) ishlating va xavfli eval/exec chaqiruvlarini olib tashlang.",
             )
 
         self.db.update_project_status(project_id, "AUDIT_READY_FOR_REPORT")
@@ -246,8 +247,15 @@ class TriageAndChainSuperAgent:
             f"<td>{_html.escape(str(f['remediation']))}</td></tr>"
             for f in findings
         )
+        chains_html = "".join(
+            f"<tr><td><b>{_html.escape(str(ch['severity']))}</b> ({_html.escape(str(ch['cvss_score']))})</td>"
+            f"<td><b>{_html.escape(str(ch['chain_title']))}</b><br><small><code>{_html.escape(' ➔ '.join(json.loads(ch.get('nodes_json') or '[]')))}</code></small></td>"
+            f"<td>{_html.escape(str(ch['attack_scenario']))}</td>"
+            f"<td>{_html.escape(str(ch['remediation']))}</td></tr>"
+            for ch in chains
+        )
         html_content = f"""<!DOCTYPE html>
-<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
+<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v12.2 Titan Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
 <style>
 body {{ font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; padding: 32px; }}
 h1, h2 {{ color: #38bdf8; border-bottom: 1px solid #334155; padding-bottom: 8px; }}
@@ -256,9 +264,12 @@ th, td {{ border: 1px solid #334155; padding: 10px; text-align: left; font-size:
 th {{ background: #0284c7; color: #fff; }}
 code {{ color: #f472b6; background: #0f172a; padding: 2px 5px; border-radius: 4px; }}
 </style></head><body>
-<h1>👻 SPECTRE v8.5 Autonomous Cyber-Recon &amp; Security Audit Report: {_html.escape(str(proj.get('name', '')))}</h1>
+<h1>👻 SPECTRE v12.2 Titan — Autonomous Cyber-Recon &amp; Security Audit Report: {_html.escape(str(proj.get('name', '')))}</h1>
 <p><b>Primary Target:</b> <code>{_html.escape(str(proj.get('primary_target', '')))}</code> | <b>In-Scope:</b> <code>{_html.escape(str(proj.get('in_scope', '')))}</code></p>
-<h2>Aniqlangan Zaifliklar va Tekshiruv Nuqtalari ({len(findings)})</h2>
+<h2>🔗 Zaifliklar Zanjiri (Bug Chaining Scenarios — {len(chains)})</h2>
+<table><thead><tr><th>Severity / CVSS</th><th>Zanjir Nomi va Bosqichlari</th><th>Hujum Ssenariysi</th><th>Remediation</th></tr></thead>
+<tbody>{chains_html or '<tr><td colspan="4">Zanjirlangan ssenariylar aniqlanmadi.</td></tr>'}</tbody></table>
+<h2>🔍 Aniqlangan Zaifliklar va Tekshiruv Nuqtalari ({len(findings)})</h2>
 <table><thead><tr><th>Severity / CVSS</th><th>Zaiflik Nomi</th><th>Asset</th><th>Dalil (Evidence)</th><th>Remediation</th></tr></thead>
 <tbody>{rows_html}</tbody></table>
 </body></html>"""

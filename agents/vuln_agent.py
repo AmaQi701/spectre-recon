@@ -121,6 +121,8 @@ class VulnAssessmentSuperAgent:
 
     def __init__(self, db: DatabaseManager):
         self.db = db
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "SPECTRE-VulnAgent/12.2"})
 
     def audit_jwt_token(self, token: str) -> dict:
         parts = token.strip().split(".")
@@ -177,7 +179,7 @@ class VulnAssessmentSuperAgent:
 
             # Active Dynamic Origin Reflection & HTTP Methods Probe on top services
             try:
-                r_cors = requests.get(url, headers={"Origin": "https://evil.spectre-audit.org", "User-Agent": "SPECTRE-VulnAgent/8.5"}, timeout=4.0, verify=False, allow_redirects=False)
+                r_cors = self.session.get(url, headers={"Origin": "https://evil.spectre-audit.org"}, timeout=4.0, verify=False, allow_redirects=False)
                 ref_acao = r_cors.headers.get("Access-Control-Allow-Origin", "")
                 ref_acac = r_cors.headers.get("Access-Control-Allow-Credentials", "").lower()
                 if ref_acao == "https://evil.spectre-audit.org":
@@ -281,45 +283,59 @@ class VulnAssessmentSuperAgent:
 
 
     def _audit_endpoints_and_js(self, project_id: int, endpoints: list[dict], js_assets: list[dict], log_fn):
+        import urllib.parse
+
+        idor_by_host: dict[str, list[str]] = {}
+        ssrf_by_host: dict[str, list[str]] = {}
+        biz_by_host: dict[str, list[str]] = {}
+
         for ep in endpoints:
             tags = json.loads(ep.get("risk_tags_json") or "[]")
             params = json.loads(ep.get("params_json") or "[]")
             url = ep["url"]
+            host = urllib.parse.urlparse(url).hostname or url
+            entry_str = f"[{ep['method']}] {url}" + (f" (params: {', '.join(params[:5])})" if params else "")
             if "IDOR_Candidate" in tags:
-                self.db.upsert_finding(
-                    project_id, "Agent-2 (ManualTestGuide)", "High-Priority IDOR / BOLA Testing Point",
-                    "Access Control (Manual Verification)", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
-                    "CWE-639", "A01:2021 - Broken Access Control", url,
-                    f"Method: {ep['method']} | Obyekt parametrlari: {', '.join(params)}",
-                    "Endpoint obyekt identifikatorini qabul qiladi — avtorizatsiya tekshiruvi yo'qligi IDOR ga olib kelishi mumkin.",
-                    "Har bir so'rovda foydalanuvchining obyektga egalik huquqini server tomonida tekshiring.",
-                    confidence="Manual-Review",
-                )
+                idor_by_host.setdefault(host, []).append(entry_str)
             if "SSRF_or_Redirect_Candidate" in tags:
-                self.db.upsert_finding(
-                    project_id, "Agent-2 (ManualTestGuide)", "SSRF / Open Redirect Candidate Parameter",
-                    "SSRF / Redirect (Manual Verification)", "High", 7.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:N",
-                    "CWE-918", "A10:2021 - Server-Side Request Forgery", url,
-                    f"Method: {ep['method']} | URL/Redirect parametrlari: {', '.join(params)}",
-                    "Tashqi manzil yoki yo'naltirish qabul qiluvchi parametr aniqlandi.",
-                    "URL manzillarini oq ro'yxat asosida tekshiring va ichki IP diapazonlarini bloklang.",
-                    confidence="Manual-Review",
-                )
+                ssrf_by_host.setdefault(host, []).append(entry_str)
             if "Business_Logic_Candidate" in tags:
-                self.db.upsert_finding(
-                    project_id, "Agent-2 (ManualTestGuide)", "Business Logic / Mass Assignment Testing Point",
-                    "Business Logic (Manual Verification)", "Medium", 6.3, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
-                    "CWE-840", "A04:2021 - Insecure Design", url,
-                    f"Method: {ep['method']} | Biznes parametrlari: {', '.join(params)}",
-                    "Narx, miqdor, chegirma yoki foydalanuvchi roli bilan bog'liq parametr aniqlandi.",
-                    "Moliya va rolga oid qiymatlarni mijoz so'rovidan emas, faqat server bazasidan hisoblang.",
-                    confidence="Manual-Review",
-                )
+                biz_by_host.setdefault(host, []).append(entry_str)
+
+        for host, routes in idor_by_host.items():
+            self.db.upsert_finding(
+                project_id, "Agent-2 (ManualTestGuide)", f"High-Priority IDOR / BOLA Testing Points ({len(routes)} routes on {host})",
+                "Access Control (Manual Verification)", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+                "CWE-639", "A01:2021 - Broken Access Control", host,
+                " | ".join(routes[:10]),
+                "Ushbu endpointlar obyekt identifikatorini qabul qiladi — avtorizatsiya tekshiruvi yo'qligi IDOR/BOLA ga olib kelishi mumkin.",
+                "Har bir so'rovda foydalanuvchining obyektga egalik huquqini server tomonida tekshiring.",
+                confidence="Manual-Review",
+            )
+        for host, routes in ssrf_by_host.items():
+            self.db.upsert_finding(
+                project_id, "Agent-2 (ManualTestGuide)", f"SSRF / Open Redirect Candidate Parameters ({len(routes)} routes on {host})",
+                "SSRF / Redirect (Manual Verification)", "High", 7.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:N",
+                "CWE-918", "A10:2021 - Server-Side Request Forgery", host,
+                " | ".join(routes[:10]),
+                "Tashqi manzil yoki yo'naltirish qabul qiluvchi parametrlar aniqlandi.",
+                "URL manzillarini oq ro'yxat asosida tekshiring va ichki IP diapazonlarini bloklang.",
+                confidence="Manual-Review",
+            )
+        for host, routes in biz_by_host.items():
+            self.db.upsert_finding(
+                project_id, "Agent-2 (ManualTestGuide)", f"Business Logic / Mass Assignment Testing Points ({len(routes)} routes on {host})",
+                "Business Logic (Manual Verification)", "Medium", 6.3, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
+                "CWE-840", "A04:2021 - Insecure Design", host,
+                " | ".join(routes[:10]),
+                "Narx, miqdor, chegirma yoki foydalanuvchi roli bilan bog'liq parametrlar aniqlandi.",
+                "Moliya va rolga oid qiymatlarni mijoz so'rovidan emas, faqat server bazasidan hisoblang.",
+                confidence="Manual-Review",
+            )
 
         for js in js_assets:
             sinks = json.loads(js.get("sinks_json") or "[]")
             secrets = json.loads(js.get("secrets_hints_json") or "[]")
-            eps = json.loads(js.get("endpoints_json") or "[]")
             if sinks:
                 self.db.upsert_finding(
                     project_id, "Agent-2 (JS-Auditor)", f"DOM XSS Sink in {js['js_url'].split('/')[-1]}",
@@ -338,16 +354,6 @@ class VulnAssessmentSuperAgent:
                     "Mijozga yuklanadigan JS bundle ichida API baseURL, token yoki konfiguratsiya kalitlari aniqlandi.",
                     "JS bundle ichida maxfiy tokenlar yo'qligini tekshiring va ularni backend proksi orqali yashiring.",
                 )
-            if eps:
-                self.db.upsert_finding(
-                    project_id, "Agent-2 (JS-Auditor)", f"Extracted {len(eps)} Backend API / Stream Routes from {js['js_url'].split('/')[-1]}",
-                    "API Attack Surface (Manual Verification)", "Low", 3.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
-                    "CWE-200", "A01:2021 - Broken Access Control", js["js_url"],
-                    f"Routes: {', '.join(eps[:8])}",
-                    "SPA JavaScript fayli ichidan backend API va media route'lar ajratib olindi.",
-                    "Har bir API route'da autentifikatsiya va rate-limiting mavjudligini tekshiring.",
-                    confidence="Manual-Review",
-                )
 
 
     def _run_sast_scan(self, project_id: int, code_path_str: str, log_fn):
@@ -365,6 +371,9 @@ class VulnAssessmentSuperAgent:
             try:
                 lines = fpath.read_text(encoding="utf-8", errors="ignore").splitlines()
                 for idx, line in enumerate(lines, start=1):
+                    s_line = line.strip()
+                    if not s_line or len(s_line) > 900 or s_line.startswith(("//", "#", "/*", "*")):
+                        continue
                     for rule in self.SAST_RULES:
                         if rule["pattern"].search(line):
                             self.db.upsert_finding(

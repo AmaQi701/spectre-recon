@@ -72,7 +72,27 @@ class ReconSuperAgent:
         adapter = requests.adapters.HTTPAdapter(pool_connections=50, pool_maxsize=50)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
-        self.session.headers.update({"User-Agent": "SPECTRE-ASM-Security-Audit/10.2"})
+        self.session.headers.update({"User-Agent": "SPECTRE-ASM-Security-Audit/12.2"})
+        self._http_get_cache: dict[tuple[str, bool], Any] = {}
+        self._cache_lock = threading.Lock()
+        _orig_get = self.session.get
+
+        def _cached_session_get(url, **kwargs):
+            if not kwargs.get("headers") and not kwargs.get("stream") and not kwargs.get("params"):
+                ckey = (str(url), bool(kwargs.get("allow_redirects", True)))
+                with self._cache_lock:
+                    if ckey in self._http_get_cache:
+                        return self._http_get_cache[ckey]
+                resp = _orig_get(url, **kwargs)
+                if resp.status_code in (200, 401, 403, 404) and len(resp.content) < 600000:
+                    with self._cache_lock:
+                        if len(self._http_get_cache) > 160:
+                            self._http_get_cache.clear()
+                        self._http_get_cache[ckey] = resp
+                return resp
+            return _orig_get(url, **kwargs)
+
+        self.session.get = _cached_session_get
         self.active_procs: dict[int, list[subprocess.Popen]] = {}
         self.abort_flags: set[int] = set()
 
@@ -530,18 +550,28 @@ class ReconSuperAgent:
 
         if not ip_to_hosts:
             return
-        log_fn(f"[SPECTRE Stage 2] Shodan InternetDB orqali {len(ip_to_hosts)} ta noyob IP (portlar, CPE va CVE) tekshirilmoqda...")
-        for ip, hosts in ip_to_hosts.items():
+        log_fn(f"[SPECTRE Stage 2] Shodan InternetDB orqali {len(ip_to_hosts)} ta noyob IP (portlar, CPE va CVE) parallel tekshirilmoqda...")
+
+        def _host_rank(h_name: str) -> int:
+            if h_name.startswith(("ns1.", "ns2.", "ns.", "www.ns")):
+                return 0
+            if any(k in h_name.split(".")[0] for k in ("api", "admin", "my", "id", "auth", "sso", "portal")):
+                return 2
+            return 1
+
+        def _query_one_ip(item: tuple[str, list[str]]):
+            ip, hosts = item
             try:
-                r = self.session.get(f"https://internetdb.shodan.io/{ip}", timeout=8)
+                r = self.session.get(f"https://internetdb.shodan.io/{ip}", timeout=7)
                 if r.status_code != 200:
-                    continue
+                    return
                 data = r.json()
                 ports = data.get("ports", [])
                 cpes = data.get("cpes", [])
                 vulns = data.get("vulns", [])
                 hostnames = data.get("hostnames", [])
-                primary_h = hosts[0]
+                sorted_h = sorted(hosts, key=lambda x: (-_host_rank(x), len(x)))
+                primary_h = sorted_h[0]
                 for p in ports:
                     self.db.upsert_port(project_id, primary_h, int(p), "tcp", ip=ip, service="shodan-port", version=", ".join(cpes[:2]), source="shodan_internetdb")
                 for hn in hostnames:
@@ -556,16 +586,19 @@ class ReconSuperAgent:
                         "Shodan InternetDB ma'lumotlariga ko'ra ushbu IP dagi servis versiyalarida ma'lum CVE zaifliklar mavjud.",
                         "Servis versiyalarini yangilang va tashqi portlarni Firewall orqali cheklang.",
                     )
-                log_fn(f"  [+] Shodan InternetDB ({ip}): Ports={ports} | CPEs={len(cpes)} | CVEs={len(vulns)}")
+                log_fn(f"  [+] Shodan InternetDB ({ip} -> {primary_h}): Ports={ports} | CPEs={len(cpes)} | CVEs={len(vulns)}")
             except Exception:
                 pass
 
-
-
+        ex_sh = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+        futs_sh = [ex_sh.submit(_query_one_ip, item) for item in list(ip_to_hosts.items())[:40]]
+        concurrent.futures.wait(futs_sh, timeout=18)
+        ex_sh.shutdown(wait=False, cancel_futures=True)
 
     # ================= STAGE 2: NETWORK, PORT & TLS =================
     def _stage2_tls_inspect(self, project_id: int, host: str, scope: ScopeGuard, log_fn) -> dict:
         tls_info = {}
+        sans = []
         try:
             ctx = ssl.create_default_context()
             with socket.create_connection((host, 443), timeout=5) as sock:
@@ -575,16 +608,34 @@ class ReconSuperAgent:
                     tls_info["cipher"] = ssock.cipher()[0] if ssock.cipher() else ""
                     tls_info["notAfter"] = cert.get("notAfter", "")
                     sans = [v for k, v in cert.get("subjectAltName", []) if k == "DNS"]
-                    tls_info["san_count"] = len(sans)
-                    for san in sans:
-                        clean_san = san.lower().lstrip("*.")
-                        ok, _ = scope.is_in_scope(clean_san)
-                        if ok:
-                            self.db.upsert_domain(project_id, clean_san, source="tls_san")
-                    self.db.upsert_port(project_id, host, 443, "tcp", service="https", version=tls_info.get("version", ""), source="tls_inspector")
-                    log_fn(f"  [+] TLS {host}: {tls_info.get('version')} | Cipher: {tls_info.get('cipher')} | SANs: {len(sans)}")
+        except ssl.SSLCertVerificationError:
+            # Self-signed or expired certificate fallback: extract SANs via unverified DER cert
+            try:
+                ctx_u = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                ctx_u.check_hostname = False
+                ctx_u.verify_mode = ssl.CERT_NONE
+                with socket.create_connection((host, 443), timeout=5) as sock:
+                    with ctx_u.wrap_socket(sock, server_hostname=host) as ssock:
+                        tls_info["version"] = ssock.version()
+                        tls_info["cipher"] = ssock.cipher()[0] if ssock.cipher() else ""
+                        der_bytes = ssock.getpeercert(binary_form=True)
+                        if der_bytes:
+                            pem_str = ssl.DER_cert_to_PEM_cert(der_bytes)
+                            p_ossl = subprocess.run(["openssl", "x509", "-noout", "-text"], input=pem_str, text=True, capture_output=True, timeout=3)
+                            sans = re.findall(r"DNS:([a-zA-Z0-9.*\-_]+)", p_ossl.stdout)
+            except Exception:
+                pass
         except Exception:
-            pass
+            return tls_info
+
+        if tls_info.get("version"):
+            tls_info["san_count"] = len(sans)
+            for san in sans:
+                clean_san = san.lower().lstrip("*.")
+                if scope.is_in_scope(clean_san)[0]:
+                    self.db.upsert_domain(project_id, clean_san, source="tls_san")
+            self.db.upsert_port(project_id, host, 443, "tcp", service="https", version=tls_info.get("version", ""), source="tls_inspector")
+            log_fn(f"  [+] TLS {host}: {tls_info.get('version')} | Cipher: {tls_info.get('cipher')} | SANs: {len(sans)}")
         return tls_info
 
     def _parse_nmap_xml(self, project_id: int, host: str, xml_text: str, log_fn):
@@ -832,9 +883,9 @@ class ReconSuperAgent:
                         self._record_discovered_url(project_id, iep, base_url, scope, "inline_script")
 
 
-        wb_url = f"http://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=json&fl=original&collapse=urlkey&limit=80"
+        wb_url = f"http://web.archive.org/cdx/search/cdx?url={domain}/*&output=json&fl=original&collapse=urlkey&limit=60"
         try:
-            r = self.session.get(wb_url, timeout=10)
+            r = self.session.get(wb_url, timeout=6)
             if r.status_code == 200:
                 rows = r.json()
                 for row in rows[1:]:
@@ -1019,23 +1070,6 @@ class ReconSuperAgent:
                     http_m = method_map.get(ep, "GET")
                     self._record_discovered_url(project_id, ep, base_url, scope, "js_intelligence", method=http_m, extra_params=ep_params)
 
-                # SourceMap (.js.map) Hunter
-                map_url = js_url + ".map"
-                try:
-                    rm = self.session.get(map_url, timeout=5, verify=False)
-                    if rm.status_code == 200 and '"sources"' in rm.text[:600] and '"mappings"' in rm.text[:2000]:
-                        self.db.upsert_finding(
-                            project_id, "SPECTRE-Agent1 (SourceMap)", f"Exposed JavaScript SourceMap ({map_url.split('/')[-1]})",
-                            "Source Code Disclosure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
-                            "CWE-540", "A05:2021 - Security Misconfiguration", map_url,
-                            f"SourceMap file accessible ({len(rm.content)} bytes) containing original unminified source tree.",
-                            "Production serverda .js.map (SourceMap) fayli ochiq qoldirilgan — bu orqali asl frontend kodni to'liq tiklash mumkin.",
-                            "Production build jarayonida generateSourceMap ni o'chiring yoki Nginx da *.map fayllarga kirishni bloklang.",
-                        )
-                        log_fn(f"  [🚨 SOURCEMAP] Ochiq .js.map topildi: {map_url}")
-                except Exception:
-                    pass
-
                 if sorted_eps or sinks or secrets:
                     log_fn(f"  [+] JS Bundle ({js_url.split('/')[-1]}): {len(sorted_eps)} API route, {len(extracted_params)} param, {len(sinks)} sink, {len(secrets)} config.")
             except Exception:
@@ -1086,6 +1120,9 @@ class ReconSuperAgent:
         active_ids = set(selected_tools) if selected_tools else {t["id"] for t in tools if t.get("enabled") and t.get("installed")}
 
         self.abort_flags.discard(project_id)
+        with self._cache_lock:
+            self._http_get_cache.clear()
+        shutil.rmtree(f"/tmp/spectre_js_cache_{project_id}", ignore_errors=True)
         before_snap = spectre_deep_modules.take_recon_snapshot(self.db, project_id)
         collected_html: list[str] = []
         apex_domain = ScopeGuard.extract_apex_domain(primary_host)
@@ -1181,8 +1218,6 @@ class ReconSuperAgent:
                     url, html = probe_results[dom]
                     is_high_val = _dom_priority(dom) >= 60
                     collected_html.append(html[:50000])
-                    if dom == primary_host:
-                        spectre_deep_modules.fingerprint_favicon(self.session, url, self.db, project_id, log_fn)
                     js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)
                     spectre_v5_modules.run_deep_web_and_fuzz_tools(
                         self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn
@@ -1209,7 +1244,6 @@ class ReconSuperAgent:
             spectre_deep_modules.classify_auth_portals_and_schema(self.db, project_id, log_fn)
             spectre_deep_modules.analyze_badsecrets_and_cookies(self.db, project_id, apex_domain, log_fn)
             spectre_v5_modules.audit_ssl_certificates_deep(self.db, project_id, log_fn)
-            spectre_v5_modules.audit_domain_backup_exposure(self.db, project_id, apex_domain, log_fn)
             spectre_deep_modules.harvest_emails_and_osint(self.db, project_id, apex_domain, collected_html, log_fn)
             spectre_deep_modules.build_custom_wordlist_and_params(self.db, project_id, apex_domain, log_fn)
             spectre_v5_modules.run_deep_cloud_osint_and_vuln_tools(self, project_id, apex_domain, primary_host, active_ids, log_fn)
@@ -1259,13 +1293,13 @@ class ReconSuperAgent:
         _prog(0.20, f"Single-Host DNS, TLS & Nmap Deep NSE: {target_host}...")
         tls_info = self._stage2_tls_inspect(project_id, target_host, scope, log_fn)
         spectre_v5_modules.run_deep_network_and_ad_tools(self, project_id, target_host, active_ids, log_fn)
+        spectre_deep_modules.probe_nonstandard_web_ports(self.db, self.session, project_id, log_fn)
 
         _prog(0.55, f"Single-Host Deep Web, FFUF, Katana, Arjun & JS: {target_host}...")
         for scheme in ("https", "http"):
             url = f"{scheme}://{target_host}"
             html = self._stage3_http_probe(project_id, url, tls_info, scope, log_fn)
             if html:
-                spectre_deep_modules.fingerprint_favicon(self.session, url, self.db, project_id, log_fn)
                 js_list = self._stage4_html_and_wayback(project_id, url, html, target_host, scope, log_fn)
                 spectre_v5_modules.run_deep_web_and_fuzz_tools(
                     self, project_id, url, target_host, target_host, True, scope, active_ids, js_list, log_fn
