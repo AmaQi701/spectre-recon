@@ -341,7 +341,7 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
 
     def _task_amass():
         if "amass" in active_ids and agent._find_binary("amass"):
-            out = agent._run_cli(f"amass enum -passive -d {safe_apex} -timeout 1", log_fn, timeout=55, project_id=project_id)
+            out = agent._run_cli(f"amass enum -passive -d {safe_apex} -timeout 1", log_fn, timeout=22, project_id=project_id)
             cnt = 0
             for m in re.findall(r"(?:[a-zA-Z0-9\-]+\.)+" + re.escape(apex_domain), out):
                 h = m.lower().strip(".")
@@ -408,14 +408,26 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
 
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=8)
     futs = [ex.submit(fn) for fn in (_task_subfinder, _task_sublist3r, _task_amass, _task_assetfinder, _task_cero, _task_findomain, _task_chaos, _task_fierce)]
-    concurrent.futures.wait(futs, timeout=62)
+    concurrent.futures.wait(futs, timeout=28)
     ex.shutdown(wait=False, cancel_futures=True)
 
     res_file = "/tmp/spectre_resolvers.txt"
     open(res_file, "w").write("8.8.8.8\n1.1.1.1\n9.9.9.9\n8.8.4.4\n1.0.0.1\n208.67.222.222\n")
 
+    # Detect Wildcard DNS IPs BEFORE running puredns / dnsx so dead historical subdomains never get wildcard IPs
+    wildcard_ips_s1 = set()
+    try:
+        import dns.resolver as _dres
+        _r = _dres.Resolver(configure=False)
+        _r.nameservers = ["8.8.8.8", "1.1.1.1"]
+        _r.lifetime = 2.0
+        for _rd in _r.resolve(f"spectre-wildcard-check-99182.{apex_domain}", "A"):
+            wildcard_ips_s1.add(str(_rd).rstrip("."))
+    except Exception:
+        pass
+
     # 2.2A DNSGen / Gotator + PureDNS / ShuffleDNS Permutation & Wildcard Resolution
-    seed_doms = [d["domain"] for d in agent.db.get_project_bundle(project_id).get("domains", [])][:35]
+    seed_doms = [d["domain"] for d in agent.db.get_project_bundle(project_id).get("domains", []) if not d["domain"].startswith(("www.ns", "ns1.", "ns2."))][:35]
     if seed_doms and any(k in active_ids for k in ("dnsgen", "gotator", "puredns", "shuffledns")):
         seed_file = f"/tmp/spectre_seeds_{project_id}.txt"
         perm_file = f"/tmp/spectre_perms_{project_id}.txt"
@@ -423,26 +435,32 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
         perm_lines = []
         if "dnsgen" in active_ids and agent._find_binary("dnsgen"):
             dg_out = agent._run_cli(f"dnsgen {seed_file}", log_fn, timeout=15, project_id=project_id)
-            perm_lines.extend(dg_out.splitlines()[:300])
+            dg_all = dg_out.splitlines()
+            step_dg = max(1, len(dg_all) // 350)
+            perm_lines.extend(dg_all[::step_dg][:350])
         if "gotator" in active_ids and agent._find_binary("gotator"):
             gt_out = agent._run_cli(f"gotator -sub {seed_file} -depth 1 -numbers 3 -mindup -adv=false -silent", log_fn, timeout=15, project_id=project_id)
-            perm_lines.extend(gt_out.splitlines()[:300])
+            gt_all = gt_out.splitlines()
+            step_gt = max(1, len(gt_all) // 350)
+            perm_lines.extend(gt_all[::step_gt][:350])
         if perm_lines:
-            open(perm_file, "w").write("\n".join(sorted(set(perm_lines))[:500]) + "\n")
+            open(perm_file, "w").write("\n".join(sorted(set(perm_lines))[:600]) + "\n")
+            resolved_by_pd = False
             if "puredns" in active_ids and agent._find_binary("puredns"):
                 pd_out = agent._run_cli(f"puredns resolve {perm_file} -r {res_file} -q", log_fn, timeout=25, project_id=project_id)
                 for ph in pd_out.splitlines():
                     ph = ph.strip().lower().rstrip(".")
                     if ph and scope.is_in_scope(ph)[0]:
                         agent.db.upsert_domain(project_id, ph, source="puredns_perm")
-            if "shuffledns" in active_ids and agent._find_binary("shuffledns"):
+                        resolved_by_pd = True
+            if not resolved_by_pd and "shuffledns" in active_ids and agent._find_binary("shuffledns"):
                 sd_out = agent._run_cli(f"shuffledns -d {safe_apex} -list {perm_file} -r {res_file} -mode resolve -silent", log_fn, timeout=25, project_id=project_id)
                 for sh in sd_out.splitlines():
                     sh = sh.strip().lower().rstrip(".")
                     if sh and scope.is_in_scope(sh)[0]:
                         agent.db.upsert_domain(project_id, sh, source="shuffledns_perm")
 
-    # 2.2 ProjectDiscovery DNSX Multi-Record Verification (Up to 500 hosts + A & CNAME)
+    # 2.2 ProjectDiscovery DNSX Multi-Record Verification (Up to 500 hosts + Wildcard & Cloudflare Tagging)
     if "dnsx" in active_ids and agent._find_binary("dnsx"):
         doms_now = [d["domain"] for d in agent.db.get_project_bundle(project_id).get("domains", [])]
         if doms_now:
@@ -457,9 +475,13 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
                     h = parts[0].strip().lower()
                     val = parts[-1].strip("[]").rstrip(".")
                     if "[A]" in clean_l and re.match(r"^\d+\.\d+\.\d+\.\d+$", val) and scope.is_in_scope(h)[0]:
-                        agent.db.upsert_domain(project_id, h, ip=val, source="dnsx_verified")
+                        if h != apex_domain and val in wildcard_ips_s1:
+                            continue
+                        cdn_tag = "Cloudflare" if val.startswith(("104.16.", "104.17.", "104.18.", "104.19.", "104.20.", "104.21.", "172.64.", "172.67.", "188.114.")) else ""
+                        agent.db.upsert_domain(project_id, h, ip=val, cdn_waf=cdn_tag, source="dnsx_verified")
                     elif "[CNAME]" in clean_l and "." in val and scope.is_in_scope(h)[0]:
-                        agent.db.upsert_domain(project_id, h, cname=val, source="dnsx_verified")
+                        cdn_tag = "Cloudflare" if "cloudflare" in val.lower() else ""
+                        agent.db.upsert_domain(project_id, h, cname=val, cdn_waf=cdn_tag, source="dnsx_verified")
 
     # 2.3 Dig Deep DNS & Zone Transfer (AXFR) Audit
     if "dig" in active_ids and agent._find_binary("dig"):

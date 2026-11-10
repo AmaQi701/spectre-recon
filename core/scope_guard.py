@@ -41,14 +41,22 @@ class ScopeGuard:
                 items.append(cleaned)
         return items
 
+    _VALID_HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9\-_]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-_]*[a-z0-9])?)+$")
+
     @staticmethod
     def extract_host(target: str) -> str:
         target = target.strip().lower()
+        if not target:
+            return ""
+        if "://" not in target and "@" in target:
+            return ""
         if "://" in target:
             parsed = urlparse(target)
-            host = parsed.hostname or target
+            host = parsed.hostname or ""
         else:
-            host = target.split("/")[0].split(":")[0]
+            host = target.split("/")[0].split("?")[0].split("#")[0].split(":")[0]
+        if host.startswith("*."):
+            host = host[2:]
         return host.strip(".")
 
     SECOND_LEVEL_TLDS = {"co.uk", "org.uk", "ac.uk", "com.uz", "org.uz", "gov.uz", "edu.uz", "net.uz", "com.tr", "com.ru"}
@@ -101,6 +109,11 @@ class ScopeGuard:
         host = self.extract_host(target)
         if not host:
             return False, "Bo'sh yoki noto'g'ri host"
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            if not self._VALID_HOST_RE.match(host):
+                return False, f"Noto'g'ri hostname formati ({host})"
 
         # Tashqi analitika va uchinchi tomon CDN domenlarini avtomatik cheklash
         # (Faqat foydalanuvchi o'zi In-Scope ga shu domenni kiritmagan bo'lsagina bloklanadi!)

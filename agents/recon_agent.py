@@ -298,35 +298,41 @@ class ReconSuperAgent:
         log_fn(f"  [+] Passive OSINT Mesh yakunlandi: {added} ta in-scope subdomen bazaga qo'shildi.")
 
 
-    def _stage1_dns_enum(self, project_id: int, base_domain: str, scope: ScopeGuard, log_fn):
+    def _stage1_dns_enum(self, project_id: int, base_domain: str, scope: ScopeGuard, log_fn, only_unresolved: bool = False):
         apex_domain = ScopeGuard.extract_apex_domain(base_domain)
-        candidates = {base_domain, apex_domain}
-        for prefix in self.COMMON_SUBDOMAINS:
-            candidates.add(f"{prefix}.{apex_domain}")
-
-        # Load top 1,200 prefixes from SecLists if available on system
-        seclist_dns = Path("/home/amaqi/SecLists/Discovery/DNS/subdomains-top1million-5000.txt")
-        if seclist_dns.exists():
-            try:
-                for line in seclist_dns.read_text(encoding="utf-8", errors="ignore").splitlines()[:1200]:
-                    w = line.strip().lower()
-                    if w and not w.startswith("#"):
-                        candidates.add(f"{w}.{apex_domain}")
-            except Exception:
-                pass
-
-        for reg_p in (
-            "1c", "bitrix", "edo", "hr", "jira", "confluence", "payme", "click", "uzum",
-            "accounts", "svc", "vod", "upload", "open", "reja", "zakovat", "fikr",
-            "cabinet", "lex", "norma", "ijro", "edo-db", "minio", "keycloak", "sso", "id",
-        ):
-            candidates.add(f"{reg_p}.{apex_domain}")
-
         existing = self.db.get_project_bundle(project_id).get("domains", [])
         already_resolved = {d["domain"] for d in existing if d.get("ip") and d["domain"] not in (base_domain, apex_domain)}
-        for d in existing:
-            if d["domain"] not in already_resolved:
-                candidates.add(d["domain"])
+
+        if only_unresolved:
+            candidates = {d["domain"] for d in existing if not d.get("ip") and not d.get("cname")}
+            if not candidates:
+                return
+        else:
+            candidates = {base_domain, apex_domain}
+            for prefix in self.COMMON_SUBDOMAINS:
+                candidates.add(f"{prefix}.{apex_domain}")
+
+            # Load top 1,200 prefixes from SecLists if available on system
+            seclist_dns = Path("/home/amaqi/SecLists/Discovery/DNS/subdomains-top1million-5000.txt")
+            if seclist_dns.exists():
+                try:
+                    for line in seclist_dns.read_text(encoding="utf-8", errors="ignore").splitlines()[:1200]:
+                        w = line.strip().lower()
+                        if w and not w.startswith("#"):
+                            candidates.add(f"{w}.{apex_domain}")
+                except Exception:
+                    pass
+
+            for reg_p in (
+                "1c", "bitrix", "edo", "hr", "jira", "confluence", "payme", "click", "uzum",
+                "accounts", "svc", "vod", "upload", "open", "reja", "zakovat", "fikr",
+                "cabinet", "lex", "norma", "ijro", "edo-db", "minio", "keycloak", "sso", "id",
+            ):
+                candidates.add(f"{reg_p}.{apex_domain}")
+
+            for d in existing:
+                if d["domain"] not in already_resolved:
+                    candidates.add(d["domain"])
         log_fn(f"[Stage 1] Chuqur DNS yozuvlari va {len(candidates)} ta subdomen (SecLists + Regional) parallel tekshiruvi: {apex_domain}")
 
         try:
@@ -352,6 +358,12 @@ class ReconSuperAgent:
             wildcard_ips = {str(r).rstrip(".") for r in w_ans}
             if wildcard_ips:
                 log_fn(f"  [!] Wildcard DNS aniqlandi (*.{apex_domain} -> {', '.join(wildcard_ips)}). Yolg'on subdomenlar filtrlanadi.")
+                with self.db._lock, self.db._get_conn() as conn:
+                    for wip in wildcard_ips:
+                        conn.execute(
+                            "UPDATE domains SET ip = '' WHERE project_id = ? AND ip = ? AND domain NOT IN (?, ?)",
+                            (project_id, wip, base_domain, apex_domain),
+                        )
         except Exception:
             pass
 
@@ -446,13 +458,15 @@ class ReconSuperAgent:
                 return sorted(cand_set)
             c_file = f"/tmp/spectre_s1_cands_{project_id}.txt"
             Path(c_file).write_text("\n".join(sorted(cand_set)) + "\n", encoding="utf-8")
-            dx_out = self._run_cli(f"{dnsx_bin} -l {c_file} -r {res_file} -a -cname -silent", log_fn, timeout=22, project_id=project_id)
+            # Include -rcode noerror,nxdomain so Dangling CNAMEs (whose target is NXDOMAIN) are preserved for Takeover detection!
+            dx_out = self._run_cli(f"{dnsx_bin} -l {c_file} -r {res_file} -a -cname -rcode noerror,nxdomain -resp -silent", log_fn, timeout=22, project_id=project_id)
             alive = {base_domain, apex_domain} & cand_set
             for ln in dx_out.splitlines():
                 clean_ln = re.sub(r"\x1b\[[0-9;]*m", "", ln).strip()
-                h_clean = clean_ln.split()[0].lower().rstrip(".") if clean_ln else ""
-                if h_clean and h_clean in cand_set:
-                    alive.add(h_clean)
+                if "[A]" in clean_ln or "[CNAME]" in clean_ln:
+                    h_clean = clean_ln.split()[0].lower().rstrip(".") if clean_ln else ""
+                    if h_clean and h_clean in cand_set:
+                        alive.add(h_clean)
             if len(alive) <= len({base_domain, apex_domain} & cand_set) and len(cand_set) > 40:
                 return sorted(cand_set)[:280]
             return sorted(alive)
@@ -462,6 +476,9 @@ class ReconSuperAgent:
         futs_c1 = [ex_c1.submit(check_candidate, c) for c in filtered_cands]
         concurrent.futures.wait(futs_c1, timeout=28)
         ex_c1.shutdown(wait=False, cancel_futures=True)
+
+        if only_unresolved:
+            return
 
         # Smart Subdomain Permutation Pass + Recursive 3rd-Level Sub-Zone Discovery
         all_dom_rows = self.db.get_project_bundle(project_id).get("domains", [])
@@ -1124,7 +1141,7 @@ class ReconSuperAgent:
             probed_domains = set()
             for pass_num in (1, 2):
                 if pass_num == 2 and recon_mode == "full":
-                    self._stage1_dns_enum(project_id, primary_host, scope, log_fn)
+                    self._stage1_dns_enum(project_id, primary_host, scope, log_fn, only_unresolved=True)
                     self._stage2_shodan_internetdb(project_id, scope, log_fn)
                     spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
                 raw_domains = [d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", []) if d.get("ip") or d.get("cname") or d["domain"] == primary_host]
