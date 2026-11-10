@@ -79,7 +79,7 @@ progressbar progress { min-height: 22px; background-image: none; background-colo
 
 class ApexNativeWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="SPECTRE Recon & Attack Surface Studio v12.4 Titan")
+        super().__init__(title="SPECTRE Recon & Attack Surface Studio v12.5 Titan")
         self.set_default_size(1280, 760)
         self.maximize()
         self.set_wmclass("spectre-recon", "spectre-recon")
@@ -219,7 +219,7 @@ class ApexNativeWindow(Gtk.Window):
         # Clean Minimal HeaderBar (window controls stay sleek & native)
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
-        hb.props.title = "👻 SPECTRE Recon & Attack Surface Studio v12.4 Titan"
+        hb.props.title = "👻 SPECTRE Recon & Attack Surface Studio v12.5 Titan"
         hb.props.subtitle = "49-Tool Arsenal • Headless Chrome V8 • IPv6 Dual-Stack • SourceMap-to-SAST • Visual Topology"
         self.set_titlebar(hb)
 
@@ -231,7 +231,7 @@ class ApexNativeWindow(Gtk.Window):
         sidebar.get_style_context().add_class("sidebar")
         sidebar.set_size_request(205, -1)
         brand_lbl = Gtk.Label(xalign=0)
-        brand_lbl.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>👻 SPECTRE v12.4</span>\n<span foreground='#64748b' size='small'>Titan Cyber-Recon Studio</span>")
+        brand_lbl.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>👻 SPECTRE v12.5</span>\n<span foreground='#64748b' size='small'>Titan Cyber-Recon Studio</span>")
         brand_lbl.set_margin_bottom(8)
         sidebar.pack_start(brand_lbl, False, False, 4)
 
