@@ -77,6 +77,7 @@ class ReconSuperAgent:
         self.session.headers.update({"User-Agent": "SPECTRE-ASM-Security-Audit/12.2"})
         self._http_get_cache: dict[tuple[str, bool], Any] = {}
         self._cache_lock = threading.Lock()
+        self._probe_tls = threading.local()
         _orig_get = self.session.get
 
         def _cached_session_get(url, **kwargs):
@@ -494,8 +495,6 @@ class ReconSuperAgent:
                     h_clean = clean_ln.split()[0].lower().rstrip(".") if clean_ln else ""
                     if h_clean and h_clean in cand_set:
                         alive.add(h_clean)
-            if len(alive) <= len({base_domain, apex_domain} & cand_set) and len(cand_set) > 40:
-                return sorted(cand_set)[:280]
             return sorted(alive)
 
         filtered_cands = _prefilter_with_dnsx(candidates)
@@ -503,6 +502,13 @@ class ReconSuperAgent:
         futs_c1 = [ex_c1.submit(check_candidate, c) for c in filtered_cands]
         concurrent.futures.wait(futs_c1, timeout=28)
         ex_c1.shutdown(wait=False, cancel_futures=True)
+
+        # Prune 100% dead NXDOMAIN passive OSINT noise (no IP, no CNAME, no DNS records)
+        with self.db._lock, self.db._get_conn() as conn:
+            conn.execute(
+                "DELETE FROM domains WHERE project_id = ? AND ip = '' AND cname = '' AND (records_json = '{}' OR records_json = '') AND domain NOT IN (?, ?)",
+                (project_id, base_domain, apex_domain),
+            )
 
         if only_unresolved:
             return
@@ -720,13 +726,13 @@ class ReconSuperAgent:
 
     # ================= STAGE 3: WEB PROBING & TECH STACK =================
     def _stage3_http_probe(self, project_id: int, url: str, tls_info: dict, scope: ScopeGuard, log_fn) -> str:
-        self._last_probe_status = 0
+        self._probe_tls.last_status = 0
         ok, reason = scope.is_in_scope(url)
         if not ok:
             return ""
         try:
-            resp = self.session.get(url, timeout=10, verify=False, allow_redirects=True)
-            self._last_probe_status = resp.status_code
+            resp = self.session.get(url, timeout=(3.5, 6.5), verify=False, allow_redirects=True)
+            self._probe_tls.last_status = resp.status_code
             headers = {k: v for k, v in resp.headers.items()}
             headers_l = {k.lower(): v for k, v in headers.items()}
 
@@ -1251,17 +1257,27 @@ class ReconSuperAgent:
 
                 # Phase A: Fast parallel HTTP/HTTPS probe across up to 60 unprobed live subdomains
                 probe_results: dict[str, tuple[str, str]] = {}
+                b_cur = self.db.get_project_bundle(project_id)
+                dom_ip_map = {d["domain"]: d.get("ip", "") for d in b_cur.get("domains", [])}
+                open_ports_by_ip: dict[str, set[int]] = {}
+                for pt in b_cur.get("ports", []):
+                    pip = pt.get("ip") or pt.get("host") or ""
+                    if pip:
+                        open_ports_by_ip.setdefault(pip, set()).add(int(pt.get("port", 0)))
 
                 def _fast_probe_host(dom_item: str):
                     if project_id in self.abort_flags:
                         return
-                    for sch in ("https", "http"):
+                    dip = dom_ip_map.get(dom_item, "")
+                    known_pts = open_ports_by_ip.get(dip, set()) | open_ports_by_ip.get(dom_item, set())
+                    schemes = ("http", "https") if (80 in known_pts and 443 not in known_pts) else ("https", "http")
+                    for sch in schemes:
                         u_cand = f"{sch}://{dom_item}"
                         h_body = self._stage3_http_probe(project_id, u_cand, tls_info if dom_item == primary_host else {}, scope, log_fn)
                         if h_body:
                             probe_results[dom_item] = (u_cand, h_body)
                             break
-                        if sch == "https" and getattr(self, "_last_probe_status", 0) > 0:
+                        if sch == "https" and getattr(self._probe_tls, "last_status", 0) > 0:
                             break
 
                 batch_to_probe = unprobed[:60]

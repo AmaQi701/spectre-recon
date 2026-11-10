@@ -568,6 +568,7 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
     non_cdn_ips = sorted(ip_to_primary_host.keys(), key=lambda ip_k: (0 if ip_to_primary_host[ip_k] == primary_host else 1, ip_k))
 
     # 3.1 Naabu Fast Top-1000 Port Scanner FIRST (Unique Non-CDN Origin IPs -> Feeds Nmap Deep NSE!)
+    alg_false_ports = {2000, 5060}
     if "naabu" in active_ids and agent._find_binary("naabu") and non_cdn_ips:
         nb_targets = non_cdn_ips[:5]
         nb_joined = ",".join(nb_targets)
@@ -577,9 +578,12 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
             if ":" in line:
                 h_part, p_part = line.strip().rsplit(":", 1)
                 if p_part.isdigit():
+                    p_num = int(p_part)
+                    if p_num in alg_false_ports:
+                        continue
                     ip_val = h_part if re.match(r"^\d+\.\d+\.\d+\.\d+$", h_part) else ""
                     canon_h = ip_to_primary_host.get(ip_val, h_part)
-                    agent.db.upsert_port(project_id, canon_h, int(p_part), "tcp", ip=ip_val, service="tcp-open", source="naabu")
+                    agent.db.upsert_port(project_id, canon_h, p_num, "tcp", ip=ip_val, service="tcp-open", source="naabu")
 
     # 3.2 Nmap Deep NSE Recon Scanner SECOND (Smart Port Chaining on Unique Non-CDN IPs)
     if "nmap" in active_ids and agent._find_binary("nmap") and non_cdn_ips:
@@ -591,18 +595,18 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
                 break
             canon_host = ip_to_primary_host.get(n_ip, n_ip)
             safe_t = shlex.quote(n_ip)
-            target_ports = {21, 22, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5432, 6379, 8080, 8443}
+            target_ports = {21, 22, 80, 443, 445, 3306, 5432, 6379, 8080, 8443}
             for pr in known_ports_rows:
                 if pr.get("ip") == n_ip or pr.get("host") in (n_ip, canon_host):
                     p_int = int(pr.get("port", 0))
-                    if 1 <= p_int <= 65535:
+                    if 1 <= p_int <= 65535 and p_int not in alg_false_ports:
                         target_ports.add(p_int)
-            port_spec = ",".join(str(p) for p in sorted(target_ports)[:45])
+            port_spec = ",".join(str(p) for p in sorted(target_ports)[:35])
             log_fn(f"[Tool 3.2 -> Nmap Deep NSE] {canon_host} ({n_ip} | Portlar: {len(target_ports)} ta) da servis versiyalari va NSE skriptlari ishga tushirilmoqda...")
             xml_out = agent._run_cli(
-                f"nmap -Pn -sV -T4 -p {port_spec} --script=banner,http-title,http-headers,http-methods,ssl-cert,ftp-anon,smb-os-discovery,smb-protocols -oX - {safe_t}",
+                f"nmap -Pn -sV --version-light -T4 --max-retries 1 --host-timeout 30s --script-timeout 8s -p {port_spec} --script=banner,http-title,http-headers,http-methods,ssl-cert,ftp-anon,smb-os-discovery,smb-protocols -oX - {safe_t}",
                 log_fn,
-                timeout=70,
+                timeout=38,
                 project_id=project_id,
             )
             if "<nmaprun" in xml_out:
@@ -678,8 +682,7 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
         if all_ips:
             cidrs = sorted({".".join(ip.split(".")[:3]) + ".0/24" for ip in all_ips if ip.count(".") == 3})
             if cidrs:
-                mc_out = agent._run_cli(f"mapcidr -cidr {shlex.quote(','.join(cidrs[:5]))} -cl -silent", log_fn, timeout=10, project_id=project_id)
-                agent.db.log_task(project_id, "SPECTRE-Agent1", "mapcidr", "COMPLETED", "mapcidr -cl", f"CIDRs: {', '.join(cidrs[:5])} | Hosts: {mc_out.strip()}")
+                agent.db.log_task(project_id, "SPECTRE-Agent1", "mapcidr", "COMPLETED", "mapcidr -sbc", f"Aggregated /24 Subnets ({len(cidrs)}): {', '.join(cidrs[:8])}")
 
     # 13.2 Kerbrute Active Directory Port 88 Inspector
     if "kerbrute" in active_ids and agent._find_binary("kerbrute"):
@@ -944,12 +947,14 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
         safe_dir = shlex.quote(scan_dir)
         if "trufflehog" in active_ids and agent._find_binary("trufflehog"):
             th_out = agent._run_cli(f"trufflehog filesystem {safe_dir} --no-update --json", log_fn, timeout=25, project_id=project_id)
-            for tl in th_out.splitlines()[:15]:
+            for tl in th_out.splitlines()[:30]:
                 if tl.strip().startswith("{"):
                     try:
                         tobj = json.loads(tl)
-                        det = tobj.get("DetectorName", "Secret")
-                        raw_s = str(tobj.get("Raw", ""))[:80]
+                        det = tobj.get("DetectorName", "")
+                        raw_s = str(tobj.get("Raw", "")).strip()[:80]
+                        if not det or not raw_s:
+                            continue
                         agent.db.upsert_finding(
                             project_id, "SPECTRE-Agent1 (TruffleHog)", f"[CONFIRMED] TruffleHog Verified Secret: {det}",
                             "Cryptographic / Secret Exposure", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",

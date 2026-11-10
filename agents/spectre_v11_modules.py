@@ -378,6 +378,8 @@ def discover_related_sister_domains(db, project_id: int, apex_domain: str, log_f
     ignore_apex = {
         apex_domain.lower(), "cloudflare.com", "google.com", "googleapis.com", "gstatic.com",
         "googletagmanager.com", "yandex.ru", "facebook.com", "w3.org", "jsdelivr.net", "cdnjs.cloudflare.com",
+        "amazonaws.com", "googleusercontent.com", "cloudfront.net", "azure.com", "digitalocean.com",
+        "hetzner.com", "linode.com", "ovh.net", "akamaitechnologies.com", "fastly.net", "contabo.net",
     }
     sister_apexes: set[str] = set()
     dom_re = re.compile(r"\b([a-z0-9\-]+\.(?:uz|com|net|org|io|gov\.uz|com\.uz))\b", re.IGNORECASE)
