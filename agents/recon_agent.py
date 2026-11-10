@@ -1207,8 +1207,10 @@ class ReconSuperAgent:
                 batch_to_probe = unprobed[:60]
                 for d_p in batch_to_probe:
                     probed_domains.add(d_p)
-                with concurrent.futures.ThreadPoolExecutor(max_workers=12) as ex_p:
-                    list(ex_p.map(_fast_probe_host, batch_to_probe))
+                ex_p = concurrent.futures.ThreadPoolExecutor(max_workers=12)
+                futs_p = [ex_p.submit(_fast_probe_host, d_i) for d_i in batch_to_probe]
+                concurrent.futures.wait(futs_p, timeout=35)
+                ex_p.shutdown(wait=False, cancel_futures=True)
 
                 # Phase B: Deep Inspection on top-priority live web services
                 live_sorted = sorted(probe_results.keys(), key=lambda x: (-_dom_priority(x), x))

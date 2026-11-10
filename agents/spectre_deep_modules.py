@@ -155,8 +155,10 @@ def probe_nonstandard_web_ports(db, session, project_id: int, log_fn):
                 pass
 
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-        list(ex.map(check_port, targets))
+    ex_pw = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+    futs_pw = [ex_pw.submit(check_port, t_item) for t_item in targets]
+    concurrent.futures.wait(futs_pw, timeout=12)
+    ex_pw.shutdown(wait=False, cancel_futures=True)
 
 
 # ================= #2 VHOST & ORIGIN IP HUNTER =================
