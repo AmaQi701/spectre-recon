@@ -111,12 +111,13 @@ WEB_CANDIDATE_PORTS = {
 def probe_nonstandard_web_ports(db, session, project_id: int, log_fn):
     ports = db.get_project_bundle(project_id).get("ports", [])
     targets = []
-    seen = set()
+    seen_ip_port = set()
     for pt in ports:
         pnum = int(pt.get("port", 0))
-        host = pt.get("host") or pt.get("ip")
-        if pnum in WEB_CANDIDATE_PORTS and host and (host, pnum) not in seen:
-            seen.add((host, pnum))
+        host = (pt.get("host") or pt.get("ip") or "").strip()
+        ip_key = (pt.get("ip") or host).strip()
+        if pnum in WEB_CANDIDATE_PORTS and host and (ip_key, pnum) not in seen_ip_port:
+            seen_ip_port.add((ip_key, pnum))
             targets.append((host, pnum))
 
     if not targets:
@@ -129,27 +130,34 @@ def probe_nonstandard_web_ports(db, session, project_id: int, log_fn):
         for sch in schemes:
             url = f"{sch}://{host}:{pnum}"
             try:
-                r = session.get(url, timeout=(3.0, 3.5), verify=False, allow_redirects=True, stream=True)
-                chunk = next(r.iter_content(chunk_size=24576), b"")
-                r.close()
-                text_sample = chunk.decode("utf-8", errors="ignore")
+                r = session.get(url, timeout=(3.0, 3.5), verify=False, allow_redirects=False)
+                code = r.status_code
+                text_sample = (r.text or "")[:24576]
+                if code == 400 and "plain http request was sent to https port" in text_sample.lower():
+                    continue
+                if code in (301, 302, 307, 308):
+                    loc = r.headers.get("Location", "")
+                    if loc.startswith(("http://", "https://")) and f":{pnum}" not in loc:
+                        continue
+                if code not in (200, 201, 204, 301, 302, 307, 308, 401, 403, 405):
+                    continue
                 soup = BeautifulSoup(text_sample, "html.parser")
                 title = soup.title.string.strip() if (soup.title and soup.title.string) else ""
                 srv = r.headers.get("Server", "")
                 db.upsert_http_service(
-                    project_id, url, r.status_code, title=title[:120], server=srv,
+                    project_id, url, code, title=title[:120], server=srv,
                     tech_stack=[srv] if srv else ["Custom-Port-Web"],
-                    content_length=len(chunk), priority_score=85, source=f"port_{pnum}_probe"
+                    content_length=len(r.content), priority_score=85, source=f"port_{pnum}_probe"
                 )
                 db.upsert_finding(
                     project_id, "SPECTRE-Agent1 (PortWeb)", f"Exposed Web Interface on Non-Standard Port ({url})",
                     "Exposed Management / Web Port", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
                     "CWE-284", "A05:2021 - Security Misconfiguration", url,
-                    f"HTTP {r.status_code} | Title: '{title[:60]}' | Server: {srv} | Sample: {len(chunk)}B",
+                    f"HTTP {code} | Title: '{title[:60]}' | Server: {srv} | Size: {len(r.content)}B",
                     f"Nostandart {pnum}-portda ochiq HTTP/HTTPS servis yoki boshqaruv paneli aniqlandi.",
                     f"{pnum}-portni tashqi internetdan Firewall orqali yoping.",
                 )
-                log_fn(f"  [🔥 PORT-WEB] {url} -> HTTP {r.status_code} | Title: '{title[:45]}' | Server: {srv}")
+                log_fn(f"  [🔥 PORT-WEB] {url} -> HTTP {code} | Title: '{title[:45]}' | Server: {srv}")
                 break
             except Exception:
                 pass
@@ -192,6 +200,15 @@ def hunt_virtual_hosts(db, session, project_id: int, apex_domain: str, log_fn):
                 continue
         if not base_url:
             continue
+        main_len = -1
+        main_title = ""
+        try:
+            r_main = session.get(base_url, headers={"Host": apex_domain}, timeout=3.5, verify=False, allow_redirects=False)
+            main_len = len(r_main.content)
+            soup_m = BeautifulSoup(r_main.text[:15000], "html.parser")
+            main_title = soup_m.title.string.strip() if (soup_m.title and soup_m.title.string) else ""
+        except Exception:
+            pass
 
         def check_vhost(pref: str):
             cand_vhost = f"{pref}.{apex_domain}"
@@ -202,6 +219,8 @@ def hunt_virtual_hosts(db, session, project_id: int, apex_domain: str, log_fn):
                 if r.status_code == 200 and (r.status_code != base_status or abs(len(r.content) - base_len) > 250):
                     soup = BeautifulSoup(r.text[:15000], "html.parser")
                     title = soup.title.string.strip() if (soup.title and soup.title.string) else ""
+                    if main_len > 0 and abs(len(r.content) - main_len) < 180 and title == main_title:
+                        return
                     db.upsert_domain(project_id, cand_vhost, ip=ip, source="vhost_fuzz")
                     db.upsert_finding(
                         project_id, "SPECTRE-Agent1 (VHost)", f"Hidden VirtualHost Discovered ({cand_vhost} on {ip})",

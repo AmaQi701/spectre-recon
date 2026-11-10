@@ -241,14 +241,24 @@ class DatabaseManager:
             )
 
     def upsert_port(self, project_id: int, host: str, port: int, protocol: str = "tcp", ip: str = "", service: str = "", version: str = "", banner: str = "", source: str = "nmap"):
+        host = (host or ip).strip().lower().rstrip(".")
+        ip = (ip or "").strip()
+        if not host or int(port) <= 0:
+            return
         with self._lock, self._get_conn() as conn:
             conn.execute(
                 """INSERT INTO ports (project_id, host, ip, port, protocol, service, version, banner, source, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(project_id, host, port, protocol) DO UPDATE SET
-                service = CASE WHEN excluded.service != '' THEN excluded.service ELSE ports.service END,
+                ip = CASE WHEN excluded.ip != '' THEN excluded.ip ELSE ports.ip END,
+                service = CASE
+                    WHEN excluded.service != '' AND excluded.service NOT IN ('tcp-open', 'shodan-port') THEN excluded.service
+                    WHEN ports.service IN ('', 'tcp-open', 'shodan-port') AND excluded.service != '' THEN excluded.service
+                    ELSE ports.service
+                END,
                 version = CASE WHEN excluded.version != '' THEN excluded.version ELSE ports.version END,
-                banner = CASE WHEN excluded.banner != '' THEN excluded.banner ELSE ports.banner END""",
+                banner = CASE WHEN excluded.banner != '' THEN excluded.banner ELSE ports.banner END,
+                source = CASE WHEN excluded.service NOT IN ('', 'tcp-open', 'shodan-port') THEN excluded.source ELSE ports.source END""",
                 (project_id, host, ip, int(port), protocol, service, version, banner, source, self.now()),
             )
 

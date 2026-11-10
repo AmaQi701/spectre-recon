@@ -1203,9 +1203,11 @@ class ReconSuperAgent:
         tls_info = {}
         if recon_mode in ("full", "ports"):
             _prog(0.45, "Stage 2/6: TLS SAN, Shodan InternetDB & ASN/ISP...")
-            tls_info = self._stage2_tls_inspect(project_id, primary_host, scope, log_fn)
-            self._stage2_shodan_internetdb(project_id, scope, log_fn)
-            spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
+            if "tls_inspector_builtin" in active_ids:
+                tls_info = self._stage2_tls_inspect(project_id, primary_host, scope, log_fn)
+                self._stage2_shodan_internetdb(project_id, scope, log_fn)
+                spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
+                self.db.log_task(project_id, "SPECTRE-Agent1", "tls_inspector_builtin", "COMPLETED", f"tls_shodan_asn {primary_host}", f"TLS SAN + Shodan InternetDB + ASN/ISP completed")
             _prog(0.55, f"Stage 2/6: Nmap Deep NSE, Naabu & NetExec ({primary_host})...")
             spectre_v5_modules.run_deep_network_and_ad_tools(self, project_id, primary_host, active_ids, log_fn)
             spectre_ultra_modules.sweep_subnet_neighbors_and_ptr(self.db, project_id, apex_domain, scope, log_fn)
