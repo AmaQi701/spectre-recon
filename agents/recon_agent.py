@@ -84,13 +84,18 @@ class ReconSuperAgent:
                     if ckey in self._http_get_cache:
                         return self._http_get_cache[ckey]
                 resp = _orig_get(url, **kwargs)
+                if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
+                    resp.encoding = "utf-8"
                 if resp.status_code in (200, 401, 403, 404) and len(resp.content) < 600000:
                     with self._cache_lock:
                         if len(self._http_get_cache) > 160:
                             self._http_get_cache.clear()
                         self._http_get_cache[ckey] = resp
                 return resp
-            return _orig_get(url, **kwargs)
+            resp = _orig_get(url, **kwargs)
+            if not kwargs.get("stream") and (not resp.encoding or resp.encoding.lower() == "iso-8859-1"):
+                resp.encoding = "utf-8"
+            return resp
 
         self.session.get = _cached_session_get
         self.active_procs: dict[int, list[subprocess.Popen]] = {}

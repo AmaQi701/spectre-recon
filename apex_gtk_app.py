@@ -19,6 +19,10 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk, Pango
 
+GLib.set_prgname("spectre-recon")
+GLib.set_application_name("SPECTRE Recon Studio")
+Gdk.set_program_class("spectre-recon")
+
 BASE_DIR = Path("/home/amaqi/projects/apex-pentest-gui")
 sys.path.insert(0, str(BASE_DIR))
 
@@ -75,10 +79,10 @@ progressbar progress { min-height: 22px; background-image: none; background-colo
 
 class ApexNativeWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="SPECTRE Recon & Attack Surface Studio v6.0 (Native Ubuntu Desktop)")
+        super().__init__(title="SPECTRE Recon & Attack Surface Studio v12.4 Titan")
         self.set_default_size(1280, 760)
         self.maximize()
-        self.set_wmclass("spectre-recon", "SPECTRE Recon Studio")
+        self.set_wmclass("spectre-recon", "spectre-recon")
         icon_path = BASE_DIR / "ui" / "apex-icon.svg"
         if icon_path.exists():
             try:
@@ -215,8 +219,8 @@ class ApexNativeWindow(Gtk.Window):
         # Clean Minimal HeaderBar (window controls stay sleek & native)
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
-        hb.props.title = "👻 SPECTRE Recon & Attack Surface Studio v8.0"
-        hb.props.subtitle = "Adaptive Brain • Safe Auto-Validator • True SNI Unmasker • Visual Topology Graph"
+        hb.props.title = "👻 SPECTRE Recon & Attack Surface Studio v12.4 Titan"
+        hb.props.subtitle = "49-Tool Arsenal • Headless Chrome V8 • IPv6 Dual-Stack • SourceMap-to-SAST • Visual Topology"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -227,7 +231,7 @@ class ApexNativeWindow(Gtk.Window):
         sidebar.get_style_context().add_class("sidebar")
         sidebar.set_size_request(205, -1)
         brand_lbl = Gtk.Label(xalign=0)
-        brand_lbl.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>👻 SPECTRE v8.0</span>\n<span foreground='#64748b' size='small'>Adaptive Cyber-Recon Studio</span>")
+        brand_lbl.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>👻 SPECTRE v12.4</span>\n<span foreground='#64748b' size='small'>Titan Cyber-Recon Studio</span>")
         brand_lbl.set_margin_bottom(8)
         sidebar.pack_start(brand_lbl, False, False, 4)
 
@@ -306,7 +310,7 @@ class ApexNativeWindow(Gtk.Window):
 
         self.progress_bar = Gtk.ProgressBar()
         self.progress_bar.set_show_text(True)
-        self.progress_bar.set_text("SPECTRE v6.0 Ready — Nishonni tanlang yoki skanerni boshlang")
+        self.progress_bar.set_text("SPECTRE v12.4 Titan Ready — Nishonni tanlang yoki skanerni boshlang")
         self.progress_bar.set_fraction(0.0)
         self.progress_bar.set_hexpand(True)
         self.progress_bar.set_valign(Gtk.Align.CENTER)
