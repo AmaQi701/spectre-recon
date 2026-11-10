@@ -81,17 +81,19 @@ def resolve_and_probe_ipv6_dual_stack(db, session, project_id: int, apex_domain:
     domains = bundle.get("domains", [])
     resolver = dns.resolver.Resolver(configure=False)
     resolver.nameservers = ["8.8.8.8", "1.1.1.1", "9.9.9.9"]
-    resolver.timeout = 1.8
-    resolver.lifetime = 2.2
+    resolver.timeout = 1.5
+    resolver.lifetime = 2.0
 
     ipv6_hits = 0
-    for d in domains[:30]:
+
+    def _check_one_v6(d: dict):
+        nonlocal ipv6_hits
         dom_name = d["domain"]
         try:
             ans = resolver.resolve(dom_name, "AAAA")
             v6_list = [str(r).strip() for r in ans if ":" in str(r)]
             if not v6_list:
-                continue
+                return
             ipv6_hits += 1
             recs = json.loads(d.get("records_json") or "{}")
             recs["AAAA"] = v6_list
@@ -100,10 +102,9 @@ def resolve_and_probe_ipv6_dual_stack(db, session, project_id: int, apex_domain:
                 records=recs, cdn_waf=d.get("cdn_waf", ""), source=d.get("source", "ipv6_enum"),
             )
             v6_addr = v6_list[0]
-            # Check if IPv6 responds directly via HTTP/HTTPS
             for sch in ("https", "http"):
                 try:
-                    r6 = session.get(f"{sch}://[{v6_addr}]/", headers={"Host": dom_name}, timeout=3.5, verify=False, allow_redirects=False)
+                    r6 = session.get(f"{sch}://[{v6_addr}]/", headers={"Host": dom_name}, timeout=3.0, verify=False, allow_redirects=False)
                     if r6.status_code in (200, 301, 302, 401, 403):
                         srv6 = r6.headers.get("Server", "")
                         is_cf_v4 = "cloudflare" in (d.get("cdn_waf") or "").lower()
@@ -124,6 +125,11 @@ def resolve_and_probe_ipv6_dual_stack(db, session, project_id: int, apex_domain:
                     pass
         except Exception:
             pass
+
+    ex_v6 = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+    futs_v6 = [ex_v6.submit(_check_one_v6, d_row) for d_row in domains[:30]]
+    concurrent.futures.wait(futs_v6, timeout=8)
+    ex_v6.shutdown(wait=False, cancel_futures=True)
 
     if ipv6_hits:
         log_fn(f"  [🌐 IPv6 DUAL-STACK] {ipv6_hits} ta subdomenda AAAA (IPv6) yozuvlari aniqlandi va tekshirildi!")

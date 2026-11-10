@@ -82,16 +82,29 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
             pass
 
     candidate_ips = set()
-    cdn_keywords = ("cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "imperva", "ddos-guard", "sucuri")
+    cdn_keywords = ("cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "imperva", "ddos-guard", "sucuri", "qrator")
+    primary_direct_ips = {
+        d.get("ip", "") for d in domains
+        if d.get("domain") in (primary_host, apex_domain, f"www.{apex_domain}") and d.get("ip")
+    }
+    primary_is_behind_cdn = any(
+        any(k in str(d.get("cdn_waf", "")).lower() for k in cdn_keywords)
+        for d in domains
+        if d.get("domain") in (primary_host, apex_domain, f"www.{apex_domain}")
+    )
+    if not primary_is_behind_cdn:
+        return
+
     for d in domains:
         ip = d.get("ip", "")
         cdn = str(d.get("cdn_waf", "")).lower()
-        if ip and not any(k in cdn for k in cdn_keywords):
+        if ip and ip not in primary_direct_ips and not any(k in cdn for k in cdn_keywords):
             candidate_ips.add(ip)
         recs = json.loads(d.get("records_json") or "{}")
         for txt_val in recs.get("TXT", []):
             for m_ip in re.findall(r"ip4:(\d+\.\d+\.\d+\.\d+)", str(txt_val)):
-                candidate_ips.add(m_ip)
+                if m_ip not in primary_direct_ips:
+                    candidate_ips.add(m_ip)
 
     if not candidate_ips:
         return
@@ -171,11 +184,15 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
 
     log_fn(f"[SPECTRE Ultra #2 -> /24 Subnet PTR Sweeper] {len(neighbor_candidates)} ta qo'shni IP manzilda Reverse-DNS (PTR) tekshirilmoqda...")
     ptr_map = {}
+    ptr_resolver = dns.resolver.Resolver(configure=False)
+    ptr_resolver.nameservers = ["8.8.8.8", "1.1.1.1", "9.9.9.9"]
+    ptr_resolver.timeout = 1.0
+    ptr_resolver.lifetime = 1.4
 
     def check_neighbor(n_ip: str):
         try:
             rev_name = dns.reversename.from_address(n_ip)
-            ans = dns.resolver.resolve(rev_name, "PTR", lifetime=1.0)
+            ans = ptr_resolver.resolve(rev_name, "PTR", lifetime=1.4)
             for rdata in ans:
                 ptr_host = rdata.to_text().rstrip(".").lower()
                 if ptr_host:
@@ -186,7 +203,7 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
         except Exception:
             pass
 
-    ex_p = concurrent.futures.ThreadPoolExecutor(max_workers=40)
+    ex_p = concurrent.futures.ThreadPoolExecutor(max_workers=20)
     futs_p = [ex_p.submit(check_neighbor, n_c) for n_c in neighbor_candidates]
     concurrent.futures.wait(futs_p, timeout=14)
     ex_p.shutdown(wait=False, cancel_futures=True)

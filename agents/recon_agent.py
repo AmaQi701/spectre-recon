@@ -551,9 +551,12 @@ class ReconSuperAgent:
     def _stage2_shodan_internetdb(self, project_id: int, scope: ScopeGuard, log_fn):
         domains = self.db.get_project_bundle(project_id).get("domains", [])
         ip_to_hosts: dict[str, list[str]] = {}
+        cf_prefixes = ("104.16.", "104.17.", "104.18.", "104.19.", "104.20.", "104.21.", "172.64.", "172.67.", "188.114.")
+        cdn_names = ("cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "imperva")
         for d in domains:
             ip = d.get("ip", "").strip()
-            if ip:
+            cdn_val = str(d.get("cdn_waf", "")).lower()
+            if ip and not ip.startswith(cf_prefixes) and not any(c in cdn_val for c in cdn_names):
                 ip_to_hosts.setdefault(ip, []).append(d["domain"])
 
         if not ip_to_hosts:
@@ -647,12 +650,18 @@ class ReconSuperAgent:
 
         # Multi-Host Parallel TLS X.509 SAN Sweep across top discovered subdomains
         dom_rows = self.db.get_project_bundle(project_id).get("domains", [])
+        known_dom_set = {d["domain"] for d in dom_rows}
         extra_tls_hosts = [
             d["domain"] for d in dom_rows
             if d.get("ip") and d["domain"] != host and not d["domain"].startswith(("ns1.", "ns2.", "mail."))
         ][:8]
+        new_san_found = False
+        for san in sans:
+            if san.lower().lstrip("*.") not in known_dom_set:
+                new_san_found = True
 
         def _inspect_sub_tls(sub_h: str):
+            nonlocal new_san_found
             sub_sans = []
             try:
                 ctx_s = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -663,13 +672,15 @@ class ReconSuperAgent:
                         der_b = s_ssock.getpeercert(binary_form=True)
                         if der_b:
                             pem_s = ssl.DER_cert_to_PEM_cert(der_b)
-                            p_o = subprocess.run(["openssl", "x509", "-noout", "-text"], input=pem_s, text=True, capture_output=True, timeout=3, stdin=subprocess.DEVNULL if False else None)
+                            p_o = subprocess.run(["openssl", "x509", "-noout", "-text"], input=pem_s, text=True, capture_output=True, timeout=3)
                             sub_sans = re.findall(r"DNS:([a-zA-Z0-9.*\-_]+)", p_o.stdout)
             except Exception:
                 pass
             for s_san in sub_sans:
                 c_san = s_san.lower().lstrip("*.")
                 if c_san and scope.is_in_scope(c_san)[0]:
+                    if c_san not in known_dom_set:
+                        new_san_found = True
                     self.db.upsert_domain(project_id, c_san, source="tls_san")
 
         if extra_tls_hosts:
@@ -677,6 +688,9 @@ class ReconSuperAgent:
             futs_tls = [ex_tls.submit(_inspect_sub_tls, sh) for sh in extra_tls_hosts]
             concurrent.futures.wait(futs_tls, timeout=9)
             ex_tls.shutdown(wait=False, cancel_futures=True)
+
+        if new_san_found:
+            self._stage1_dns_enum(project_id, host, scope, log_fn, only_unresolved=True)
 
         return tls_info
 
