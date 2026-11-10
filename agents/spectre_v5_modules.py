@@ -536,30 +536,52 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
 
 
 def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, active_ids: set, log_fn):
+    import re
     import shlex
     import xml.etree.ElementTree as ET
 
     bundle = agent.db.get_project_bundle(project_id)
     domains = bundle.get("domains", [])
+    cdn_tokens = ("cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "imperva", "sucuri", "ddos-guard")
+    non_cdn_ips = sorted({
+        d.get("ip") for d in domains
+        if d.get("ip") and not any(c in str(d.get("cdn_waf", "")).lower() for c in cdn_tokens)
+    })
 
-    # 3.1 Nmap Deep NSE Recon Scanner (Primary Host + Top Origin IPs)
+    # 3.1 Naabu Fast Top-1000 Port Scanner FIRST (Multi-IP & Primary Host -> Feeds Nmap Deep NSE!)
+    if "naabu" in active_ids and agent._find_binary("naabu"):
+        nb_targets = [primary_host] + [ip for ip in non_cdn_ips if ip != primary_host][:4]
+        nb_joined = ",".join(nb_targets)
+        log_fn(f"[Tool 3.1 -> Naabu] {nb_joined} da Top-1000 portlar tezkor tekshirilmoqda...")
+        nb_out = agent._run_cli(f"naabu -host {shlex.quote(nb_joined)} -top-ports 1000 -silent", log_fn, timeout=45, project_id=project_id)
+        for line in nb_out.splitlines():
+            if ":" in line:
+                h_part, p_part = line.strip().rsplit(":", 1)
+                if p_part.isdigit():
+                    ip_val = h_part if re.match(r"^\d+\.\d+\.\d+\.\d+$", h_part) else ""
+                    agent.db.upsert_port(project_id, h_part, int(p_part), "tcp", ip=ip_val, service="tcp-open", source="naabu")
+
+    # 3.2 Nmap Deep NSE Recon Scanner SECOND (Smart Port Chaining from Shodan + Naabu + Core Ports)
     if "nmap" in active_ids and agent._find_binary("nmap"):
-        nmap_targets = [primary_host]
-        for d in domains:
-            ip = d.get("ip", "")
-            cdn = str(d.get("cdn_waf", "")).lower()
-            if ip and "cloudflare" not in cdn and ip not in nmap_targets and len(nmap_targets) < 3:
-                nmap_targets.append(ip)
+        nmap_targets = [primary_host] + [ip for ip in non_cdn_ips if ip not in (primary_host,)][:2]
+        known_ports_rows = agent.db.get_project_bundle(project_id).get("ports", [])
 
         for n_target in nmap_targets:
             if project_id in agent.abort_flags:
                 break
             safe_t = shlex.quote(n_target)
-            log_fn(f"[Tool 3.1 -> Nmap Deep NSE] {n_target} da servis versiyalari va NSE razvedka skriptlari (-sV --script=banner,http-title,ssl-cert,ftp-anon,smb-os-discovery) ishga tushirilmoqda...")
+            target_ports = {21, 22, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5432, 6379, 8080, 8443}
+            for pr in known_ports_rows:
+                if pr.get("host") == n_target or pr.get("ip") == n_target:
+                    p_int = int(pr.get("port", 0))
+                    if 1 <= p_int <= 65535:
+                        target_ports.add(p_int)
+            port_spec = ",".join(str(p) for p in sorted(target_ports)[:45])
+            log_fn(f"[Tool 3.2 -> Nmap Deep NSE] {n_target} (Portlar: {len(target_ports)} ta) da servis versiyalari va NSE skriptlari ishga tushirilmoqda...")
             xml_out = agent._run_cli(
-                f"nmap -Pn -sV -T4 --top-ports 100 --script=banner,http-title,http-headers,http-methods,ssl-cert,ftp-anon,smb-os-discovery,smb-protocols -oX - {safe_t}",
+                f"nmap -Pn -sV -T4 -p {port_spec} --script=banner,http-title,http-headers,http-methods,ssl-cert,ftp-anon,smb-os-discovery,smb-protocols -oX - {safe_t}",
                 log_fn,
-                timeout=85,
+                timeout=70,
                 project_id=project_id,
             )
             if "<nmaprun" in xml_out:
@@ -599,18 +621,6 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
                                 log_fn(f"  [🔬 Nmap Deep] {n_target}:{port_id}/{proto} -> {svc_name} | {full_ver[:120]}")
                 except Exception as ex:
                     log_fn(f"  [!] Nmap Deep XML parse ogohlantirish: {ex}")
-
-    # 3.2 Naabu Fast Top-1000 Port Scanner (Multi-IP & Primary Host)
-    if "naabu" in active_ids and agent._find_binary("naabu"):
-        nb_targets = [primary_host] + sorted({d.get("ip") for d in domains if d.get("ip")})[:4]
-        nb_joined = ",".join(nb_targets)
-        log_fn(f"[Tool 3.2 -> Naabu] {nb_joined} da Top-1000 portlar tezkor tekshirilmoqda...")
-        nb_out = agent._run_cli(f"naabu -host {shlex.quote(nb_joined)} -top-ports 1000 -silent", log_fn, timeout=55, project_id=project_id)
-        for line in nb_out.splitlines():
-            if ":" in line:
-                h_part, p_part = line.strip().rsplit(":", 1)
-                if p_part.isdigit():
-                    agent.db.upsert_port(project_id, h_part, int(p_part), "tcp", service="tcp-open", source="naabu")
 
     # 13.1 NetExec (nxc) SMB & SSH Deep Service / AD Domain Inspector
     nxc_bin = agent._find_binary("nxc") or agent._find_binary("netexec")

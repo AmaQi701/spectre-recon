@@ -168,18 +168,29 @@ VHOST_PREFIXES = ["admin", "internal", "dev", "stage", "test", "api", "backend",
 def hunt_virtual_hosts(db, session, project_id: int, apex_domain: str, log_fn):
     domains = db.get_project_bundle(project_id).get("domains", [])
     existing_hosts = {d["domain"] for d in domains}
-    unique_ips = sorted({d["ip"] for d in domains if d.get("ip") and not d.get("cdn_waf")})[:5]
+    cdn_tokens = ("cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "imperva", "sucuri", "ddos-guard")
+    unique_ips = sorted({
+        d["ip"] for d in domains
+        if d.get("ip") and not any(c in str(d.get("cdn_waf", "")).lower() for c in cdn_tokens)
+    })[:5]
     if not unique_ips:
         return
 
     log_fn(f"[SPECTRE VHost Hunter] {len(unique_ips)} ta asosiy IP serverda DNS'da yo'q yashirin VirtualHost'lar parallel tekshirilmoqda...")
     for ip in unique_ips:
-        base_url = f"https://{ip}"
-        try:
-            r_base = session.get(base_url, headers={"Host": f"nonexistent-99182.{apex_domain}"}, timeout=3.5, verify=False, allow_redirects=False)
-            base_status = r_base.status_code
-            base_len = len(r_base.content)
-        except Exception:
+        base_url = ""
+        base_status = 0
+        base_len = 0
+        for sch in ("https", "http"):
+            try:
+                r_base = session.get(f"{sch}://{ip}", headers={"Host": f"nonexistent-99182.{apex_domain}"}, timeout=3.5, verify=False, allow_redirects=False)
+                base_url = f"{sch}://{ip}"
+                base_status = r_base.status_code
+                base_len = len(r_base.content)
+                break
+            except Exception:
+                continue
+        if not base_url:
             continue
 
         def check_vhost(pref: str):

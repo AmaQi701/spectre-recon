@@ -644,6 +644,40 @@ class ReconSuperAgent:
                     self.db.upsert_domain(project_id, clean_san, source="tls_san")
             self.db.upsert_port(project_id, host, 443, "tcp", service="https", version=tls_info.get("version", ""), source="tls_inspector")
             log_fn(f"  [+] TLS {host}: {tls_info.get('version')} | Cipher: {tls_info.get('cipher')} | SANs: {len(sans)}")
+
+        # Multi-Host Parallel TLS X.509 SAN Sweep across top discovered subdomains
+        dom_rows = self.db.get_project_bundle(project_id).get("domains", [])
+        extra_tls_hosts = [
+            d["domain"] for d in dom_rows
+            if d.get("ip") and d["domain"] != host and not d["domain"].startswith(("ns1.", "ns2.", "mail."))
+        ][:8]
+
+        def _inspect_sub_tls(sub_h: str):
+            sub_sans = []
+            try:
+                ctx_s = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                ctx_s.check_hostname = False
+                ctx_s.verify_mode = ssl.CERT_NONE
+                with socket.create_connection((sub_h, 443), timeout=3.5) as s_sock:
+                    with ctx_s.wrap_socket(s_sock, server_hostname=sub_h) as s_ssock:
+                        der_b = s_ssock.getpeercert(binary_form=True)
+                        if der_b:
+                            pem_s = ssl.DER_cert_to_PEM_cert(der_b)
+                            p_o = subprocess.run(["openssl", "x509", "-noout", "-text"], input=pem_s, text=True, capture_output=True, timeout=3, stdin=subprocess.DEVNULL if False else None)
+                            sub_sans = re.findall(r"DNS:([a-zA-Z0-9.*\-_]+)", p_o.stdout)
+            except Exception:
+                pass
+            for s_san in sub_sans:
+                c_san = s_san.lower().lstrip("*.")
+                if c_san and scope.is_in_scope(c_san)[0]:
+                    self.db.upsert_domain(project_id, c_san, source="tls_san")
+
+        if extra_tls_hosts:
+            ex_tls = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+            futs_tls = [ex_tls.submit(_inspect_sub_tls, sh) for sh in extra_tls_hosts]
+            concurrent.futures.wait(futs_tls, timeout=9)
+            ex_tls.shutdown(wait=False, cancel_futures=True)
+
         return tls_info
 
     def _parse_nmap_xml(self, project_id: int, host: str, xml_text: str, log_fn):
@@ -1164,6 +1198,8 @@ class ReconSuperAgent:
             spectre_ultra_modules.unmask_cloudflare_origin_ips(self.db, self.session, project_id, apex_domain, primary_host, log_fn)
             spectre_deep_modules.probe_nonstandard_web_ports(self.db, self.session, project_id, log_fn)
             spectre_deep_modules.hunt_virtual_hosts(self.db, self.session, project_id, apex_domain, log_fn)
+            spectre_v12_modules.resolve_and_probe_ipv6_dual_stack(self.db, self.session, project_id, apex_domain, primary_host, log_fn)
+            spectre_v12_modules.probe_udp_services_safe(self.db, project_id, log_fn)
 
 
 
