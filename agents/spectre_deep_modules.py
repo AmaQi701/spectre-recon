@@ -432,54 +432,69 @@ def build_target_dossier(db, project_id: int, selected_domain: str = "") -> str:
     host_https = [h for h in https if selected_domain in h["url"] or (ip and ip in h["url"])]
     host_finds = [f for f in findings if selected_domain in f["asset"] or (ip and ip in f["asset"])]
 
-    lines = [
-        f"TARGET DOSSIER & INFRASTRUCTURE PASSPORT  —  {selected_domain}",
-        "═" * 78,
-        f"IP Address     : {ip or 'Unresolved'}   |   CNAME: {dom_obj.get('cname') or '-'}   |   Source: {dom_obj.get('source', '-')}",
-        f"Co-Hosted Hosts: {len(co_hosted)} virtual hosts ({', '.join(co_hosted[:8]) or 'None'})",
-        f"DNS / ASN Intel: {dom_obj.get('records_json', '{}')[:220]}",
-        "",
-        f"[01] OPEN NETWORK PORTS & SERVICES ({len(host_ports)})",
-        "─" * 78,
-    ]
-    if host_ports:
-        for p in host_ports:
-            p_lbl = f"{p['port']}/{p['protocol']}"
-            lines.append(f"  • {p_lbl.ljust(10)} {str(p.get('service') or '-').ljust(16)} {p.get('version') or ''}  [{p.get('source', '')}]")
-    else:
-        lines.append("  • No open TCP/UDP ports recorded for this host.")
+    rec_raw = dom_obj.get("records_json") or "{}"
+    try:
+        rec_dict = json.loads(rec_raw) if isinstance(rec_raw, str) else (rec_raw or {})
+    except Exception:
+        rec_dict = {}
+    asn_info = rec_dict.get("asn_intel") if isinstance(rec_dict, dict) else None
+    asn_str = "Aniqlanmagan"
+    if isinstance(asn_info, dict) and asn_info.get("asn"):
+        asn_str = f"{asn_info.get('asn')}  •  {str(asn_info.get('isp', '')).replace('\"', '')}  •  {asn_info.get('location', '')} ({asn_info.get('subnet', '')})"
+    dns_types = [k for k in rec_dict.keys() if k != "asn_intel"] if isinstance(rec_dict, dict) else []
 
-    lines.append(f"\n[02] ACTIVE HTTP / HTTPS SERVICES ({len(host_https)})")
-    lines.append("─" * 78)
+    lines = [
+        f"◈ NISHON TEXNIK PASPORTI: {selected_domain}",
+        "─" * 68,
+        f"  IP Manzil       : {ip or 'Aniqlanmagan'}",
+        f"  CNAME Yozuvi    : {dom_obj.get('cname') or 'Yo‘q'}   |   Manba: {dom_obj.get('source', '-')}",
+        f"  Tarmoq / ASN    : {asn_str}",
+        f"  Qo‘shni Hostlar : {len(co_hosted)} ta ({', '.join(co_hosted[:6]) or 'Yo‘q'})",
+    ]
+    if dns_types:
+        lines.append(f"  DNS Yozuvlari   : {', '.join(dns_types)}")
+
+    lines.append(f"\n◈ OCHIQ TARMOQ PORTLARI ({len(host_ports)} ta)")
+    lines.append("─" * 68)
+    if host_ports:
+        for p in sorted(host_ports, key=lambda x: int(x.get("port", 0))):
+            p_lbl = f"{p['port']}/{p['protocol']}"
+            ver_s = (p.get("version") or "").split(",")[0][:36]
+            lines.append(f"  • {p_lbl.ljust(10)} {str(p.get('service') or '-').ljust(15)} {ver_s}  [{p.get('source', '')}]")
+    else:
+        lines.append("  • Ochiq TCP/UDP portlar qayd etilmagan.")
+
+    lines.append(f"\n◈ FAOL VEB SERVISLAR ({len(host_https)} ta)")
+    lines.append("─" * 68)
     if host_https:
         for h in host_https:
-            lines.append(f"  • [{h['status_code']}] {h['url']}  —  Title: '{h['title'] or '-'}'  |  Server: {h['server'] or '-'}")
+            lines.append(f"  • [{h['status_code']}] {h['url']}  —  '{h['title'] or '-'}'  ({h['server'] or '-'})")
     else:
-        lines.append("  • No active web services recorded on standard or management ports.")
+        lines.append("  • Standart portlarda faol veb-servis topilmadi.")
 
-    lines.append(f"\n[03] ASSOCIATED SECURITY FINDINGS & CVEs ({len(host_finds)})")
-    lines.append("─" * 78)
+    lines.append(f"\n◈ XAVFSIZLIK TOPILMALARI ({len(host_finds)} ta)")
+    lines.append("─" * 68)
     if host_finds:
         for f in host_finds:
             lines.append(f"  • [{f['severity'].upper()} | CVSS {f['cvss_score']}] {f['title']}")
-            lines.append(f"    Evidence: {f['evidence'][:140]}")
+            lines.append(f"    Dalil: {f['evidence'][:120]}")
     else:
-        lines.append("  • No security findings currently mapped to this asset.")
+        lines.append("  • Ushbu xostda hozircha zaiflik qayd etilmagan.")
 
-    lines.append("\n[04] PENTESTING TASK TREE (RECOMMENDED NEXT AUDIT STEPS)")
-    lines.append("─" * 78)
+    lines.append("\n◈ AMALIY PENTEST REJASI (TASK TREE)")
+    lines.append("─" * 68)
     port_nums = {int(p["port"]) for p in host_ports}
     if 21 in port_nums:
-        lines.append(f"  1. [FTP Audit] Verify anonymous read/write access: nmap -p 21 --script ftp-anon {ip or selected_domain}")
+        lines.append(f"  1. [FTP 21/tcp] Anonim kirishni tekshirish: nmap -p 21 --script ftp-anon {ip or selected_domain}")
     if 445 in port_nums or 137 in port_nums:
-        lines.append(f"  2. [SMB Audit] Check null-session & share ACLs: nxc smb {ip or selected_domain} -u '' -p '' --shares")
+        lines.append(f"  2. [SMB 445/tcp] Null-session tekshiruvi: nxc smb {ip or selected_domain} -u '' -p '' --shares")
     if port_nums & WEB_CANDIDATE_PORTS:
         custom_p = sorted(port_nums & WEB_CANDIDATE_PORTS)
-        lines.append(f"  3. [Management Ports {custom_p}] Inspect non-standard admin panels: {', '.join(f'https://{selected_domain}:{cp}' for cp in custom_p[:5])}")
+        lines.append(f"  3. [Boshqaruv Portlari {custom_p}] Admin panellarni ko‘zdan kechirish")
     api_list = [e["url"] for e in endpoints if e.get("category") in ("api_endpoint", "high_value_endpoint")][:4]
     if api_list:
-        lines.append(f"  4. [API BOLA/IDOR] Test object-level authorization in Repeater: {', '.join(api_list)}")
-    lines.append(f"  5. [Targeted Content Discovery] ffuf -u https://{selected_domain}/FUZZ -w /home/amaqi/SecLists/Discovery/Web-Content/common.txt -ac")
+        lines.append(f"  4. [API BOLA/IDOR] Repeater orqali avtorizatsiyani sinash: {', '.join(api_list[:2])}")
+    lines.append(f"  5. [Fuzzing] ffuf -u https://{selected_domain}/FUZZ -w ~/SecLists/Discovery/Web-Content/common.txt -ac")
     return "\n".join(lines)
 
 

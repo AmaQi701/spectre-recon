@@ -34,47 +34,47 @@ from core.database import DatabaseManager
 from core.scope_guard import ScopeGuard
 
 DARK_CSS = b"""
-window, .background { background-color: #0d1117; color: #e6edf3; font-family: "Inter", "Ubuntu", system-ui, sans-serif; }
-headerbar { background-image: none; background-color: #131822; color: #f0f6fc; border-bottom: 1px solid #21262d; padding: 3px 10px; }
-headerbar .title { font-weight: 700; font-size: 13.5px; color: #f0f6fc; }
-headerbar .subtitle { font-size: 11px; color: #7d8590; }
-headerbar button.titlebutton { background-image: none; background-color: transparent; color: #8b949e; border: none; box-shadow: none; }
-headerbar button.titlebutton:hover { background-color: #21262d; color: #ffffff; }
+window, .background { background-color: #090c0a; color: #e2e8f0; font-family: "Inter", "Ubuntu", system-ui, sans-serif; }
+headerbar { background-image: none; background-color: #0d120f; color: #f8fafc; border-bottom: 1px solid #1a2820; padding: 4px 12px; }
+headerbar .title { font-weight: 800; font-size: 13.5px; color: #f8fafc; }
+headerbar .subtitle { font-size: 11px; color: #4ade80; }
+headerbar button.titlebutton { background-image: none; background-color: transparent; color: #94a3b8; border: none; box-shadow: none; }
+headerbar button.titlebutton:hover { background-color: #16241b; color: #ffffff; }
 
-.sidebar { background-color: #11161f; border-right: 1px solid #21262d; padding: 12px 10px; }
-.nav-btn { background-image: none; background-color: transparent; color: #8b949e; border: 1px solid transparent; border-radius: 5px; padding: 8px 11px; font-weight: 600; font-size: 12.5px; box-shadow: none; }
-.nav-btn:hover { background-color: #161c28; color: #e6edf3; }
-.nav-btn-active { background-image: none; background-color: #1c2433; color: #f0f6fc; border: 1px solid #30363d; border-left: 3px solid #2f81f7; border-radius: 5px; padding: 8px 11px; font-weight: 700; font-size: 12.5px; }
+.sidebar { background-color: #0c100e; border-right: 1px solid #1a2820; padding: 14px 11px; }
+.nav-btn { background-image: none; background-color: transparent; color: #9ca3af; border: 1px solid transparent; border-radius: 8px; padding: 9px 12px; font-weight: 600; font-size: 12.5px; box-shadow: none; }
+.nav-btn:hover { background-color: #121b16; color: #f1f5f9; }
+.nav-btn-active { background-image: none; background-color: #11261a; color: #4ade80; border: 1px solid #1f4d33; border-radius: 8px; padding: 9px 12px; font-weight: 700; font-size: 12.5px; }
 
-.toolbar-bar { background-color: #131822; border: 1px solid #21262d; border-radius: 6px; padding: 6px 10px; }
-.stat-card { background-color: #131822; border: 1px solid #21262d; border-radius: 6px; padding: 7px 14px; }
-.stat-title { font-size: 10px; color: #7d8590; font-weight: 700; letter-spacing: 0.6px; }
-.stat-val { font-size: 14.5px; font-weight: 700; color: #f0f6fc; }
+.toolbar-bar { background-color: #0f1512; border: 1px solid #1b2a21; border-radius: 10px; padding: 7px 12px; }
+.stat-card { background-color: #0f1512; border: 1px solid #1b2a21; border-radius: 10px; padding: 9px 15px; }
+.stat-title { font-size: 10px; color: #6ee7b7; font-weight: 700; letter-spacing: 0.6px; }
+.stat-val { font-size: 15px; font-weight: 800; color: #f8fafc; }
 
-treeview { background-color: #0d1117; color: #e6edf3; font-size: 12px; border: none; }
-treeview:selected { background-color: #1f3a60; color: #ffffff; }
-treeview header button { background-image: none; background-color: #131822; color: #8b949e; font-weight: 700; font-size: 11px; border: none; border-bottom: 1px solid #21262d; border-right: 1px solid #21262d; padding: 6px 10px; box-shadow: none; }
-treeview header button:hover { background-color: #1c2433; color: #f0f6fc; }
+treeview { background-color: #0b0f0d; color: #e2e8f0; font-size: 12.5px; border: none; }
+treeview:selected { background-color: #143321; color: #4ade80; }
+treeview header button { background-image: none; background-color: #101613; color: #94a3b8; font-weight: 700; font-size: 10.5px; border: none; border-bottom: 1px solid #1b2a21; padding: 8px 10px; box-shadow: none; }
+treeview header button:hover { background-color: #15221a; color: #4ade80; }
 
-entry, combobox button { background-image: none; background-color: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 5px 9px; font-size: 12px; box-shadow: none; }
-entry:focus { border-color: #2f81f7; }
-textview, textview text { background-color: #090c10; color: #d0d7de; font-family: "JetBrains Mono", "Ubuntu Mono", monospace; font-size: 12px; }
-.panel-box { background-color: #131822; border: 1px solid #21262d; border-radius: 6px; padding: 6px; }
-.section-hdr { font-size: 11.5px; font-weight: 700; color: #8b949e; }
-progressbar text { color: #d0d7de; font-weight: 600; font-size: 11.5px; }
-progressbar trough { min-height: 20px; background-color: #0d1117; border: 1px solid #21262d; border-radius: 5px; }
-progressbar progress { min-height: 20px; background-image: none; background-color: #1f6feb; border-radius: 4px; }
+entry, combobox button { background-image: none; background-color: #090c0a; color: #f1f5f9; border: 1px solid #223328; border-radius: 8px; padding: 6px 10px; font-size: 12px; box-shadow: none; }
+entry:focus { border-color: #22c55e; }
+textview, textview text { background-color: #080b09; color: #d8e2dc; font-family: "JetBrains Mono", "Ubuntu Mono", monospace; font-size: 12px; }
+.panel-box { background-color: #0f1512; border: 1px solid #1b2a21; border-radius: 10px; padding: 6px; }
+.section-hdr { font-size: 11.5px; font-weight: 700; color: #4ade80; }
+progressbar text { color: #86efac; font-weight: 600; font-size: 11.5px; }
+progressbar trough { min-height: 22px; background-color: #0c1911; border: 1px solid #1b3b28; border-radius: 8px; }
+progressbar progress { min-height: 22px; background-image: none; background-color: #16a34a; border-radius: 7px; }
 
-.act-btn { background-image: none; background-color: #1c2331; color: #e6edf3; font-weight: 600; font-size: 12px; border-radius: 5px; padding: 5px 12px; border: 1px solid #30363d; box-shadow: none; }
-.act-btn:hover { background-color: #262f40; border-color: #58a6ff; }
-.btn-green { background-image: none; background-color: #162621; color: #56d364; font-weight: 600; font-size: 12px; border-radius: 5px; padding: 5px 12px; border: 1px solid #238636; box-shadow: none; }
-.btn-green:hover { background-color: #1f352e; border-color: #3fb950; }
-.btn-amber { background-image: none; background-color: #272115; color: #e3b341; font-weight: 600; font-size: 12px; border-radius: 5px; padding: 5px 12px; border: 1px solid #9e6a03; box-shadow: none; }
-.btn-amber:hover { background-color: #342b1b; border-color: #d29922; }
-.btn-red { background-image: none; background-color: #29181c; color: #f85149; font-weight: 600; font-size: 12px; border-radius: 5px; padding: 5px 12px; border: 1px solid #da3633; box-shadow: none; }
-.btn-red:hover { background-color: #382026; border-color: #f85149; }
-.btn-purple { background-image: none; background-color: #1f6feb; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 5px; padding: 5px 13px; border: 1px solid #388bfd; box-shadow: none; }
-.btn-purple:hover { background-color: #388bfd; }
+.act-btn { background-image: none; background-color: #121915; color: #e2e8f0; font-weight: 600; font-size: 12px; border-radius: 8px; padding: 6px 13px; border: 1px solid #24362b; box-shadow: none; }
+.act-btn:hover { background-color: #18251e; border-color: #22c55e; color: #4ade80; }
+.btn-green { background-image: none; background-color: #11281c; color: #4ade80; font-weight: 700; font-size: 12px; border-radius: 8px; padding: 6px 13px; border: 1px solid #22c55e; box-shadow: none; }
+.btn-green:hover { background-color: #173826; }
+.btn-amber { background-image: none; background-color: #231d12; color: #fbbf24; font-weight: 600; font-size: 12px; border-radius: 8px; padding: 6px 13px; border: 1px solid #92400e; box-shadow: none; }
+.btn-amber:hover { background-color: #302717; }
+.btn-red { background-image: none; background-color: #241417; color: #f87171; font-weight: 600; font-size: 12px; border-radius: 8px; padding: 6px 13px; border: 1px solid #991b1b; box-shadow: none; }
+.btn-red:hover { background-color: #331b1f; border-color: #ef4444; }
+.btn-purple { background-image: none; background-color: #22c55e; color: #052e16; font-weight: 800; font-size: 12px; border-radius: 8px; padding: 6px 15px; border: 1px solid #4ade80; box-shadow: none; }
+.btn-purple:hover { background-color: #4ade80; color: #022c22; }
 """
 
 
@@ -116,23 +116,58 @@ class ApexNativeWindow(Gtk.Window):
         self.refresh_tools()
         GLib.timeout_add(2500, self._periodic_refresh)
 
-    def _make_btn(self, label: str, css_cls: str = "act-btn", callback=None) -> Gtk.Button:
-        btn = Gtk.Button(label=label)
+    def _make_btn(self, label: str, css_cls: str = "act-btn", callback=None, icon_name: str | None = None) -> Gtk.Button:
+        btn = Gtk.Button()
+        if icon_name:
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            img = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU)
+            lbl = Gtk.Label(label=label)
+            box.pack_start(img, False, False, 0)
+            box.pack_start(lbl, False, False, 0)
+            box.set_halign(Gtk.Align.CENTER)
+            btn.add(box)
+        else:
+            btn.set_label(label)
         btn.get_style_context().add_class(css_cls or "act-btn")
         if callback:
             btn.connect("clicked", callback)
         return btn
 
+    @staticmethod
+    def _set_styled_text(textview: Gtk.TextView, content: str):
+        buf = textview.get_buffer()
+        buf.set_text("")
+        tbl = buf.get_tag_table()
+        for tname, props in [
+            ("hdr", {"foreground": "#4ade80", "weight": Pango.Weight.BOLD}),
+            ("div", {"foreground": "#1e3a29"}),
+            ("crit", {"foreground": "#f87171", "weight": Pango.Weight.BOLD}),
+            ("muted", {"foreground": "#94a3b8"}),
+        ]:
+            if not tbl.lookup(tname):
+                buf.create_tag(tname, **props)
+        for line in (content or "").splitlines(True):
+            end_it = buf.get_end_iter()
+            s_strip = line.strip()
+            if s_strip.startswith(("◈", "FINDING #", "[TECHNICAL", "[ROOT CAUSE", "[REMEDIATION")):
+                buf.insert_with_tags_by_name(end_it, line, "hdr")
+            elif s_strip.startswith(("─", "═")):
+                buf.insert_with_tags_by_name(end_it, line, "div")
+            elif any(k in s_strip for k in ("[CRITICAL", "[HIGH")):
+                buf.insert_with_tags_by_name(end_it, line, "crit")
+            else:
+                buf.insert(end_it, line)
+
     def _make_tree(self, columns: list[tuple[str, type]], use_markup: bool = True) -> tuple[Gtk.ScrolledWindow, Gtk.ListStore, Gtk.TreeView]:
         store = Gtk.ListStore(*[c[1] for c in columns])
         tree = Gtk.TreeView(model=store)
-        tree.set_grid_lines(Gtk.TreeViewGridLines.HORIZONTAL)
+        tree.set_grid_lines(Gtk.TreeViewGridLines.NONE)
         tree.set_headers_visible(True)
         narrow_cols = {"ID", "Status", "STATUS", "CVSS", "WAF", "Method", "METHOD", "Manba", "SOURCE", "CNAME", "ENABLED", "INSTALLED"}
         wide_cols = {"URL", "Endpoint URL", "ENDPOINT URL", "Subdomen / Host", "HOST / SUBDOMAIN", "Zaiflik Nomi", "FINDING TITLE", "Nishon (Asset)", "TARGET ASSET", "EXTRACTED API ROUTES"}
         for idx, (col_title, col_type) in enumerate(columns):
             renderer = Gtk.CellRendererText()
-            renderer.set_padding(8, 6)
+            renderer.set_padding(10, 8)
             renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
             if use_markup and col_type == str:
                 col = Gtk.TreeViewColumn(col_title, renderer, markup=idx)
@@ -220,43 +255,60 @@ class ApexNativeWindow(Gtk.Window):
     def _build_ui(self):
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
-        hb.props.title = "SPECTRE Enterprise ASM & Security Studio"
-        hb.props.subtitle = "v12.11 Titan  |  Autonomous Recon, Vulnerability Assessment & Bug Chaining"
+        hb.props.title = "SPECTRE  —  Kiber-Razvedka va Hujum Yuzasi Platformasi"
+        hb.props.subtitle = "●  v12.12 Obsidian Emerald  •  Avtonom Razvedka, Zaiflik Auditi va Bug Chaining"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self.add(outer_hbox)
 
-        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         sidebar.get_style_context().add_class("sidebar")
-        sidebar.set_size_request(205, -1)
-        brand_lbl = Gtk.Label(xalign=0)
-        brand_lbl.set_markup("<span foreground='#f0f6fc' weight='bold' size='11500'>SPECTRE</span> <span foreground='#58a6ff' weight='bold' size='9500'>v12.11</span>\n<span foreground='#7d8590' size='8500'>Enterprise AppSec Studio</span>")
-        brand_lbl.set_margin_bottom(10)
-        brand_lbl.set_margin_start(4)
-        sidebar.pack_start(brand_lbl, False, False, 2)
+        sidebar.set_size_request(218, -1)
 
+        brand_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        brand_row.set_margin_bottom(12)
+        brand_row.set_margin_start(4)
+        icon_svg = BASE_DIR / "ui" / "apex-icon.svg"
+        if icon_svg.exists():
+            try:
+                from gi.repository import GdkPixbuf
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(icon_svg), 30, 30, True)
+                brand_row.pack_start(Gtk.Image.new_from_pixbuf(pb), False, False, 0)
+            except Exception:
+                pass
+        brand_lbl = Gtk.Label(xalign=0)
+        brand_lbl.set_markup("<span foreground='#f8fafc' weight='bold' size='11500'>SPECTRE</span>\n<span foreground='#4ade80' size='8500'>Kiber-Audit Studiyasi</span>")
+        brand_row.pack_start(brand_lbl, False, False, 0)
+        sidebar.pack_start(brand_row, False, False, 2)
 
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        self.stack.set_transition_duration(100)
+        self.stack.set_transition_duration(110)
         self.nav_buttons = []
+        self.nav_label_widgets = []
         self.nav_base_labels = [
-            ("p_scope", "01   Target & Scope"),
-            ("p_recon", "02   Attack Surface"),
-            ("p_endpoints", "03   Endpoints & JS"),
-            ("p_vulns", "04   Vuln Audit"),
-            ("p_chains", "05   Attack Chains"),
-            ("p_graph", "06   Topology Map"),
-            ("p_report", "07   Reports & PoC"),
-            ("p_tools", "08   Tool Registry"),
+            ("p_scope", "Yangi Nishon", "list-add-symbolic"),
+            ("p_recon", "Hujum Yuzasi", "network-workgroup-symbolic"),
+            ("p_endpoints", "Endpoint va JS", "folder-remote-symbolic"),
+            ("p_vulns", "Zaifliklar Auditi", "security-high-symbolic"),
+            ("p_chains", "Hujum Zanjirlari", "emblem-shared-symbolic"),
+            ("p_graph", "Topologiya Xaritasi", "view-grid-symbolic"),
+            ("p_report", "Hisobot va Eksport", "document-properties-symbolic"),
+            ("p_tools", "Arsenallar (49)", "preferences-system-symbolic"),
         ]
-        for idx, (pname, plabel) in enumerate(self.nav_base_labels):
-            b = Gtk.Button(label=plabel)
-            b.set_alignment(0.0, 0.5)
+        for idx, (pname, plabel, picon) in enumerate(self.nav_base_labels):
+            b = Gtk.Button()
+            row_b = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            row_b.pack_start(Gtk.Image.new_from_icon_name(picon, Gtk.IconSize.MENU), False, False, 0)
+            lw = Gtk.Label(label=plabel, xalign=0)
+            lw.set_hexpand(True)
+            row_b.pack_start(lw, True, True, 0)
+            b.add(row_b)
             b.get_style_context().add_class("nav-btn-active" if idx == 1 else "nav-btn")
             b.connect("clicked", lambda btn, n=pname: self._switch_page(n, btn))
             self.nav_buttons.append(b)
+            self.nav_label_widgets.append(lw)
             sidebar.pack_start(b, False, False, 0)
 
         outer_hbox.pack_start(sidebar, False, False, 0)
@@ -267,51 +319,51 @@ class ApexNativeWindow(Gtk.Window):
         root_vbox.set_margin_start(10); root_vbox.set_margin_end(10)
         outer_hbox.pack_start(root_vbox, True, True, 0)
 
-        # Top Command & Filter Toolbar (Row 1: Project, Filter, Mode & Agent Controls)
-        cmd_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        # Top Command & Filter Toolbar
+        cmd_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
         cmd_bar.get_style_context().add_class("toolbar-bar")
-        cmd_bar.pack_start(self._make_btn("+ New Target", "act-btn", lambda _: self._switch_page("p_scope", self.nav_buttons[0])), False, False, 0)
+        cmd_bar.pack_start(self._make_btn("Yangi Nishon", "act-btn", lambda _: self._switch_page("p_scope", self.nav_buttons[0]), "list-add-symbolic"), False, False, 0)
         self.proj_combo = Gtk.ComboBoxText()
         self.proj_combo.connect("changed", self.on_project_changed)
         cmd_bar.pack_start(self.proj_combo, False, False, 0)
-        cmd_bar.pack_start(self._make_btn("Delete", "btn-red", self.on_delete_project), False, False, 0)
+        cmd_bar.pack_start(self._make_btn("O‘chirish", "btn-red", self.on_delete_project, "user-trash-symbolic"), False, False, 0)
 
         self.search_entry = Gtk.SearchEntry()
-        self.search_entry.set_placeholder_text("Filter assets (subdomain, port, endpoint, CVE...)")
+        self.search_entry.set_placeholder_text("Qidiruv (subdomen, port, API route, CVE...)")
         self.search_entry.set_hexpand(True)
         self.search_entry.connect("search-changed", lambda _: self.load_bundle())
         cmd_bar.pack_start(self.search_entry, True, True, 0)
 
         self.mode_combo = Gtk.ComboBoxText()
-        self.mode_combo.append("full", "Profile: Full Recon")
-        self.mode_combo.append("subdomains", "Profile: Subdomains")
-        self.mode_combo.append("ports", "Profile: Ports & Shodan")
-        self.mode_combo.append("web_js", "Profile: Web / API / JS")
+        self.mode_combo.append("full", "Rejim: To‘liq Razvedka")
+        self.mode_combo.append("subdomains", "Rejim: Subdomenlar")
+        self.mode_combo.append("ports", "Rejim: Port va Shodan")
+        self.mode_combo.append("web_js", "Rejim: Veb / API / JS")
         self.mode_combo.set_active_id("full")
         cmd_bar.pack_start(self.mode_combo, False, False, 0)
 
-        cmd_bar.pack_end(self._make_btn("Stop", "btn-red", lambda _: self.on_abort()), False, False, 0)
-        cmd_bar.pack_end(self._make_btn("Run Full Pipeline", "btn-purple", lambda _: self.on_run_agent("all")), False, False, 0)
-        cmd_bar.pack_end(self._make_btn("Stage 3: Triage", "act-btn", lambda _: self.on_run_agent("triage")), False, False, 0)
-        cmd_bar.pack_end(self._make_btn("Stage 2: Audit", "act-btn", lambda _: self.on_run_agent("vuln")), False, False, 0)
-        cmd_bar.pack_end(self._make_btn("Stage 1: Recon", "act-btn", lambda _: self.on_run_agent("recon")), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("To‘xtatish", "btn-red", lambda _: self.on_abort(), "process-stop-symbolic"), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("To‘liq Skaner", "btn-purple", lambda _: self.on_run_agent("all"), "media-playback-start-symbolic"), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("3-Zanjir", "act-btn", lambda _: self.on_run_agent("triage")), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("2-Zaiflik", "act-btn", lambda _: self.on_run_agent("vuln")), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("1-Razvedka", "act-btn", lambda _: self.on_run_agent("recon")), False, False, 0)
         root_vbox.pack_start(cmd_bar, False, False, 0)
 
-        # Row 2: Auth, Proxy & Live Stage Progress Bar
+        # Row 2: Auth, Proxy & Emerald Status Banner
         sub_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.auth_entry = Gtk.Entry()
-        self.auth_entry.set_placeholder_text("Auth Header (Cookie: ... / Authorization: Bearer ...)")
+        self.auth_entry.set_placeholder_text("Grey-box Auth (Cookie: ... / Authorization: Bearer ...)")
         self.auth_entry.set_width_chars(28)
         sub_bar.pack_start(self.auth_entry, False, False, 0)
 
         self.proxy_entry = Gtk.Entry()
-        self.proxy_entry.set_placeholder_text("Proxy (http://127.0.0.1:8080)")
+        self.proxy_entry.set_placeholder_text("Proksi (http://127.0.0.1:8080)")
         self.proxy_entry.set_width_chars(22)
         sub_bar.pack_start(self.proxy_entry, False, False, 0)
 
         self.progress_bar = Gtk.ProgressBar()
         self.progress_bar.set_show_text(True)
-        self.progress_bar.set_text("SPECTRE v12.11 Ready — Select a project or launch a scan")
+        self.progress_bar.set_text("●  Platforma jangovar holatda — Nishonni tanlang yoki skanerni boshlang")
         self.progress_bar.set_fraction(0.0)
         self.progress_bar.set_hexpand(True)
         self.progress_bar.set_valign(Gtk.Align.CENTER)
@@ -321,16 +373,16 @@ class ApexNativeWindow(Gtk.Window):
 
 
         # Compact Telemetry Strip
-        stats_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        stats_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
         self.lbl_stat_dom = Gtk.Label(label="0", xalign=0)
         self.lbl_stat_http = Gtk.Label(label="0 / 0", xalign=0)
         self.lbl_stat_ep = Gtk.Label(label="0 / 0", xalign=0)
         self.lbl_stat_find = Gtk.Label(label="0 / 0", xalign=0)
         for title_cap, lbl in [
-            ("HOSTS & DNS SURFACE", self.lbl_stat_dom),
-            ("NETWORK & WEB SERVICES", self.lbl_stat_http),
-            ("ENDPOINTS & JS BUNDLES", self.lbl_stat_ep),
-            ("SECURITY FINDINGS & CHAINS", self.lbl_stat_find),
+            ("SUBDOMENLAR VA DNS", self.lbl_stat_dom),
+            ("TARMOQ PORTLARI VA VEB", self.lbl_stat_http),
+            ("ENDPOINTLAR VA JS FAYLLAR", self.lbl_stat_ep),
+            ("XAVFSIZLIK TOPILMALARI", self.lbl_stat_find),
         ]:
             t_lbl = Gtk.Label(label=title_cap, xalign=0)
             t_lbl.get_style_context().add_class("stat-title")
@@ -656,7 +708,7 @@ class ApexNativeWindow(Gtk.Window):
             dom_name = _re.sub(r"<[^>]+>", "", model[treeiter][0])
             self._selected_domain = dom_name
             dossier_txt = spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, dom_name)
-            self.dossier_view.get_buffer().set_text(dossier_txt)
+            self._set_styled_text(self.dossier_view, dossier_txt)
 
     def on_finding_selected(self, tree):
         if not self.current_project_id:
@@ -686,7 +738,7 @@ class ApexNativeWindow(Gtk.Window):
                     "[REMEDIATION GUIDANCE]",
                     str(f_obj.get("remediation", "") or "-"),
                 ]
-                self.finding_detail_view.get_buffer().set_text("\n".join(detail_lines))
+                self._set_styled_text(self.finding_detail_view, "\n".join(detail_lines))
 
     def on_ai_dossier_analysis(self, _btn):
         if not self.current_project_id:
@@ -732,21 +784,22 @@ class ApexNativeWindow(Gtk.Window):
             return
         self._last_data_sig = sig
 
-        self.lbl_stat_dom.set_text(f"{len(doms)} hosts  ·  {ip_cnt} unique IP")
-        self.lbl_stat_http.set_text(f"{len(ports)} open ports  ·  {len(https)} web")
-        self.lbl_stat_ep.set_text(f"{len(eps)} routes  ·  {len(js_list)} JS")
-        self.lbl_stat_find.set_text(f"{len(finds)} findings  ·  {len(chains)} chains")
+        self.lbl_stat_dom.set_text(f"{len(doms)} subdomen  •  {ip_cnt} noyob IP")
+        self.lbl_stat_http.set_text(f"{len(ports)} port  •  {len(https)} veb-servis")
+        self.lbl_stat_ep.set_text(f"{len(eps)} route  •  {len(js_list)} JS paket")
+        self.lbl_stat_find.set_text(f"{len(finds)} topilma  •  {len(chains)} zanjir")
 
-        if hasattr(self, "nav_buttons") and len(self.nav_buttons) >= 8:
+        if hasattr(self, "nav_label_widgets") and len(self.nav_label_widgets) >= 8:
             badge_counts = {
                 1: len(doms),
                 2: len(eps),
                 3: len(finds),
                 4: len(chains),
             }
-            for idx_b, (_, base_lbl) in enumerate(self.nav_base_labels):
+            for idx_b, entry_b in enumerate(self.nav_base_labels):
+                base_lbl = entry_b[1]
                 if idx_b in badge_counts:
-                    self.nav_buttons[idx_b].set_label(f"{base_lbl}  [{badge_counts[idx_b]}]")
+                    self.nav_label_widgets[idx_b].set_text(f"{base_lbl}  ({badge_counts[idx_b]})")
 
         self.store_http.clear()
         for s in https:
@@ -865,17 +918,19 @@ class ApexNativeWindow(Gtk.Window):
         if sorted_doms and hasattr(self, "dossier_view") and not preserve_if_unchanged:
             primary_dom = sorted_doms[0]["domain"]
             self._selected_domain = primary_dom
-            self.dossier_view.get_buffer().set_text(
-                spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, primary_dom)
+            self._set_styled_text(
+                self.dossier_view,
+                spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, primary_dom),
             )
         if sorted_finds and hasattr(self, "finding_detail_view") and not preserve_if_unchanged:
             f0 = sorted_finds[0]
-            self.finding_detail_view.get_buffer().set_text(
+            self._set_styled_text(
+                self.finding_detail_view,
                 f"FINDING #{f0['id']}  |  {f0.get('severity', '').upper()} (CVSS {f0.get('cvss_score', '')})  |  STATUS: {f0.get('triage_status', '')}\n"
-                + ("─" * 88)
+                + ("─" * 68)
                 + f"\nTitle       : {f0.get('title', '')}\nTaxonomy    : {f0.get('cwe', '')}   |   {f0.get('owasp', '')}\n"
                 + f"Target Asset: {f0.get('asset', '')}\n\n[TECHNICAL EVIDENCE / POC]\n{f0.get('evidence', '')}\n\n"
-                + f"[ROOT CAUSE ANALYSIS]\n{f0.get('root_cause', '')}\n\n[REMEDIATION GUIDANCE]\n{f0.get('remediation', '')}"
+                + f"[ROOT CAUSE ANALYSIS]\n{f0.get('root_cause', '')}\n\n[REMEDIATION GUIDANCE]\n{f0.get('remediation', '')}",
             )
 
         if hasattr(self, "graph_area"):
