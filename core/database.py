@@ -228,6 +228,10 @@ class DatabaseManager:
         domain = domain.strip().lower().rstrip(".")
         if not domain:
             return
+        ip = (ip or "").strip()
+        if ip.startswith("127.") or ip in ("0.0.0.0", "::1"):
+            cname = cname or f"loopback:{ip}"
+            ip = ""
         with self._lock, self._get_conn() as conn:
             conn.execute(
                 """INSERT INTO domains (project_id, domain, ip, cname, records_json, cdn_waf, source, created_at)

@@ -321,6 +321,15 @@ class ReconSuperAgent:
         added = 0
         for sub, ip_hint, src in sorted(discovered):
             if "." in sub and scope.is_in_scope(sub)[0]:
+                if ip_hint.startswith("127.") or ip_hint in ("0.0.0.0", "::1"):
+                    self.db.upsert_finding(
+                        project_id, "SPECTRE-Agent1 (DNS-Loopback)", f"DNS Subdomain Pointing to Loopback ({sub} -> {ip_hint})",
+                        "SSRF / DNS Rebinding Gadget", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                        "CWE-918", "A10:2021 - Server-Side Request Forgery (SSRF)", sub,
+                        f"Subdomain {sub} resolves to loopback address {ip_hint} (SSRF filter bypass gadget).",
+                        "Subdomen 127.0.0.1 (localhost) manziliga yo'naltirilgan — bu SSRF himoyalarini aylanib o'tishda ishlatilishi mumkin.",
+                        "Ommaviy DNS zonasidan 127.0.0.1 ga ishora qiluvchi A yozuvlarini o'chiring.",
+                    )
                 self.db.upsert_domain(project_id, sub, ip=ip_hint, source=src)
                 added += 1
         log_fn(f"  [+] Passive OSINT Mesh yakunlandi: {added} ta in-scope subdomen bazaga qo'shildi.")
@@ -456,6 +465,17 @@ class ReconSuperAgent:
                     pass
 
             if cand not in (base_domain, apex_domain) and ip_val and ip_val in wildcard_ips:
+                return
+            if ip_val.startswith("127.") or ip_val in ("0.0.0.0", "::1"):
+                self.db.upsert_finding(
+                    project_id, "SPECTRE-Agent1 (DNS-Loopback)", f"DNS Subdomain Pointing to Loopback ({cand} -> {ip_val})",
+                    "SSRF / DNS Rebinding Gadget", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                    "CWE-918", "A10:2021 - Server-Side Request Forgery (SSRF)", cand,
+                    f"Subdomain {cand} resolves to loopback address {ip_val} (SSRF filter bypass gadget).",
+                    "Subdomen 127.0.0.1 (localhost) manziliga yo'naltirilgan — bu SSRF himoyalarini aylanib o'tishda ishlatilishi mumkin.",
+                    "Ommaviy DNS zonasidan 127.0.0.1 ga ishora qiluvchi A yozuvlarini o'chiring.",
+                )
+                self.db.upsert_domain(project_id, cand, ip="", cname=f"loopback:{ip_val}", records=records, source="dns_enum")
                 return
             if cname_val and not ip_val:
                 takeover_sigs = ("github.io", "herokuapp.com", "s3.amazonaws.com", "azurewebsites.net", "vercel.app", "netlify.app", "digitaloceanspaces.com", "trafficmanager.net")
@@ -855,13 +875,17 @@ class ReconSuperAgent:
             risks.append("Sensitive/Admin Route")
 
         for p in p_l:
-            if any(k in p for k in ("id", "uid", "user", "account", "order", "doc", "invoice", "profile", "slug")):
+            if p in ("__viewstate", "__eventvalidation", "__viewstategenerator"):
+                if "ViewState_Deserialization_Candidate" not in risks:
+                    risks.append("ViewState_Deserialization_Candidate")
+                continue
+            if re.search(r"(?:^|_|-)(?:id|uid|uuid|user|userid|account|order|doc|invoice|profile|slug|item)(?:$|_|-)", p) or (p.endswith("id") and p not in ("valid", "invalid", "grid", "fluid", "void", "android")):
                 if "IDOR_Candidate" not in risks:
                     risks.append("IDOR_Candidate")
             if any(k in p for k in ("url", "uri", "redirect", "next", "return", "callback", "webhook", "dest", "host")):
                 if "SSRF_or_Redirect_Candidate" not in risks:
                     risks.append("SSRF_or_Redirect_Candidate")
-            if any(k in p for k in ("file", "path", "template", "include", "page", "doc", "folder")):
+            if any(k in p for k in ("file", "path", "template", "include", "page", "doc", "folder", "item", "view", "tpl", "layout", "load", "read", "filename")):
                 if "LFI_PathTraversal_Candidate" not in risks:
                     risks.append("LFI_PathTraversal_Candidate")
             if any(k in p for k in ("q", "search", "query", "filter", "sort", "order", "cmd", "exec")):
@@ -1125,7 +1149,8 @@ class ReconSuperAgent:
                             if key not in ("http", "https", "true", "false", "null", "undefined"):
                                 extracted_params.add(key)
 
-                sinks = sorted(set(sink_regex.findall(content)))
+                is_vendor_js = any(vk in safe_jname.lower() or f"/{vk}" in js_url.lower() for vk in ("require.min", "polyfill", "jquery", "bootstrap", "popper", "modernizr", "lodash", "swiper", "vendor"))
+                sinks = [] if is_vendor_js else sorted(set(sink_regex.findall(content)))
                 secrets = sorted({s[:120] for s in secret_regex.findall(content)})
                 eps.update(method_map.keys())
                 sorted_eps = sorted(eps)
@@ -1201,6 +1226,30 @@ class ReconSuperAgent:
         apex_domain = ScopeGuard.extract_apex_domain(primary_host)
         safe_host = shlex.quote(primary_host)
         safe_apex = shlex.quote(apex_domain)
+
+        # Pre-Flight DNS Existence & Typo Guard (Fail in 1.5s if apex domain is NXDOMAIN)
+        if not re.match(r"^\d+\.\d+\.\d+\.\d+$", apex_domain):
+            pf_res = dns.resolver.Resolver(configure=False)
+            pf_res.nameservers = ["8.8.8.8", "1.1.1.1", "9.9.9.9"]
+            pf_res.timeout = 1.5
+            pf_res.lifetime = 2.5
+            apex_exists = False
+            for pf_rt in ("NS", "SOA", "A"):
+                try:
+                    pf_res.resolve(apex_domain, pf_rt)
+                    apex_exists = True
+                    break
+                except dns.resolver.NXDOMAIN:
+                    apex_exists = False
+                    break
+                except Exception:
+                    apex_exists = True
+            if not apex_exists:
+                log_fn(f"[❌ DNS NXDOMAIN BLOCK] '{apex_domain}' domeni global DNS da mavjud emas (ehtimoliy imlo xatosi / typo). Domen nomini tekshiring!")
+                self.db.update_project_status(project_id, "ABORTED")
+                _prog(0.0, f"NXDOMAIN: {apex_domain} topilmadi")
+                return
+
         log_fn(f"═══ 🛰️ 1-SUPERAGENT: DEEP AUTONOMOUS RECON [{recon_mode.upper()}] (Target: {primary_host} | Apex: {apex_domain}) ═══")
         self.db.upsert_domain(project_id, primary_host, source="primary_target")
         if apex_domain != primary_host:
@@ -1258,7 +1307,11 @@ class ReconSuperAgent:
                     self._stage1_dns_enum(project_id, primary_host, scope, log_fn, only_unresolved=True)
                     self._stage2_shodan_internetdb(project_id, scope, log_fn)
                     spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
-                raw_domains = [d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", []) if d.get("ip") or d.get("cname") or d["domain"] == primary_host]
+                raw_domains = [
+                    d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", [])
+                    if (d.get("ip") or (d.get("cname") and not str(d.get("cname", "")).startswith("loopback:")) or d["domain"] == primary_host)
+                    and not d["domain"].startswith("localhost.")
+                ]
                 if primary_host not in raw_domains:
                     raw_domains.insert(0, primary_host)
                 domains = sorted(set(raw_domains), key=lambda x: (-_dom_priority(x), x))
