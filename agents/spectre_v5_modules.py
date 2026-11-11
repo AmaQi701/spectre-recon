@@ -826,6 +826,47 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                                         js_list.append(u)
                     log_fn(f"  [+] {hist_bin.upper()} yakunlandi: {h_cnt} ta tarixiy URL bazaga qo'shildi.")
 
+    def _task_primary_crawlers():
+        if dom != primary_host:
+            return
+        if "httprobe" in active_ids and agent._find_binary("httprobe"):
+            hp_out = agent._run_cli(f"echo {safe_dom} | httprobe -c 10 -t 3000", log_fn, timeout=10, project_id=project_id)
+            for hp_u in hp_out.splitlines():
+                if hp_u.strip().startswith("http"):
+                    agent._record_discovered_url(project_id, hp_u.strip(), url, scope, "httprobe")
+        if "gospider" in active_ids and agent._find_binary("gospider"):
+            log_fn(f"[Tool 5.5 -> GoSpider] {url} chuqur link va JS qidiruvi...")
+            gs_out = agent._run_cli(f"gospider -s {safe_url} -d 2 -c 10 -t 5 --js -q", log_fn, timeout=20, project_id=project_id)
+            for gs_line in gs_out.splitlines()[:120]:
+                for m_u in re.findall(r"https?://[^\s\"'<>]+", gs_line):
+                    u = agent._record_discovered_url(project_id, m_u, url, scope, "gospider")
+                    if u and u.endswith(".js"):
+                        with js_lock:
+                            if len(js_list) < 40 and u not in js_list:
+                                js_list.append(u)
+        if "waymore" in active_ids and agent._find_binary("waymore"):
+            wm_out_file = f"/tmp/spectre_waymore_{project_id}.txt"
+            agent._run_cli(f"waymore -i {safe_dom} -mode U -l 100 -oU {wm_out_file}", log_fn, timeout=20, project_id=project_id)
+            if os.path.exists(wm_out_file):
+                try:
+                    for w_u in open(wm_out_file, "r", errors="ignore").read().splitlines()[:120]:
+                        u = agent._record_discovered_url(project_id, w_u.strip(), url, scope, "waymore")
+                        if u and u.endswith(".js"):
+                            with js_lock:
+                                if len(js_list) < 40 and u not in js_list:
+                                    js_list.append(u)
+                except Exception:
+                    pass
+
+    if is_high_val:
+        tasks_to_run = [_task_whatweb, _task_katana, _task_httpx, _task_hakrawler, _task_subjs]
+        if dom == primary_host:
+            tasks_to_run.extend([_task_wafw00f, _task_history, _task_primary_crawlers])
+        ex_w = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+        futs_w = [ex_w.submit(fn) for fn in tasks_to_run]
+        concurrent.futures.wait(futs_w, timeout=34)
+        ex_w.shutdown(wait=False, cancel_futures=True)
+
     # 6.1 FFUF Auto-Calibrated SecLists Fuzzer (-ac -of json)
     seclists_common = "/home/amaqi/SecLists/Discovery/Web-Content/common.txt"
     is_fuzz_target = (dom == primary_host) or any(k in dom.split(".")[0].lower() for k in ("api", "admin", "my", "id", "auth", "sso", "portal"))
@@ -838,9 +879,9 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
             pass
         log_fn(f"[Tool 6.1 -> FFUF Auto-Calibrated (-ac) SecLists] {url}/FUZZ da 4,700+ yashirin katalog va fayllar qidirilmoqda...")
         agent._run_cli(
-            f"ffuf -u {safe_url}/FUZZ -w {seclists_common} -mc 200,204,301,302,307,401,403,405 -ac -t 35 -maxtime 28 -of json -o {ffuf_json} -s",
+            f"ffuf -u {safe_url}/FUZZ -w {seclists_common} -mc 200,204,301,302,307,401,403,405 -ac -t 35 -maxtime 22 -of json -o {ffuf_json} -s",
             log_fn,
-            timeout=34,
+            timeout=28,
             project_id=project_id,
         )
         if os.path.exists(ffuf_json):
@@ -856,35 +897,6 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                         log_fn(f"  [📂 FFUF Hit] HTTP {f_stat} ({f_len}B) -> {f_url}")
             except Exception as ex:
                 log_fn(f"  [!] FFUF JSON parse ogohlantirish: {ex}")
-
-    # 4.5 HTTProbe Fast Web Alive Verification
-    if "httprobe" in active_ids and agent._find_binary("httprobe") and dom == primary_host:
-        hp_out = agent._run_cli(f"echo {safe_dom} | httprobe -c 10 -t 3000", log_fn, timeout=12, project_id=project_id)
-        for hp_u in hp_out.splitlines():
-            if hp_u.strip().startswith("http"):
-                agent._record_discovered_url(project_id, hp_u.strip(), url, scope, "httprobe")
-
-    # 5.5 & 5.7 GoSpider & Waymore Redundant Crawlers (Primary Host)
-    if "gospider" in active_ids and agent._find_binary("gospider") and dom == primary_host:
-        log_fn(f"[Tool 5.5 -> GoSpider] {url} chuqur link va JS qidiruvi...")
-        gs_out = agent._run_cli(f"gospider -s {safe_url} -d 2 -c 10 -t 5 --js -q", log_fn, timeout=22, project_id=project_id)
-        for gs_line in gs_out.splitlines()[:120]:
-            for m_u in re.findall(r"https?://[^\s\"'<>]+", gs_line):
-                u = agent._record_discovered_url(project_id, m_u, url, scope, "gospider")
-                if u and u.endswith(".js") and len(js_list) < 40 and u not in js_list:
-                    js_list.append(u)
-
-    if "waymore" in active_ids and agent._find_binary("waymore") and dom == primary_host:
-        wm_out_file = f"/tmp/spectre_waymore_{project_id}.txt"
-        agent._run_cli(f"waymore -i {safe_dom} -mode U -l 100 -oU {wm_out_file}", log_fn, timeout=22, project_id=project_id)
-        if os.path.exists(wm_out_file):
-            try:
-                for w_u in open(wm_out_file, "r", errors="ignore").read().splitlines()[:120]:
-                    u = agent._record_discovered_url(project_id, w_u.strip(), url, scope, "waymore")
-                    if u and u.endswith(".js") and len(js_list) < 40 and u not in js_list:
-                        js_list.append(u)
-            except Exception:
-                pass
 
     # 6.2, 6.3 & 6.4 Dirsearch / Gobuster / Wfuzz Backup Directory Fuzzers
     if dom == primary_host and os.path.exists(seclists_common):
