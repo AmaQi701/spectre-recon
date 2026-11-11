@@ -573,7 +573,7 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
         nb_targets = non_cdn_ips[:5]
         nb_joined = ",".join(nb_targets)
         log_fn(f"[Tool 3.1 -> Naabu] {nb_joined} ({len(nb_targets)} ta noyob Origin IP) da Top-1000 portlar tezkor tekshirilmoqda...")
-        nb_out = agent._run_cli(f"naabu -host {shlex.quote(nb_joined)} -top-ports 1000 -silent", log_fn, timeout=45, project_id=project_id)
+        nb_out = agent._run_cli(f"naabu -host {shlex.quote(nb_joined)} -top-ports 1000 -rate 250 -c 25 -silent", log_fn, timeout=45, project_id=project_id)
         for line in nb_out.splitlines():
             if ":" in line:
                 h_part, p_part = line.strip().rsplit(":", 1)
@@ -779,7 +779,10 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
             log_fn(f"[Tool 5.6 -> Hakrawler] {url} qo'shimcha endpoint va JS linklari yig'ilmoqda...")
             hk_out = agent._run_cli(f"echo {safe_url} | hakrawler -d 2 -subs -u", log_fn, timeout=20, project_id=project_id)
             for hk_url in hk_out.splitlines()[:100]:
-                u = agent._record_discovered_url(project_id, hk_url, url, scope, "hakrawler")
+                hk_s = hk_url.strip()
+                if not hk_s.startswith(("http://", "https://")) or " " in hk_s:
+                    continue
+                u = agent._record_discovered_url(project_id, hk_s, url, scope, "hakrawler")
                 if u and u.endswith(".js"):
                     with js_lock:
                         if len(js_list) < 40 and u not in js_list:

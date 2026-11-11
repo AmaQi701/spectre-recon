@@ -761,13 +761,35 @@ class ReconSuperAgent:
         if not ok:
             return ""
         try:
-            resp = self.session.get(url, timeout=(3.5, 6.5), verify=False, allow_redirects=True)
+            resp = self.session.get(url, timeout=(3.5, 5.5), verify=False, allow_redirects=False)
+            redirect_note = ""
+            if resp.status_code in (301, 302, 303, 307, 308):
+                loc = resp.headers.get("Location", "").strip()
+                if loc:
+                    loc_full = urllib.parse.urljoin(url, loc)
+                    if scope.is_in_scope(loc_full)[0]:
+                        try:
+                            resp_f = self.session.get(url, timeout=(3.5, 5.5), verify=False, allow_redirects=True)
+                            resp = resp_f
+                        except Exception:
+                            redirect_note = f"Redirect ({resp.status_code}) -> {loc_full[:80]}"
+                    else:
+                        redirect_note = f"External Redirect ({resp.status_code}) -> {loc_full[:80]}"
+                        log_fn(f"  [🔄 EXTERNAL REDIRECT] {url} -> {loc_full} (Scope tashqarisidagi domenga yo'naltirilgan)")
+                        self.db.upsert_finding(
+                            project_id, "SPECTRE-Agent1 (Redirect-Intel)", f"External Domain Redirect Detected ({ScopeGuard.extract_host(url)})",
+                            "Infrastructure / Domain Migration Intelligence", "Info", 0.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
+                            "CWE-601", "A05:2021 - Security Misconfiguration", url,
+                            f"HTTP {resp.status_code} Location: {loc_full}",
+                            "Domen tashqi (scope tashqarisidagi) boshqa domenga HTTP 301/302 orqali yo'naltirilgan.",
+                            "Agar yangi domen ham tashkilotga tegishli bo'lsa, uni Scope ro'yxatiga qo'shing.",
+                        )
             self._probe_tls.last_status = resp.status_code
             headers = {k: v for k, v in resp.headers.items()}
             headers_l = {k.lower(): v for k, v in headers.items()}
 
             soup = BeautifulSoup(resp.text[:50000], "html.parser")
-            title = soup.title.string.strip() if (soup.title and soup.title.string) else ""
+            title = (soup.title.string.strip() if (soup.title and soup.title.string) else "") or redirect_note
             server = headers_l.get("server", "")
             powered = headers_l.get("x-powered-by", "")
 
@@ -908,7 +930,13 @@ class ReconSuperAgent:
 
 
     def _record_discovered_url(self, project_id: int, raw_url: str, base_url: str, scope: ScopeGuard, source: str, method: str = "GET", extra_params: list | None = None) -> str | None:
-        full_url = urllib.parse.urljoin(base_url, raw_url.strip())
+        raw_s = (raw_url or "").strip()
+        if not raw_s or any(c.isspace() for c in raw_s):
+            return None
+        raw_l = raw_s.lower()
+        if raw_l.startswith(("javascript:", "mailto:", "tel:", "data:", "#", "about:", "no urls", "error", "[wrn]", "[err]")):
+            return None
+        full_url = urllib.parse.urljoin(base_url, raw_s)
         full_url = full_url.replace("/assets/assets/", "/assets/").replace("/static/static/", "/static/")
         ok, _ = scope.is_in_scope(full_url)
         if not ok:
@@ -1366,18 +1394,34 @@ class ReconSuperAgent:
                 concurrent.futures.wait(futs_p, timeout=35)
                 ex_p.shutdown(wait=False, cancel_futures=True)
 
-                # Phase B: Deep Inspection on top-priority unique live web services (with Smart Clone Deduplication)
+                # Phase B: Deep Inspection on top-priority unique live web services (with Smart Clone Deduplication & Tarpit Circuit-Breaker)
                 live_sorted = sorted(probe_results.keys(), key=lambda x: (-_dom_priority(x), x))
                 scanned_app_sigs: dict[tuple, str] = {}
+                tarpitted_ips: set[str] = set()
                 deep_scanned_count = 0
                 for dom in live_sorted[:16]:
                     if project_id in self.abort_flags:
                         break
                     url, html = probe_results[dom]
+                    dip = dom_ip_map.get(dom, "")
+                    first_lbl = dom.split(".")[0].lower()
+                    if dom != primary_host and first_lbl in ("cpcalendars", "cpcontacts", "webdisk", "autodiscover"):
+                        log_fn(f"  [⚡ cPanel Stub Skip] {dom} ({url}) -> avto-servis stabi, og'ir fuzzerlar o'tkazib yuborildi.")
+                        continue
+                    if dip and dip in tarpitted_ips:
+                        log_fn(f"  [⚡ Firewall Circuit-Breaker] {dom} ({dip}) IP avvalgi bosqichda tarpit/ban qilingan — ortiqcha kutish o'tkazib yuborildi.")
+                        continue
+                    try:
+                        self.session.get(url, timeout=(2.5, 3.5), verify=False, allow_redirects=False)
+                    except requests.exceptions.RequestException:
+                        if dip:
+                            tarpitted_ips.add(dip)
+                        log_fn(f"  [⚡ Firewall Circuit-Breaker] {dom} ({url}) ulanishni uzdi yoki javob bermayapti (WAF/CSF IP-ban) — sekin modullar o'tkazib yuborildi.")
+                        continue
                     m_title = re.search(r"<title[^>]*>(.*?)</title>", html[:15000], re.I | re.S)
                     t_sig = (m_title.group(1).strip().lower()[:60] if m_title else "")
                     sc_names = tuple(sorted({s.split("/")[-1].split("?")[0] for s in re.findall(r'src=["\']([^"\']+\.js)', html[:25000])})[:4])
-                    app_sig = (dom_ip_map.get(dom, ""), t_sig, sc_names)
+                    app_sig = (dip, t_sig, sc_names)
                     if dom != primary_host and (t_sig or sc_names) and app_sig in scanned_app_sigs:
                         log_fn(f"  [⚡ Smart Clone Skip] {dom} ({url}) -> {scanned_app_sigs[app_sig]} bilan bir xil ilova shabloni, takroriy og'ir skan o'tkazib yuborildi.")
                         continue
