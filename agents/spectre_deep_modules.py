@@ -433,37 +433,53 @@ def build_target_dossier(db, project_id: int, selected_domain: str = "") -> str:
     host_finds = [f for f in findings if selected_domain in f["asset"] or (ip and ip in f["asset"])]
 
     lines = [
-        f"╔══ 🎯 SPECTRE TARGET DOSSIER & PENTESTING TASK TREE (PTT): {selected_domain} ══╗",
-        f"• IP Manzil: {ip or 'N/A'} | CNAME: {dom_obj.get('cname') or 'N/A'} | Manba: {dom_obj.get('source', '')}",
-        f"• Shu IP dagi Qo'shni Subdomenlar (Co-Hosted VHosts - {len(co_hosted)} ta): {', '.join(co_hosted[:10]) or 'Yo`q'}",
-        f"• DNS Yozuvlari: {dom_obj.get('records_json', '{}')}",
+        f"TARGET DOSSIER & INFRASTRUCTURE PASSPORT  —  {selected_domain}",
+        "═" * 78,
+        f"IP Address     : {ip or 'Unresolved'}   |   CNAME: {dom_obj.get('cname') or '-'}   |   Source: {dom_obj.get('source', '-')}",
+        f"Co-Hosted Hosts: {len(co_hosted)} virtual hosts ({', '.join(co_hosted[:8]) or 'None'})",
+        f"DNS / ASN Intel: {dom_obj.get('records_json', '{}')[:220]}",
         "",
-        f"── 🔌 OCHIQ PORTLAR VA SERVISLAR ({len(host_ports)} ta) ──",
+        f"[01] OPEN NETWORK PORTS & SERVICES ({len(host_ports)})",
+        "─" * 78,
     ]
-    for p in host_ports:
-        lines.append(f"  [{p['port']}/{p['protocol']}] {p['service']} | {p['version']} ({p['source']})")
+    if host_ports:
+        for p in host_ports:
+            p_lbl = f"{p['port']}/{p['protocol']}"
+            lines.append(f"  • {p_lbl.ljust(10)} {str(p.get('service') or '-').ljust(16)} {p.get('version') or ''}  [{p.get('source', '')}]")
+    else:
+        lines.append("  • No open TCP/UDP ports recorded for this host.")
 
-    lines.append(f"\n── 🌐 FAOL HTTP/HTTPS PANELLAR ({len(host_https)} ta) ──")
-    for h in host_https:
-        lines.append(f"  [{h['status_code']}] {h['url']} — Title: '{h['title']}' | Server: {h['server']}")
+    lines.append(f"\n[02] ACTIVE HTTP / HTTPS SERVICES ({len(host_https)})")
+    lines.append("─" * 78)
+    if host_https:
+        for h in host_https:
+            lines.append(f"  • [{h['status_code']}] {h['url']}  —  Title: '{h['title'] or '-'}'  |  Server: {h['server'] or '-'}")
+    else:
+        lines.append("  • No active web services recorded on standard or management ports.")
 
-    lines.append(f"\n── 🚨 ANIQLANGAN TOPILMALAR VA CVE'LAR ({len(host_finds)} ta) ──")
-    for f in host_finds:
-        lines.append(f"  [{f['severity']} | CVSS {f['cvss_score']}] {f['title']} -> {f['evidence'][:140]}")
+    lines.append(f"\n[03] ASSOCIATED SECURITY FINDINGS & CVEs ({len(host_finds)})")
+    lines.append("─" * 78)
+    if host_finds:
+        for f in host_finds:
+            lines.append(f"  • [{f['severity'].upper()} | CVSS {f['cvss_score']}] {f['title']}")
+            lines.append(f"    Evidence: {f['evidence'][:140]}")
+    else:
+        lines.append("  • No security findings currently mapped to this asset.")
 
-    lines.append("\n── 🧠 PENTESTING TASK TREE (KEYINGI AMALIY QADAMLAR / PTT) ──")
+    lines.append("\n[04] PENTESTING TASK TREE (RECOMMENDED NEXT AUDIT STEPS)")
+    lines.append("─" * 78)
     port_nums = {int(p["port"]) for p in host_ports}
     if 21 in port_nums:
-        lines.append(f"  1. [FTP Port 21 Open] Anonymous FTP tekshiruvi: nmap -p 21 --script ftp-anon {ip or selected_domain}")
+        lines.append(f"  1. [FTP Audit] Verify anonymous read/write access: nmap -p 21 --script ftp-anon {ip or selected_domain}")
     if 445 in port_nums or 137 in port_nums:
-        lines.append(f"  2. [SMB Port 445 Open] Null-session va ulashilgan papkalar: nxc smb {ip or selected_domain} -u '' -p '' --shares")
+        lines.append(f"  2. [SMB Audit] Check null-session & share ACLs: nxc smb {ip or selected_domain} -u '' -p '' --shares")
     if port_nums & WEB_CANDIDATE_PORTS:
         custom_p = sorted(port_nums & WEB_CANDIDATE_PORTS)
-        lines.append(f"  3. [Custom Web Ports {custom_p}] Boshqaruv panellarini tekshirish: {', '.join(f'http://{selected_domain}:{cp}' for cp in custom_p)}")
+        lines.append(f"  3. [Management Ports {custom_p}] Inspect non-standard admin panels: {', '.join(f'https://{selected_domain}:{cp}' for cp in custom_p[:5])}")
     api_list = [e["url"] for e in endpoints if e.get("category") in ("api_endpoint", "high_value_endpoint")][:4]
     if api_list:
-        lines.append(f"  4. [API BOLA/IDOR Audit] Burp Suite orqali tekshiriladigan API route'lar: {', '.join(api_list)}")
-    lines.append(f"  5. [Custom Wordlist Fuzzing] ffuf -u https://{selected_domain}/FUZZ -w /home/amaqi/projects/apex-pentest-gui/workspaces/project_{project_id}_custom_wordlist.txt -mc 200,401,403")
+        lines.append(f"  4. [API BOLA/IDOR] Test object-level authorization in Repeater: {', '.join(api_list)}")
+    lines.append(f"  5. [Targeted Content Discovery] ffuf -u https://{selected_domain}/FUZZ -w /home/amaqi/SecLists/Discovery/Web-Content/common.txt -ac")
     return "\n".join(lines)
 
 

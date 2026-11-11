@@ -34,45 +34,47 @@ from core.database import DatabaseManager
 from core.scope_guard import ScopeGuard
 
 DARK_CSS = b"""
-window, .background { background-color: #090d16; color: #e2e8f0; font-family: "Inter", "Ubuntu", system-ui, sans-serif; }
-headerbar { background-image: none; background-color: #0b1120; color: #f8fafc; border-bottom: 1px solid #1e293b; padding: 4px 10px; }
-headerbar button.titlebutton { background-image: none; background-color: transparent; color: #94a3b8; border: none; box-shadow: none; }
-headerbar button.titlebutton:hover { background-color: #1e293b; color: #ffffff; }
+window, .background { background-color: #0d1117; color: #e6edf3; font-family: "Inter", "Ubuntu", system-ui, sans-serif; }
+headerbar { background-image: none; background-color: #131822; color: #f0f6fc; border-bottom: 1px solid #21262d; padding: 3px 10px; }
+headerbar .title { font-weight: 700; font-size: 13.5px; color: #f0f6fc; }
+headerbar .subtitle { font-size: 11px; color: #7d8590; }
+headerbar button.titlebutton { background-image: none; background-color: transparent; color: #8b949e; border: none; box-shadow: none; }
+headerbar button.titlebutton:hover { background-color: #21262d; color: #ffffff; }
 
-.sidebar { background-color: #0b1120; border-right: 1px solid #1e293b; padding: 10px; }
-.nav-btn { background-image: none; background-color: transparent; color: #94a3b8; border: 1px solid transparent; border-radius: 7px; padding: 9px 12px; font-weight: 600; font-size: 13px; box-shadow: none; }
-.nav-btn:hover { background-color: #111827; color: #e2e8f0; }
-.nav-btn-active { background-image: none; background-color: #1e293b; color: #38bdf8; border: 1px solid #0284c7; border-radius: 7px; padding: 9px 12px; font-weight: 700; font-size: 13px; }
+.sidebar { background-color: #11161f; border-right: 1px solid #21262d; padding: 12px 10px; }
+.nav-btn { background-image: none; background-color: transparent; color: #8b949e; border: 1px solid transparent; border-radius: 5px; padding: 8px 11px; font-weight: 600; font-size: 12.5px; box-shadow: none; }
+.nav-btn:hover { background-color: #161c28; color: #e6edf3; }
+.nav-btn-active { background-image: none; background-color: #1c2433; color: #f0f6fc; border: 1px solid #30363d; border-left: 3px solid #2f81f7; border-radius: 5px; padding: 8px 11px; font-weight: 700; font-size: 12.5px; }
 
-.toolbar-bar { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 8px 12px; }
-.stat-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 12px 16px; }
-.stat-title { font-size: 11px; color: #64748b; font-weight: 700; }
-.stat-val { font-size: 20px; font-weight: 800; color: #38bdf8; }
+.toolbar-bar { background-color: #131822; border: 1px solid #21262d; border-radius: 6px; padding: 6px 10px; }
+.stat-card { background-color: #131822; border: 1px solid #21262d; border-radius: 6px; padding: 7px 14px; }
+.stat-title { font-size: 10px; color: #7d8590; font-weight: 700; letter-spacing: 0.6px; }
+.stat-val { font-size: 14.5px; font-weight: 700; color: #f0f6fc; }
 
-treeview { background-color: #0b1120; color: #e2e8f0; font-size: 12.5px; border: none; }
-treeview:selected { background-color: #1e3a8a; color: #ffffff; }
-treeview header button { background-image: none; background-color: #111827; color: #94a3b8; font-weight: 700; font-size: 11.5px; border: none; border-bottom: 1px solid #1e293b; border-right: 1px solid #1e293b; padding: 8px 10px; box-shadow: none; }
-treeview header button:hover { background-color: #1e293b; color: #38bdf8; }
+treeview { background-color: #0d1117; color: #e6edf3; font-size: 12px; border: none; }
+treeview:selected { background-color: #1f3a60; color: #ffffff; }
+treeview header button { background-image: none; background-color: #131822; color: #8b949e; font-weight: 700; font-size: 11px; border: none; border-bottom: 1px solid #21262d; border-right: 1px solid #21262d; padding: 6px 10px; box-shadow: none; }
+treeview header button:hover { background-color: #1c2433; color: #f0f6fc; }
 
-entry, combobox button { background-image: none; background-color: #090d16; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 6px 10px; box-shadow: none; }
-entry:focus { border-color: #0ea5e9; }
-textview, textview text { background-color: #070a12; color: #34d399; font-family: "JetBrains Mono", "Ubuntu Mono", monospace; font-size: 12.5px; }
-.panel-box { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 8px; }
-progressbar text { color: #ffffff; font-weight: 700; font-size: 12px; }
-progressbar trough { min-height: 22px; background-color: #090d16; border: 1px solid #1e293b; border-radius: 6px; }
-progressbar progress { min-height: 22px; background-image: none; background-color: #0284c7; border-radius: 6px; }
+entry, combobox button { background-image: none; background-color: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 5px 9px; font-size: 12px; box-shadow: none; }
+entry:focus { border-color: #2f81f7; }
+textview, textview text { background-color: #090c10; color: #d0d7de; font-family: "JetBrains Mono", "Ubuntu Mono", monospace; font-size: 12px; }
+.panel-box { background-color: #131822; border: 1px solid #21262d; border-radius: 6px; padding: 6px; }
+.section-hdr { font-size: 11.5px; font-weight: 700; color: #8b949e; }
+progressbar text { color: #d0d7de; font-weight: 600; font-size: 11.5px; }
+progressbar trough { min-height: 20px; background-color: #0d1117; border: 1px solid #21262d; border-radius: 5px; }
+progressbar progress { min-height: 20px; background-image: none; background-color: #1f6feb; border-radius: 4px; }
 
-
-.act-btn { background-image: none; background-color: #0284c7; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 6px; padding: 6px 13px; border: none; box-shadow: none; }
-.act-btn:hover { background-color: #0369a1; }
-.btn-green { background-image: none; background-color: #059669; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 6px; padding: 6px 13px; border: none; box-shadow: none; }
-.btn-green:hover { background-color: #047857; }
-.btn-amber { background-image: none; background-color: #d97706; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 6px; padding: 6px 13px; border: none; box-shadow: none; }
-.btn-amber:hover { background-color: #b45309; }
-.btn-red { background-image: none; background-color: #dc2626; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 6px; padding: 6px 13px; border: none; box-shadow: none; }
-.btn-red:hover { background-color: #b91c1c; }
-.btn-purple { background-image: none; background-color: #4f46e5; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 6px; padding: 6px 13px; border: none; box-shadow: none; }
-.btn-purple:hover { background-color: #4338ca; }
+.act-btn { background-image: none; background-color: #1c2331; color: #e6edf3; font-weight: 600; font-size: 12px; border-radius: 5px; padding: 5px 12px; border: 1px solid #30363d; box-shadow: none; }
+.act-btn:hover { background-color: #262f40; border-color: #58a6ff; }
+.btn-green { background-image: none; background-color: #162621; color: #56d364; font-weight: 600; font-size: 12px; border-radius: 5px; padding: 5px 12px; border: 1px solid #238636; box-shadow: none; }
+.btn-green:hover { background-color: #1f352e; border-color: #3fb950; }
+.btn-amber { background-image: none; background-color: #272115; color: #e3b341; font-weight: 600; font-size: 12px; border-radius: 5px; padding: 5px 12px; border: 1px solid #9e6a03; box-shadow: none; }
+.btn-amber:hover { background-color: #342b1b; border-color: #d29922; }
+.btn-red { background-image: none; background-color: #29181c; color: #f85149; font-weight: 600; font-size: 12px; border-radius: 5px; padding: 5px 12px; border: 1px solid #da3633; box-shadow: none; }
+.btn-red:hover { background-color: #382026; border-color: #f85149; }
+.btn-purple { background-image: none; background-color: #1f6feb; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 5px; padding: 5px 13px; border: 1px solid #388bfd; box-shadow: none; }
+.btn-purple:hover { background-color: #388bfd; }
 """
 
 
@@ -126,8 +128,8 @@ class ApexNativeWindow(Gtk.Window):
         tree = Gtk.TreeView(model=store)
         tree.set_grid_lines(Gtk.TreeViewGridLines.HORIZONTAL)
         tree.set_headers_visible(True)
-        narrow_cols = {"ID", "Status", "CVSS", "WAF", "Method", "Manba", "CNAME", "Faol (Enabled)", "O'rnatilganligi"}
-        wide_cols = {"URL", "Endpoint URL", "Subdomen / Host", "Zaiflik Nomi", "Nishon (Asset)", "Ajratilgan API Route / URL'lar"}
+        narrow_cols = {"ID", "Status", "STATUS", "CVSS", "WAF", "Method", "METHOD", "Manba", "SOURCE", "CNAME", "ENABLED", "INSTALLED"}
+        wide_cols = {"URL", "Endpoint URL", "ENDPOINT URL", "Subdomen / Host", "HOST / SUBDOMAIN", "Zaiflik Nomi", "FINDING TITLE", "Nishon (Asset)", "TARGET ASSET", "EXTRACTED API ROUTES"}
         for idx, (col_title, col_type) in enumerate(columns):
             renderer = Gtk.CellRendererText()
             renderer.set_padding(8, 6)
@@ -175,26 +177,26 @@ class ApexNativeWindow(Gtk.Window):
             host_only = re.sub(r"^https?://", "", full_url).split("/")[0].split(":")[0]
 
             menu = Gtk.Menu()
-            it_open = Gtk.MenuItem(label=f"🌐 Brauzerda Ochish ({raw_val[:38]})")
+            it_open = Gtk.MenuItem(label=f"Open in Browser ({raw_val[:38]})")
             it_open.connect("activate", lambda _: subprocess.Popen(["xdg-open", full_url]))
             menu.append(it_open)
 
-            it_rep = Gtk.MenuItem(label="⚡ HTTP Repeater'ga Yuborish")
+            it_rep = Gtk.MenuItem(label="Send to HTTP Repeater")
             def _send_rep(_):
                 self.rep_url_entry.set_text(full_url)
                 self._switch_page("p_endpoints", self.nav_buttons[2])
-                self.log_msg(f"[REPEATER] ⚡ URL Repeater'ga yuklandi: {full_url}")
+                self.log_msg(f"[REPEATER] Loaded target URL: {full_url}")
             it_rep.connect("activate", _send_rep)
             menu.append(it_rep)
 
-            it_deep = Gtk.MenuItem(label=f"🎯 Shu Hostni Chuqur Skanerlash ({host_only})")
+            it_deep = Gtk.MenuItem(label=f"Deep Scan Host ({host_only})")
             def _deep_host(_):
                 self._selected_domain = host_only
                 self.on_deep_scan_selected_subdomain(None, explicit_host=host_only)
             it_deep.connect("activate", _deep_host)
             menu.append(it_deep)
 
-            it_copy = Gtk.MenuItem(label="📋 Manzilni Nusxalash (Copy)")
+            it_copy = Gtk.MenuItem(label="Copy Target Value")
             it_copy.connect("activate", lambda _: Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(raw_val, -1))
             menu.append(it_copy)
 
@@ -216,43 +218,42 @@ class ApexNativeWindow(Gtk.Window):
 
 
     def _build_ui(self):
-        # Clean Minimal HeaderBar (window controls stay sleek & native)
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
-        hb.props.title = "👻 SPECTRE Recon & Attack Surface Studio v12.10 Titan"
-        hb.props.subtitle = "49-Tool Arsenal • Headless Chrome V8 • IPv6 Dual-Stack • SourceMap-to-SAST • Firewall Circuit-Breaker"
+        hb.props.title = "SPECTRE Enterprise ASM & Security Studio"
+        hb.props.subtitle = "v12.11 Titan  |  Autonomous Recon, Vulnerability Assessment & Bug Chaining"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self.add(outer_hbox)
 
-        # Left Modern Sidebar (compact 205px width so it always fits 1920x1080)
-        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         sidebar.get_style_context().add_class("sidebar")
         sidebar.set_size_request(205, -1)
         brand_lbl = Gtk.Label(xalign=0)
-        brand_lbl.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>👻 SPECTRE v12.10</span>\n<span foreground='#64748b' size='small'>Titan Cyber-Recon Studio</span>")
-        brand_lbl.set_margin_bottom(8)
-        sidebar.pack_start(brand_lbl, False, False, 4)
+        brand_lbl.set_markup("<span foreground='#f0f6fc' weight='bold' size='11500'>SPECTRE</span> <span foreground='#58a6ff' weight='bold' size='9500'>v12.11</span>\n<span foreground='#7d8590' size='8500'>Enterprise AppSec Studio</span>")
+        brand_lbl.set_margin_bottom(10)
+        brand_lbl.set_margin_start(4)
+        sidebar.pack_start(brand_lbl, False, False, 2)
 
 
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        self.stack.set_transition_duration(120)
+        self.stack.set_transition_duration(100)
         self.nav_buttons = []
-
-        nav_items = [
-            ("p_scope", "➕  1. Yangi Target & Scope"),
-            ("p_recon", "🛰️  2. Recon & Target Dossier"),
-            ("p_endpoints", "🗂️  3. Endpoints, API & JS"),
-            ("p_vulns", "🔍  4. Vuln Audit & SAST"),
-            ("p_chains", "🔗  5. Triage & Bug Chains"),
-            ("p_graph", "🕸️  6. Attack Surface Graph"),
-            ("p_report", "📄  7. Manual PoC & Report"),
-            ("p_tools", "⚙️  8. Tool Registry & JWT"),
+        self.nav_base_labels = [
+            ("p_scope", "01   Target & Scope"),
+            ("p_recon", "02   Attack Surface"),
+            ("p_endpoints", "03   Endpoints & JS"),
+            ("p_vulns", "04   Vuln Audit"),
+            ("p_chains", "05   Attack Chains"),
+            ("p_graph", "06   Topology Map"),
+            ("p_report", "07   Reports & PoC"),
+            ("p_tools", "08   Tool Registry"),
         ]
-        for idx, (pname, plabel) in enumerate(nav_items):
+        for idx, (pname, plabel) in enumerate(self.nav_base_labels):
             b = Gtk.Button(label=plabel)
+            b.set_alignment(0.0, 0.5)
             b.get_style_context().add_class("nav-btn-active" if idx == 1 else "nav-btn")
             b.connect("clicked", lambda btn, n=pname: self._switch_page(n, btn))
             self.nav_buttons.append(b)
@@ -261,56 +262,56 @@ class ApexNativeWindow(Gtk.Window):
         outer_hbox.pack_start(sidebar, False, False, 0)
 
         # Right Main Workspace
-        root_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        root_vbox.set_margin_top(10); root_vbox.set_margin_bottom(10)
-        root_vbox.set_margin_start(12); root_vbox.set_margin_end(12)
+        root_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+        root_vbox.set_margin_top(8); root_vbox.set_margin_bottom(8)
+        root_vbox.set_margin_start(10); root_vbox.set_margin_end(10)
         outer_hbox.pack_start(root_vbox, True, True, 0)
 
-        # Top Command & Filter Toolbar (Row 1: Project, Filter, Mode & Agent Buttons)
+        # Top Command & Filter Toolbar (Row 1: Project, Filter, Mode & Agent Controls)
         cmd_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         cmd_bar.get_style_context().add_class("toolbar-bar")
-        cmd_bar.pack_start(self._make_btn("➕ Yangi Target", "btn-green", lambda _: self._switch_page("p_scope", self.nav_buttons[0])), False, False, 0)
+        cmd_bar.pack_start(self._make_btn("+ New Target", "act-btn", lambda _: self._switch_page("p_scope", self.nav_buttons[0])), False, False, 0)
         self.proj_combo = Gtk.ComboBoxText()
         self.proj_combo.connect("changed", self.on_project_changed)
         cmd_bar.pack_start(self.proj_combo, False, False, 0)
-        cmd_bar.pack_start(self._make_btn("🗑️", "btn-red", self.on_delete_project), False, False, 0)
+        cmd_bar.pack_start(self._make_btn("Delete", "btn-red", self.on_delete_project), False, False, 0)
 
         self.search_entry = Gtk.SearchEntry()
-        self.search_entry.set_placeholder_text("🔎 Filter (subdomen, port, api, cve...)")
+        self.search_entry.set_placeholder_text("Filter assets (subdomain, port, endpoint, CVE...)")
         self.search_entry.set_hexpand(True)
         self.search_entry.connect("search-changed", lambda _: self.load_bundle())
         cmd_bar.pack_start(self.search_entry, True, True, 0)
 
         self.mode_combo = Gtk.ComboBoxText()
-        self.mode_combo.append("full", "🛰️ Full Recon")
-        self.mode_combo.append("subdomains", "🌐 Subdomains")
-        self.mode_combo.append("ports", "🔌 Ports/Shodan")
-        self.mode_combo.append("web_js", "📦 Web/API/JS")
+        self.mode_combo.append("full", "Profile: Full Recon")
+        self.mode_combo.append("subdomains", "Profile: Subdomains")
+        self.mode_combo.append("ports", "Profile: Ports & Shodan")
+        self.mode_combo.append("web_js", "Profile: Web / API / JS")
         self.mode_combo.set_active_id("full")
         cmd_bar.pack_start(self.mode_combo, False, False, 0)
 
-        cmd_bar.pack_end(self._make_btn("🛑 STOP", "btn-red", lambda _: self.on_abort()), False, False, 0)
-        cmd_bar.pack_end(self._make_btn("🚀 FULL AUTO", "btn-purple", lambda _: self.on_run_agent("all")), False, False, 0)
-        cmd_bar.pack_end(self._make_btn("🔗 3-Agent", "btn-green", lambda _: self.on_run_agent("triage")), False, False, 0)
-        cmd_bar.pack_end(self._make_btn("🔍 2-Agent", "btn-amber", lambda _: self.on_run_agent("vuln")), False, False, 0)
-        cmd_bar.pack_end(self._make_btn("🛰️ 1-Agent", "act-btn", lambda _: self.on_run_agent("recon")), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("Stop", "btn-red", lambda _: self.on_abort()), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("Run Full Pipeline", "btn-purple", lambda _: self.on_run_agent("all")), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("Stage 3: Triage", "act-btn", lambda _: self.on_run_agent("triage")), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("Stage 2: Audit", "act-btn", lambda _: self.on_run_agent("vuln")), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("Stage 1: Recon", "act-btn", lambda _: self.on_run_agent("recon")), False, False, 0)
         root_vbox.pack_start(cmd_bar, False, False, 0)
 
         # Row 2: Auth, Proxy & Live Stage Progress Bar
         sub_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.auth_entry = Gtk.Entry()
-        self.auth_entry.set_placeholder_text("🔑 Grey-box Auth (Cookie: ... / Authorization: Bearer ...)")
+        self.auth_entry.set_placeholder_text("Auth Header (Cookie: ... / Authorization: Bearer ...)")
         self.auth_entry.set_width_chars(28)
         sub_bar.pack_start(self.auth_entry, False, False, 0)
 
         self.proxy_entry = Gtk.Entry()
-        self.proxy_entry.set_placeholder_text("🌐 Proxy (http://127.0.0.1:8080)")
+        self.proxy_entry.set_placeholder_text("Proxy (http://127.0.0.1:8080)")
         self.proxy_entry.set_width_chars(22)
         sub_bar.pack_start(self.proxy_entry, False, False, 0)
 
         self.progress_bar = Gtk.ProgressBar()
         self.progress_bar.set_show_text(True)
-        self.progress_bar.set_text("SPECTRE v12.10 Titan Ready — Nishonni tanlang yoki skanerni boshlang")
+        self.progress_bar.set_text("SPECTRE v12.11 Ready — Select a project or launch a scan")
         self.progress_bar.set_fraction(0.0)
         self.progress_bar.set_hexpand(True)
         self.progress_bar.set_valign(Gtk.Align.CENTER)
@@ -319,22 +320,22 @@ class ApexNativeWindow(Gtk.Window):
 
 
 
-        # Stats Row
-        stats_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        # Compact Telemetry Strip
+        stats_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.lbl_stat_dom = Gtk.Label(label="0", xalign=0)
         self.lbl_stat_http = Gtk.Label(label="0 / 0", xalign=0)
         self.lbl_stat_ep = Gtk.Label(label="0 / 0", xalign=0)
         self.lbl_stat_find = Gtk.Label(label="0 / 0", xalign=0)
         for title_cap, lbl in [
-            ("🌐 SUBDOMENLAR & DNS", self.lbl_stat_dom),
-            ("🔌 OCHIQ PORTLAR & WEB", self.lbl_stat_http),
-            ("🗂️ ENDPOINTLAR & JS BUNDLES", self.lbl_stat_ep),
-            ("🚨 TOPILMALAR & ZANJIRLAR", self.lbl_stat_find),
+            ("HOSTS & DNS SURFACE", self.lbl_stat_dom),
+            ("NETWORK & WEB SERVICES", self.lbl_stat_http),
+            ("ENDPOINTS & JS BUNDLES", self.lbl_stat_ep),
+            ("SECURITY FINDINGS & CHAINS", self.lbl_stat_find),
         ]:
             t_lbl = Gtk.Label(label=title_cap, xalign=0)
             t_lbl.get_style_context().add_class("stat-title")
             lbl.get_style_context().add_class("stat-val")
-            frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             frame.get_style_context().add_class("stat-card")
             frame.set_hexpand(True)
             frame.pack_start(t_lbl, False, False, 0)
@@ -343,30 +344,30 @@ class ApexNativeWindow(Gtk.Window):
         root_vbox.pack_start(stats_box, False, False, 0)
 
         vpaned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
-        vpaned.set_position(430)
+        vpaned.set_position(495)
         root_vbox.pack_start(vpaned, True, True, 0)
         vpaned.pack1(self.stack, True, False)
 
 
-        # TAB 0: Target & Scope (Quick + Full Creation Card)
+        # TAB 0: Target & Scope (Enterprise Project Configuration)
         tab0 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         tab0.get_style_context().add_class("panel-box")
         tab0.set_margin_top(8); tab0.set_margin_start(8); tab0.set_margin_end(8)
         hdr0 = Gtk.Label(xalign=0)
-        hdr0.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>🎯 Yangi Nishon (Target) va Audit Loyihasi Qo'shish</span>\n<span foreground='#94a3b8'>Domen yoki IP manzilni kiriting (masalan: target.uz). In-Scope bo'sh qolsa avtomatik ravishda target.uz va *.target.uz olinadi.</span>")
+        hdr0.set_markup("<span foreground='#f0f6fc' weight='bold' size='large'>New Target &amp; Engagement Scope</span>\n<span foreground='#8b949e'>Enter a primary domain, URL, or IP. Leaving In-Scope empty automatically authorizes target.tld and *.target.tld.</span>")
         tab0.pack_start(hdr0, False, False, 4)
         grid0 = Gtk.Grid(column_spacing=14, row_spacing=12)
-        self.ent_pname = Gtk.Entry(); self.ent_pname.set_placeholder_text("Masalan: MyTarget Audit")
-        self.ent_ptarget = Gtk.Entry(); self.ent_ptarget.set_placeholder_text("Masalan: target.uz yoki https://www.target.uz")
-        self.ent_pinscope = Gtk.Entry(); self.ent_pinscope.set_placeholder_text("Bo'sh qoldirsangiz avtomatik target.uz, *.target.uz olinadi")
-        self.ent_poutscope = Gtk.Entry(); self.ent_poutscope.set_placeholder_text("Taqiqlangan subdomenlar (ixtiyoriy)")
-        self.ent_pcode = Gtk.Entry(); self.ent_pcode.set_placeholder_text("/home/amaqi/projects/source-code (White-box SAST uchun ixtiyoriy)")
+        self.ent_pname = Gtk.Entry(); self.ent_pname.set_placeholder_text("Engagement name (e.g., Corp-Prod-Q4)")
+        self.ent_ptarget = Gtk.Entry(); self.ent_ptarget.set_placeholder_text("Primary target (e.g., example.com or https://app.example.com)")
+        self.ent_pinscope = Gtk.Entry(); self.ent_pinscope.set_placeholder_text("Optional custom scope (auto-populates target.tld and *.target.tld)")
+        self.ent_poutscope = Gtk.Entry(); self.ent_poutscope.set_placeholder_text("Excluded hosts or paths (optional)")
+        self.ent_pcode = Gtk.Entry(); self.ent_pcode.set_placeholder_text("/path/to/source-code (optional White-box SAST directory)")
         for r_idx, (title_txt, widget) in enumerate([
-            ("1. Loyiha Nomi:", self.ent_pname),
-            ("2. Asosiy Nishon (Domain / URL / IP):", self.ent_ptarget),
-            ("3. In-Scope (Ruxsat berilgan doira):", self.ent_pinscope),
-            ("4. Out-of-Scope (Taqiqlangan manzillar):", self.ent_poutscope),
-            ("5. White-box Kod Papkasi (SAST):", self.ent_pcode),
+            ("01. Engagement Name:", self.ent_pname),
+            ("02. Primary Target (Domain / URL / IP):", self.ent_ptarget),
+            ("03. Authorized In-Scope:", self.ent_pinscope),
+            ("04. Out-of-Scope Exclusions:", self.ent_poutscope),
+            ("05. White-Box Repository (SAST):", self.ent_pcode),
         ]):
             lbl = Gtk.Label(label=title_txt, xalign=0)
             widget.set_hexpand(True)
@@ -374,18 +375,18 @@ class ApexNativeWindow(Gtk.Window):
             grid0.attach(widget, 1, r_idx, 1, 1)
         tab0.pack_start(grid0, False, False, 4)
         btn_row0 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        btn_row0.pack_start(self._make_btn("➕ Loyihani Yaratish", "btn-green", self.on_create_project), False, False, 0)
-        btn_row0.pack_start(self._make_btn("🚀 Loyihani Yaratish va Darhol 1-Agent (Recon) ni Boshlash!", "btn-purple", lambda b: self.on_create_project(b, auto_start=True)), False, False, 0)
+        btn_row0.pack_start(self._make_btn("Create Workspace", "act-btn", self.on_create_project), False, False, 0)
+        btn_row0.pack_start(self._make_btn("Create & Launch Stage 1 Recon", "btn-purple", lambda b: self.on_create_project(b, auto_start=True)), False, False, 0)
         tab0.pack_start(btn_row0, False, False, 6)
 
 
         # TAB 1: Recon & Attack Surface + Target Dossier Inspector
         tab1 = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        tab1.set_position(740)
+        tab1.set_position(760)
         tab1_left = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         tab1_left.set_position(250)
-        sc_http, self.store_http, self.tree_http = self._make_tree([("URL", str), ("Status", str), ("Title", str), ("Server / Tech", str), ("WAF", str), ("Missing Headers", str)])
-        sc_dom, self.store_dom, self.tree_dom = self._make_tree([("Subdomen / Host", str), ("IP Manzil", str), ("CNAME", str), ("Manba", str), ("Ochiq Portlar va Servislar", str)])
+        sc_http, self.store_http, self.tree_http = self._make_tree([("URL", str), ("STATUS", str), ("TITLE", str), ("SERVER / STACK", str), ("WAF", str), ("MISSING HEADERS", str)])
+        sc_dom, self.store_dom, self.tree_dom = self._make_tree([("HOST / SUBDOMAIN", str), ("IP ADDRESS", str), ("CNAME", str), ("SOURCE", str), ("OPEN PORTS", str)])
         self.tree_dom.connect("cursor-changed", self.on_domain_selected)
         self._attach_context_menu(self.tree_http, 0)
         self._attach_context_menu(self.tree_dom, 0)
@@ -393,10 +394,12 @@ class ApexNativeWindow(Gtk.Window):
         tab1_left.pack2(sc_dom, True, False)
 
         dossier_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        dos_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        dos_bar.pack_start(Gtk.Label(label="🎯 Target Dossier & Pentesting Task Tree (PTT):", xalign=0), True, True, 6)
-        dos_bar.pack_end(self._make_btn("🧠 AI Tactical Analysis", "btn-purple", self.on_ai_dossier_analysis), False, False, 4)
-        dos_bar.pack_end(self._make_btn("🎯 Chuqur Skan (Tanlangan Host)", "btn-green", self.on_deep_scan_selected_subdomain), False, False, 4)
+        dos_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        dos_lbl = Gtk.Label(label="TARGET DOSSIER & PENTESTING TASK TREE", xalign=0)
+        dos_lbl.get_style_context().add_class("section-hdr")
+        dos_bar.pack_start(dos_lbl, True, True, 4)
+        dos_bar.pack_end(self._make_btn("AI Tactical Brief", "btn-purple", self.on_ai_dossier_analysis), False, False, 2)
+        dos_bar.pack_end(self._make_btn("Deep Scan Host", "btn-green", self.on_deep_scan_selected_subdomain), False, False, 2)
         dossier_box.pack_start(dos_bar, False, False, 2)
 
         dossier_scroll = Gtk.ScrolledWindow()
@@ -406,7 +409,7 @@ class ApexNativeWindow(Gtk.Window):
         self.dossier_view.set_monospace(True)
         self.dossier_view.set_left_margin(10); self.dossier_view.set_top_margin(8)
         self.dossier_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.dossier_view.get_buffer().set_text("Subdomen ustiga bosing — uning To'liq Texnik Pasporti (Target Dossier & PTT) shu yerda ochiladi...")
+        self.dossier_view.get_buffer().set_text("Select any host row on the left to inspect its infrastructure passport and Pentesting Task Tree...")
         dossier_scroll.add(self.dossier_view)
         dossier_box.pack_start(dossier_scroll, True, True, 0)
 
@@ -435,18 +438,18 @@ class ApexNativeWindow(Gtk.Window):
         self.rep_body_entry.set_width_chars(28)
         ep_bar.pack_start(self.rep_body_entry, False, False, 0)
 
-        ep_bar.pack_end(self._make_btn("📋 Copy cURL", "btn-amber", self.on_copy_curl), False, False, 2)
-        ep_bar.pack_end(self._make_btn("⚡ Send Request", "btn-purple", self.on_send_repeater), False, False, 2)
+        ep_bar.pack_end(self._make_btn("Copy cURL", "act-btn", self.on_copy_curl), False, False, 2)
+        ep_bar.pack_end(self._make_btn("Send Request", "btn-purple", self.on_send_repeater), False, False, 2)
         tab2_box.pack_start(ep_bar, False, False, 4)
 
         tab2_hpaned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        tab2_hpaned.set_position(740)
+        tab2_hpaned.set_position(760)
         tab2_paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         tab2_paned.set_position(250)
-        sc_ep, self.store_ep, self.tree_ep = self._make_tree([("Method", str), ("Endpoint URL", str), ("Parametrlar", str), ("Kategoriya", str), ("Xavf Teglari (Manual Guide)", str)])
+        sc_ep, self.store_ep, self.tree_ep = self._make_tree([("METHOD", str), ("ENDPOINT URL", str), ("PARAMETERS", str), ("CATEGORY", str), ("RISK TAGS", str)])
         self.tree_ep.connect("cursor-changed", self.on_endpoint_selected)
         self._attach_context_menu(self.tree_ep, 1)
-        sc_js, self.store_js, self.tree_js = self._make_tree([("JS Bundle Fayl", str), ("Ajratilgan API Route / URL'lar", str), ("Parametrlar", str), ("DOM Sinks & Config/Keys", str)])
+        sc_js, self.store_js, self.tree_js = self._make_tree([("JS BUNDLE", str), ("EXTRACTED API ROUTES", str), ("PARAMETERS", str), ("DOM SINKS & SECRETS", str)])
         tab2_paned.pack1(sc_ep, True, False)
         tab2_paned.pack2(sc_js, True, False)
 
@@ -458,7 +461,7 @@ class ApexNativeWindow(Gtk.Window):
         self.repeater_view.set_monospace(True)
         self.repeater_view.set_left_margin(10); self.repeater_view.set_top_margin(8)
         self.repeater_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.repeater_view.get_buffer().set_text("Endpointni tanlab '⚡ Send Request (In-App Inspector)' tugmasini bosing — HTTP Status, Response Headers va Body shu yerda ko'rinadi...")
+        self.repeater_view.get_buffer().set_text("Select an endpoint row and click 'Send Request' to inspect raw HTTP status, response headers, and payload...")
         rep_insp_scroll.add(self.repeater_view)
 
         tab2_hpaned.pack1(tab2_paned, True, False)
@@ -467,39 +470,58 @@ class ApexNativeWindow(Gtk.Window):
         self.stack.add_named(tab2_box, "p_endpoints")
 
 
-        # TAB 3: Vuln Audit & SAST (with Smart Noise Filter)
+        # TAB 3: Vuln Audit & SAST + Interactive Finding Inspector
         tab3_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         triage_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.finding_filter_combo = Gtk.ComboBoxText()
-        self.finding_filter_combo.append("no_noise", "⚠️ Muhim Topilmalar (Medium+ / Shovqinsiz)")
-        self.finding_filter_combo.append("crit_high", "🚨 Faqat Critical & High")
-        self.finding_filter_combo.append("confirmed", "✅ Faqat Tasdiqlangan ([CONFIRMED] / Verified)")
-        self.finding_filter_combo.append("all", "🔥 Barcha Topilmalar (Low/Info bilan)")
+        self.finding_filter_combo.append("no_noise", "Filter: Medium & Above (No Info/Low)")
+        self.finding_filter_combo.append("crit_high", "Filter: Critical & High Only")
+        self.finding_filter_combo.append("confirmed", "Filter: Verified / Confirmed Only")
+        self.finding_filter_combo.append("all", "Filter: All Findings (Including Info/Low)")
         self.finding_filter_combo.set_active_id("all")
         self.finding_filter_combo.connect("changed", lambda _: self.load_bundle())
         triage_bar.pack_start(self.finding_filter_combo, False, False, 4)
-        triage_bar.pack_start(Gtk.Label(label="Tanlangan topilma statusi:", xalign=0), True, True, 6)
-        triage_bar.pack_end(self._make_btn("❌ False-Positive", "btn-red", lambda _: self.on_set_triage("False-Positive")), False, False, 4)
-        triage_bar.pack_end(self._make_btn("🕵️ Manual-Review", "btn-amber", lambda _: self.on_set_triage("Manual-Review")), False, False, 4)
-        triage_bar.pack_end(self._make_btn("✅ Verified", "btn-green", lambda _: self.on_set_triage("Verified")), False, False, 4)
-        tab3_box.pack_start(triage_bar, False, False, 4)
+        lbl_tr = Gtk.Label(label="Set Triage Disposition:", xalign=1.0)
+        lbl_tr.get_style_context().add_class("section-hdr")
+        triage_bar.pack_start(lbl_tr, True, True, 6)
+        triage_bar.pack_end(self._make_btn("Mark False-Positive", "btn-red", lambda _: self.on_set_triage("False-Positive")), False, False, 2)
+        triage_bar.pack_end(self._make_btn("Needs Review", "btn-amber", lambda _: self.on_set_triage("Manual-Review")), False, False, 2)
+        triage_bar.pack_end(self._make_btn("Mark Verified", "btn-green", lambda _: self.on_set_triage("Verified")), False, False, 2)
+        tab3_box.pack_start(triage_bar, False, False, 2)
+
+        vuln_vpaned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        vuln_vpaned.set_position(275)
         sc_find, self.store_find, self.tree_find = self._make_tree([
-            ("ID", int), ("Severity", str), ("CVSS", str), ("Zaiflik Nomi", str),
-            ("CWE / OWASP", str), ("Nishon (Asset)", str), ("Dalil (Evidence)", str),
-            ("Remediation (Yechim)", str), ("Triage Holati", str)
+            ("ID", int), ("SEVERITY", str), ("CVSS", str), ("FINDING TITLE", str),
+            ("CWE / OWASP", str), ("TARGET ASSET", str), ("EVIDENCE", str),
+            ("REMEDIATION", str), ("STATUS", str)
         ])
+        self.tree_find.connect("cursor-changed", self.on_finding_selected)
         self._attach_context_menu(self.tree_find, 5)
-        tab3_box.pack_start(sc_find, True, True, 0)
+        vuln_vpaned.pack1(sc_find, True, False)
+
+        find_insp_scroll = Gtk.ScrolledWindow()
+        find_insp_scroll.get_style_context().add_class("panel-box")
+        self.finding_detail_view = Gtk.TextView()
+        self.finding_detail_view.set_editable(False)
+        self.finding_detail_view.set_monospace(True)
+        self.finding_detail_view.set_left_margin(10); self.finding_detail_view.set_top_margin(8)
+        self.finding_detail_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.finding_detail_view.get_buffer().set_text("Select any finding row above to inspect full Evidence, Root Cause Analysis, CVSS 3.1 Vector, and Remediation guidance...")
+        find_insp_scroll.add(self.finding_detail_view)
+        vuln_vpaned.pack2(find_insp_scroll, False, False)
+
+        tab3_box.pack_start(vuln_vpaned, True, True, 0)
         self.stack.add_named(tab3_box, "p_vulns")
 
         # TAB 4: Bug Chains
         sc_chain, self.store_chain, _ = self._make_tree([
-            ("Severity", str), ("CVSS", str), ("Zanjir Nomi (Attack Chain)", str),
-            ("Bosqichlar (Nodes)", str), ("Hujum Ssenariysi va Impact", str), ("Remediation", str)
+            ("SEVERITY", str), ("CVSS", str), ("ATTACK CHAIN", str),
+            ("CHAIN NODES", str), ("EXPLOIT SCENARIO & IMPACT", str), ("REMEDIATION", str)
         ])
         self.stack.add_named(sc_chain, "p_chains")
 
-        # TAB 5 (NEW): Cairo 2D Visual Attack Surface Topology Graph
+        # TAB 5: Cairo 2D Visual Attack Surface Topology Graph
         graph_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.graph_area = Gtk.DrawingArea()
         self.graph_area.set_vexpand(True)
@@ -508,70 +530,74 @@ class ApexNativeWindow(Gtk.Window):
         graph_box.pack_start(self.graph_area, True, True, 0)
         self.stack.add_named(graph_box, "p_graph")
 
-        # TAB 5: Manual PoC & Report Studio
+        # TAB 6: Manual PoC & Report Studio
         tab5 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         tab5.set_margin_top(10); tab5.set_margin_start(10); tab5.set_margin_end(10)
         pgrid = Gtk.Grid(column_spacing=8, row_spacing=6)
-        self.ent_mtitle = Gtk.Entry(); self.ent_mtitle.set_placeholder_text("Zaiflik nomi (masalan: IDOR in /api/v1/orders)")
+        self.ent_mtitle = Gtk.Entry(); self.ent_mtitle.set_placeholder_text("Finding title (e.g., IDOR in /api/v1/orders)")
         self.ent_msev = Gtk.Entry(); self.ent_msev.set_text("High")
         self.ent_mcvss = Gtk.Entry(); self.ent_mcvss.set_text("8.2")
-        self.ent_masset = Gtk.Entry(); self.ent_masset.set_placeholder_text("URL yoki Fayl:Qator")
-        self.ent_mevid = Gtk.Entry(); self.ent_mevid.set_placeholder_text("PoC HTTP Request/Response dalili")
-        self.ent_mrem = Gtk.Entry(); self.ent_mrem.set_placeholder_text("Remediation / Patch")
+        self.ent_masset = Gtk.Entry(); self.ent_masset.set_placeholder_text("Target URL or file:line")
+        self.ent_mevid = Gtk.Entry(); self.ent_mevid.set_placeholder_text("PoC HTTP request/response evidence")
+        self.ent_mrem = Gtk.Entry(); self.ent_mrem.set_placeholder_text("Remediation guidance")
         for idx, w in enumerate([self.ent_mtitle, self.ent_msev, self.ent_mcvss, self.ent_masset, self.ent_mevid, self.ent_mrem]):
             w.set_hexpand(True)
             pgrid.attach(w, idx % 3, idx // 3, 1, 1)
         tab5.pack_start(pgrid, False, False, 0)
         btn_row5 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        btn_row5.pack_start(self._make_btn("➕ Manual PoC Zaiflik Qo'shish", "btn-amber", self.on_add_manual), False, False, 0)
-        btn_row5.pack_start(self._make_btn("📥 Markdown va HTML Hisobot Generatsiya Qilish", "btn-green", self.on_generate_report), False, False, 0)
-        btn_row5.pack_start(self._make_btn("📤 Export All (Burp Scope JSON / Nuclei URLs / CSV)", "btn-purple", self.on_export_artifacts), False, False, 0)
+        btn_row5.pack_start(self._make_btn("+ Add Manual PoC", "act-btn", self.on_add_manual), False, False, 0)
+        btn_row5.pack_start(self._make_btn("Generate Executive HTML & Markdown Report", "btn-green", self.on_generate_report), False, False, 0)
+        btn_row5.pack_start(self._make_btn("Export Artifacts (Burp JSON / Nuclei / CSV)", "btn-purple", self.on_export_artifacts), False, False, 0)
         tab5.pack_start(btn_row5, False, False, 0)
         self.rep_view = Gtk.TextView(); self.rep_view.set_editable(False); self.rep_view.set_monospace(True)
         sc_rep = Gtk.ScrolledWindow(); sc_rep.set_vexpand(True); sc_rep.add(self.rep_view)
         tab5.pack_start(sc_rep, True, True, 0)
         self.stack.add_named(tab5, "p_report")
 
-        # TAB 6: Tool Registry & JWT Auditor
+        # TAB 7: Tool Registry & JWT Auditor
         tab6 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         jwt_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.ent_jwt = Gtk.Entry(); self.ent_jwt.set_placeholder_text("JWT Token kiriting (eyJhbGciOi...)")
+        self.ent_jwt = Gtk.Entry(); self.ent_jwt.set_placeholder_text("Paste JWT token for cryptographic & claim audit (eyJhbGciOi...)")
         self.ent_jwt.set_hexpand(True)
         jwt_row.pack_start(self.ent_jwt, True, True, 6)
-        jwt_row.pack_start(self._make_btn("🔐 JWT Tekshirish", "act-btn", self.on_audit_jwt), False, False, 6)
-        jwt_row.pack_start(self._make_btn("🔄 Tanlangan Toolni Yoqish/O'chirish", "btn-amber", self.on_toggle_tool), False, False, 6)
+        jwt_row.pack_start(self._make_btn("Audit JWT", "act-btn", self.on_audit_jwt), False, False, 4)
+        jwt_row.pack_start(self._make_btn("Toggle Selected Tool", "btn-amber", self.on_toggle_tool), False, False, 4)
         tab6.pack_start(jwt_row, False, False, 4)
         sc_tools, self.store_tools, self.tree_tools = self._make_tree([
-            ("ID", str), ("Faol (Enabled)", str), ("Tool Nomi", str), ("Bosqich", str),
-            ("O'rnatilganligi", str), ("Binary Yo'li", str), ("Command Shabloni", str)
+            ("ID", str), ("ENABLED", str), ("TOOL NAME", str), ("STAGE", str),
+            ("INSTALLED", str), ("BINARY PATH", str), ("COMMAND TEMPLATE", str)
         ])
         tab6.pack_start(sc_tools, True, True, 0)
         self.stack.add_named(tab6, "p_tools")
 
 
-        # Bottom Live Terminal (Guaranteed 185px minimum height so it is always clearly visible)
+        # Bottom Live Telemetry Console
         term_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         term_box.get_style_context().add_class("panel-box")
         term_hdr = Gtk.Label(xalign=0)
-        term_hdr.set_markup("<span foreground='#38bdf8' weight='bold' size='small'>🖥️ LIVE RECON &amp; AGENT TERMINAL STREAM</span>")
+        term_hdr.set_markup("<span foreground='#8b949e' weight='bold' size='small'>TELEMETRY &amp; EXECUTION CONSOLE</span>")
         term_box.pack_start(term_hdr, False, False, 0)
         term_scroll = Gtk.ScrolledWindow()
-        term_scroll.set_size_request(-1, 175)
+        term_scroll.set_size_request(-1, 145)
         self.term_view = Gtk.TextView()
         self.term_view.set_editable(False)
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v12.10 TITAN GTK3 STUDIO] 49/49 Recon Tools • Predator v9 + Phantom v10 + Apex v11 + Titan v12 (Headless V8 / IPv6 / WASM / Circuit-Breaker) tayyor.\n")
+        self.term_buf.set_text("[SPECTRE v12.11 Enterprise ASM Workstation] 49/49 CLI & Deep Intelligence Engines initialized.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)
 
 
     def log_msg(self, msg: str):
+        import time as _time
+        clean_m = re.sub(r"[🚀🛰️🎯🧠🚨🗂️🔌🔍🔎👻🔥⚡🛡️📂✅❌🗑️📋🌐🕵️]", "", str(msg or "")).replace("  ", " ").strip()
+        ts_prefix = "" if clean_m.startswith("[") and ":" in clean_m[:10] else f"[{_time.strftime('%H:%M:%S')}] "
+        line_out = f"{ts_prefix}{clean_m}"
         def _append():
             end_iter = self.term_buf.get_end_iter()
-            self.term_buf.insert(end_iter, msg + "\n")
+            self.term_buf.insert(end_iter, line_out + "\n")
             mark = self.term_buf.create_mark(None, self.term_buf.get_end_iter(), False)
             self.term_view.scroll_to_mark(mark, 0.0, True, 0.0, 1.0)
             return False
@@ -632,19 +658,49 @@ class ApexNativeWindow(Gtk.Window):
             dossier_txt = spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, dom_name)
             self.dossier_view.get_buffer().set_text(dossier_txt)
 
+    def on_finding_selected(self, tree):
+        if not self.current_project_id:
+            return
+        sel = tree.get_selection()
+        model, treeiter = sel.get_selected()
+        if treeiter is not None:
+            fid = int(model[treeiter][0])
+            finds = self.db.get_project_bundle(self.current_project_id).get("findings", [])
+            f_obj = next((f for f in finds if int(f.get("id", 0)) == fid), None)
+            if f_obj:
+                detail_lines = [
+                    f"FINDING #{fid}  |  {f_obj.get('severity', '').upper()} (CVSS {f_obj.get('cvss_score', '')})  |  STATUS: {f_obj.get('triage_status', '')}",
+                    "─" * 88,
+                    f"Title       : {f_obj.get('title', '')}",
+                    f"Category    : {f_obj.get('category', '')}   |   Agent: {f_obj.get('agent', '')}",
+                    f"Taxonomy    : {f_obj.get('cwe', '')}   |   {f_obj.get('owasp', '')}",
+                    f"CVSS Vector : {f_obj.get('cvss_vector', '')}",
+                    f"Target Asset: {f_obj.get('asset', '')}",
+                    "",
+                    "[TECHNICAL EVIDENCE / POC]",
+                    str(f_obj.get("evidence", "") or "-"),
+                    "",
+                    "[ROOT CAUSE ANALYSIS]",
+                    str(f_obj.get("root_cause", "") or "-"),
+                    "",
+                    "[REMEDIATION GUIDANCE]",
+                    str(f_obj.get("remediation", "") or "-"),
+                ]
+                self.finding_detail_view.get_buffer().set_text("\n".join(detail_lines))
+
     def on_ai_dossier_analysis(self, _btn):
         if not self.current_project_id:
             return
         pid = self.current_project_id
         dom_name = getattr(self, "_selected_domain", "")
-        self.dossier_view.get_buffer().set_text(f"⏳ '{dom_name or 'Primary Target'}' bo'yicha AI va taktik tahlil tayyorlanmoqda...")
+        self.dossier_view.get_buffer().set_text(f"Generating tactical architecture analysis for '{dom_name or 'Primary Target'}'...")
 
         def _ai_worker():
             ai_txt = spectre_v5_modules.generate_ai_tactical_analysis(self.db, pid, dom_name)
             dossier_txt = spectre_deep_modules.build_target_dossier(self.db, pid, dom_name)
             full_txt = ai_txt + "\n\n" + dossier_txt
             GLib.idle_add(lambda: self.dossier_view.get_buffer().set_text(full_txt) or False)
-            self.log_msg(f"[AI ANALYST] 🧠 '{dom_name or 'Primary Target'}' bo'yicha taktik tahlil tayyorlandi.")
+            self.log_msg(f"[AI ANALYST] Tactical analysis generated for '{dom_name or 'Primary Target'}'.")
 
         threading.Thread(target=_ai_worker, daemon=True).start()
 
@@ -676,10 +732,21 @@ class ApexNativeWindow(Gtk.Window):
             return
         self._last_data_sig = sig
 
-        self.lbl_stat_dom.set_text(f"{len(doms)} ta subdomen ({ip_cnt} IP)")
-        self.lbl_stat_http.set_text(f"{len(ports)} port  •  {len(https)} web")
-        self.lbl_stat_ep.set_text(f"{len(eps)} route  •  {len(js_list)} JS")
-        self.lbl_stat_find.set_text(f"{len(finds)} topilma  •  {len(chains)} zanjir")
+        self.lbl_stat_dom.set_text(f"{len(doms)} hosts  ·  {ip_cnt} unique IP")
+        self.lbl_stat_http.set_text(f"{len(ports)} open ports  ·  {len(https)} web")
+        self.lbl_stat_ep.set_text(f"{len(eps)} routes  ·  {len(js_list)} JS")
+        self.lbl_stat_find.set_text(f"{len(finds)} findings  ·  {len(chains)} chains")
+
+        if hasattr(self, "nav_buttons") and len(self.nav_buttons) >= 8:
+            badge_counts = {
+                1: len(doms),
+                2: len(eps),
+                3: len(finds),
+                4: len(chains),
+            }
+            for idx_b, (_, base_lbl) in enumerate(self.nav_base_labels):
+                if idx_b in badge_counts:
+                    self.nav_buttons[idx_b].set_label(f"{base_lbl}  [{badge_counts[idx_b]}]")
 
         self.store_http.clear()
         for s in https:
@@ -795,6 +862,22 @@ class ApexNativeWindow(Gtk.Window):
                 self._esc(c["remediation"]),
             ])
 
+        if sorted_doms and hasattr(self, "dossier_view") and not preserve_if_unchanged:
+            primary_dom = sorted_doms[0]["domain"]
+            self._selected_domain = primary_dom
+            self.dossier_view.get_buffer().set_text(
+                spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, primary_dom)
+            )
+        if sorted_finds and hasattr(self, "finding_detail_view") and not preserve_if_unchanged:
+            f0 = sorted_finds[0]
+            self.finding_detail_view.get_buffer().set_text(
+                f"FINDING #{f0['id']}  |  {f0.get('severity', '').upper()} (CVSS {f0.get('cvss_score', '')})  |  STATUS: {f0.get('triage_status', '')}\n"
+                + ("─" * 88)
+                + f"\nTitle       : {f0.get('title', '')}\nTaxonomy    : {f0.get('cwe', '')}   |   {f0.get('owasp', '')}\n"
+                + f"Target Asset: {f0.get('asset', '')}\n\n[TECHNICAL EVIDENCE / POC]\n{f0.get('evidence', '')}\n\n"
+                + f"[ROOT CAUSE ANALYSIS]\n{f0.get('root_cause', '')}\n\n[REMEDIATION GUIDANCE]\n{f0.get('remediation', '')}"
+            )
+
         if hasattr(self, "graph_area"):
             self.graph_area.queue_draw()
 
@@ -803,7 +886,7 @@ class ApexNativeWindow(Gtk.Window):
         import math
         alloc = area.get_allocation()
         w, h = alloc.width, alloc.height
-        cr.set_source_rgb(0.04, 0.06, 0.11)
+        cr.set_source_rgb(0.05, 0.067, 0.09)
         cr.rectangle(0, 0, w, h)
         cr.fill()
 
@@ -816,13 +899,40 @@ class ApexNativeWindow(Gtk.Window):
         ports = b.get("ports", [])
         finds = b.get("findings", [])
 
-        cx, cy = w / 2.0, h / 2.0
-        # Legend header
-        cr.set_source_rgb(0.22, 0.74, 0.97)
-        cr.select_font_face("Monospace", 0, 1)
-        cr.set_font_size(13)
+        cx, cy = w / 2.0, h / 2.0 + 10
+        r_inner = min(w, h) * 0.22
+        r_outer = min(w, h) * 0.40
+
+        # Subtle Radar Concentric Rings
+        cr.set_source_rgba(0.19, 0.22, 0.28, 0.45)
+        cr.set_line_width(1.0)
+        for r_ring in (r_inner, r_outer):
+            cr.arc(cx, cy, r_ring, 0, 2 * math.pi)
+            cr.stroke()
+
+        # Header & Legend
+        cr.set_source_rgb(0.90, 0.93, 0.95)
+        cr.select_font_face("Sans", 0, 1)
+        cr.set_font_size(12.5)
         cr.move_to(18, 26)
-        cr.show_text(f"🕸️ SPECTRE ATTACK SURFACE TOPOLOGY GRAPH — {target} ({len(doms)} Hosts | {len(ports)} Open Ports | {len(finds)} Findings)")
+        cr.show_text(f"ATTACK SURFACE TOPOLOGY  —  {target}   ({len(doms)} Hosts  |  {len(ports)} Open Ports  |  {len(finds)} Findings)")
+
+        legend_items = [
+            ((0.18, 0.50, 0.96), "Primary Scope"),
+            ((0.64, 0.44, 0.97), "Origin IP Node"),
+            ((0.24, 0.72, 0.31), "Active Subdomain"),
+            ((0.97, 0.32, 0.29), "High / Critical Asset"),
+        ]
+        lx = 18
+        for col_rgb, l_txt in legend_items:
+            cr.arc(lx + 5, h - 18, 4.5, 0, 2 * math.pi)
+            cr.set_source_rgb(*col_rgb)
+            cr.fill()
+            cr.set_source_rgb(0.55, 0.58, 0.62)
+            cr.set_font_size(10.5)
+            cr.move_to(lx + 14, h - 14)
+            cr.show_text(l_txt)
+            lx += 145
 
         by_ip = {}
         for d in doms[:36]:
@@ -830,9 +940,6 @@ class ApexNativeWindow(Gtk.Window):
             by_ip.setdefault(ip, []).append(d["domain"])
 
         ips = list(by_ip.keys())[:12]
-        r_inner = min(w, h) * 0.23
-        r_outer = min(w, h) * 0.41
-
         crit_hosts = {f.get("asset", "") for f in finds if f.get("severity") in ("Critical", "High")}
 
         for idx, ip in enumerate(ips):
