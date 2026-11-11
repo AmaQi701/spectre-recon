@@ -697,43 +697,109 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
     import os
     import re
     import shlex
+    import threading
 
     safe_url = shlex.quote(url)
     safe_dom = shlex.quote(dom)
+    js_lock = threading.Lock()
 
-    # 4.2 WhatWeb Deep Aggression (-a 3 JSON Fingerprinter)
-    if "whatweb" in active_ids and agent._find_binary("whatweb") and is_high_val:
-        ww_json_file = f"/tmp/spectre_ww_{project_id}.json"
-        try:
-            if os.path.exists(ww_json_file):
-                os.remove(ww_json_file)
-        except Exception:
-            pass
-        log_fn(f"[Tool 4.2 -> WhatWeb Deep -a 3] {url} texnologik steki va plaginlari JSON formatda chuqur tahlil qilinmoqda...")
-        ww_out = agent._run_cli(f"whatweb --color=never -a 3 --log-json={ww_json_file} {safe_url}", log_fn, timeout=30, project_id=project_id)
-        ww_techs = []
-        if os.path.exists(ww_json_file):
+    def _task_whatweb():
+        if "whatweb" in active_ids and agent._find_binary("whatweb") and is_high_val:
+            dom_slug = re.sub(r"[^a-zA-Z0-9]", "_", dom)[:30]
+            ww_json_file = f"/tmp/spectre_ww_{project_id}_{dom_slug}.json"
             try:
-                raw_txt = open(ww_json_file, "r", errors="ignore").read().strip()
-                for line in raw_txt.splitlines():
-                    line = line.strip().rstrip(",")
-                    if not line.startswith("{"):
-                        continue
-                    obj = json.loads(line)
-                    plugins = obj.get("plugins", {})
-                    for p_name, p_val in plugins.items():
-                        if p_name in ("Title", "IP", "Country", "HTTPServer", "RedirectLocation", "UncommonHeaders", "Script", "HTML5"):
-                            continue
-                        vers = p_val.get("version", []) if isinstance(p_val, dict) else []
-                        lbl = f"{p_name} {'/'.join(str(v) for v in vers[:2])}".strip()
-                        if lbl and lbl not in ww_techs:
-                            ww_techs.append(lbl)
+                if os.path.exists(ww_json_file):
+                    os.remove(ww_json_file)
             except Exception:
                 pass
-        if ww_techs:
-            log_fn(f"  [🔬 WhatWeb Deep] {url} -> {', '.join(ww_techs[:10])}")
-            agent.db.merge_http_tech_stack(project_id, url, ww_techs)
-        agent.db.log_task(project_id, "SPECTRE-Agent1", "whatweb", "COMPLETED", f"whatweb -a 3 {url}", (", ".join(ww_techs) or ww_out)[:300])
+            log_fn(f"[Tool 4.2 -> WhatWeb Deep -a 3] {url} texnologik steki va plaginlari JSON formatda chuqur tahlil qilinmoqda...")
+            ww_out = agent._run_cli(f"whatweb --color=never -a 3 --log-json={ww_json_file} {safe_url}", log_fn, timeout=25, project_id=project_id)
+            ww_techs = []
+            if os.path.exists(ww_json_file):
+                try:
+                    raw_txt = open(ww_json_file, "r", errors="ignore").read().strip()
+                    for line in raw_txt.splitlines():
+                        line = line.strip().rstrip(",")
+                        if not line.startswith("{"):
+                            continue
+                        obj = json.loads(line)
+                        plugins = obj.get("plugins", {})
+                        for p_name, p_val in plugins.items():
+                            if p_name in ("Title", "IP", "Country", "HTTPServer", "RedirectLocation", "UncommonHeaders", "Script", "HTML5"):
+                                continue
+                            vers = p_val.get("version", []) if isinstance(p_val, dict) else []
+                            lbl = f"{p_name} {'/'.join(str(v) for v in vers[:2])}".strip()
+                            if lbl and lbl not in ww_techs:
+                                ww_techs.append(lbl)
+                except Exception:
+                    pass
+            if ww_techs:
+                log_fn(f"  [🔬 WhatWeb Deep] {url} -> {', '.join(ww_techs[:10])}")
+                agent.db.merge_http_tech_stack(project_id, url, ww_techs)
+            agent.db.log_task(project_id, "SPECTRE-Agent1", "whatweb", "COMPLETED", f"whatweb -a 3 {url}", (", ".join(ww_techs) or ww_out)[:300])
+
+    def _task_katana():
+        if "katana" in active_ids and agent._find_binary("katana") and is_high_val:
+            log_fn(f"[Tool 5.1 -> Katana Deep -d 2 -jc -fs rdn] {url} chuqur crawl qilinmoqda...")
+            kt_out = agent._run_cli(
+                f"katana -u {safe_url} -d 2 -jc -kf robotstxt -fs rdn -fx -timeout 5 -ct 14s -silent -ef woff,woff2,ttf,css,png,jpg,jpeg,gif,svg,ico -c 15",
+                log_fn,
+                timeout=22,
+                project_id=project_id,
+            )
+            kt_cnt = 0
+            for k_url in kt_out.splitlines()[:180]:
+                u = agent._record_discovered_url(project_id, k_url, url, scope, "katana_deep")
+                if u:
+                    kt_cnt += 1
+                    if u.endswith(".js"):
+                        with js_lock:
+                            if len(js_list) < 40 and u not in js_list:
+                                js_list.append(u)
+            log_fn(f"  [+] Katana Deep yakunlandi: {kt_cnt} ta URL/form/JS topildi.")
+
+    def _task_httpx():
+        if "httpx" in active_ids and agent._find_binary("httpx") and is_high_val:
+            hx_bin = agent._find_binary("httpx")
+            hx_out = agent._run_cli(f"{hx_bin} -u {safe_url} -silent -title -tech-detect -status-code -server -json", log_fn, timeout=18, project_id=project_id)
+            for line in hx_out.splitlines():
+                if line.strip().startswith("{"):
+                    try:
+                        hx_obj = json.loads(line.strip())
+                        hx_techs = hx_obj.get("tech", [])
+                        if hx_techs:
+                            log_fn(f"  [⚡ HTTPX Tech] {url} -> {', '.join(hx_techs[:8])}")
+                            agent.db.merge_http_tech_stack(project_id, url, hx_techs)
+                    except Exception:
+                        pass
+
+    def _task_hakrawler():
+        if "hakrawler" in active_ids and agent._find_binary("hakrawler") and is_high_val:
+            log_fn(f"[Tool 5.6 -> Hakrawler] {url} qo'shimcha endpoint va JS linklari yig'ilmoqda...")
+            hk_out = agent._run_cli(f"echo {safe_url} | hakrawler -d 2 -subs -u", log_fn, timeout=20, project_id=project_id)
+            for hk_url in hk_out.splitlines()[:100]:
+                u = agent._record_discovered_url(project_id, hk_url, url, scope, "hakrawler")
+                if u and u.endswith(".js"):
+                    with js_lock:
+                        if len(js_list) < 40 and u not in js_list:
+                            js_list.append(u)
+
+    def _task_subjs():
+        if "subjs" in active_ids and agent._find_binary("subjs") and is_high_val:
+            sj_out = agent._run_cli(f"echo {safe_url} | subjs", log_fn, timeout=14, project_id=project_id)
+            for sj_u in sj_out.splitlines()[:50]:
+                if sj_u.strip().startswith("http"):
+                    u = agent._record_discovered_url(project_id, sj_u.strip(), url, scope, "subjs")
+                    if u and u.endswith(".js"):
+                        with js_lock:
+                            if len(js_list) < 40 and u not in js_list:
+                                js_list.append(u)
+
+    if is_high_val:
+        ex_w = concurrent.futures.ThreadPoolExecutor(max_workers=5)
+        futs_w = [ex_w.submit(fn) for fn in (_task_whatweb, _task_katana, _task_httpx, _task_hakrawler, _task_subjs)]
+        concurrent.futures.wait(futs_w, timeout=28)
+        ex_w.shutdown(wait=False, cancel_futures=True)
 
     # 4.3 Wafw00f All-WAF Detector (-a)
     if "wafw00f" in active_ids and agent._find_binary("wafw00f") and dom == primary_host:
@@ -746,24 +812,6 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
             with agent.db._lock, agent.db._get_conn() as conn:
                 conn.execute("UPDATE http_services SET waf=? WHERE project_id=? AND url=?", (waf_name[:80], project_id, url))
         agent.db.log_task(project_id, "SPECTRE-Agent1", "wafw00f", "COMPLETED", f"wafw00f -a {url}", wf_out[:250])
-
-    # 5.1 Katana Deep JS & Form Crawler (-d 2 -jc -kf robotstxt -fs rdn -fx)
-    if "katana" in active_ids and agent._find_binary("katana") and is_high_val:
-        log_fn(f"[Tool 5.1 -> Katana Deep -d 2 -jc -fs rdn] {url} chuqur crawl qilinmoqda...")
-        kt_out = agent._run_cli(
-            f"katana -u {safe_url} -d 2 -jc -kf robotstxt -fs rdn -fx -timeout 5 -ct 15s -silent -ef woff,woff2,ttf,css,png,jpg,jpeg,gif,svg,ico -c 15",
-            log_fn,
-            timeout=25,
-            project_id=project_id,
-        )
-        kt_cnt = 0
-        for k_url in kt_out.splitlines():
-            u = agent._record_discovered_url(project_id, k_url, url, scope, "katana_deep")
-            if u:
-                kt_cnt += 1
-                if u.endswith(".js") and u not in js_list:
-                    js_list.append(u)
-        log_fn(f"  [+] Katana Deep yakunlandi: {kt_cnt} ta URL/form/JS topildi.")
 
     # 5.3 & 5.4 Waybackurls / GAU Historical Archive Miners
     if dom == primary_host:
