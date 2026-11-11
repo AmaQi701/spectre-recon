@@ -404,7 +404,7 @@ class ReconSuperAgent:
             ip_val = ""
             cname_val = ""
             is_root = cand in (base_domain, apex_domain)
-            rtypes = ("A", "AAAA", "CNAME", "MX", "TXT", "NS", "SOA") if is_root else ("A",)
+            rtypes = ("A", "AAAA", "CNAME", "MX", "TXT", "NS", "SOA") if cand == apex_domain else ("A", "AAAA")
             for rtype in rtypes:
                 try:
                     ans = resolver.resolve(cand, rtype)
@@ -831,7 +831,7 @@ class ReconSuperAgent:
                 source="http_prober",
             )
             log_fn(f"  [+] HTTP {resp.status_code} | {url} | Title: '{title[:45]}' | Tech: {', '.join(tech) or 'N/A'}")
-            if resp.status_code in (500, 502, 503, 504):
+            if resp.status_code in (400, 404, 410, 500, 502, 503, 504):
                 return ""
             return resp.text
         except Exception as e:
@@ -909,9 +909,13 @@ class ReconSuperAgent:
             if hidden_inputs:
                 self._record_discovered_url(project_id, base_url, base_url, scope, "hidden_inputs", method="POST", extra_params=hidden_inputs)
 
-            # HTML Comment Intelligence Miner
+            # HTML Comment Intelligence Miner (Strict word-boundary filter to exclude commented-out social media markup)
+            comment_kw_re = re.compile(r"\b(?:todo|fixme|hack|xxx|api_key|apikey|secret|token|password|passwd|debug|staging|internal|decommissioned|legacy)\b", re.IGNORECASE)
             comments = [str(c).strip() for c in soup.find_all(string=lambda text: isinstance(text, Comment))]
-            interesting_comments = [c[:140] for c in comments if any(k in c.lower() for k in ("todo", "fixme", "api", "admin", "debug", "token", "key", "http", "dev", "password")) and len(c.strip()) > 6]
+            interesting_comments = [
+                c[:140] for c in comments
+                if len(c.strip()) > 6 and "social" not in c.lower() and comment_kw_re.search(c)
+            ]
             if interesting_comments:
                 self.db.upsert_finding(
                     project_id, "SPECTRE-Agent1 (HTML-Miner)", f"Developer Comments / Hints in HTML Source ({domain})",
@@ -1061,15 +1065,22 @@ class ReconSuperAgent:
 
         js_cache_dir = Path(f"/tmp/spectre_js_cache_{project_id}")
         js_cache_dir.mkdir(parents=True, exist_ok=True)
+        if not hasattr(self, "_seen_js_by_proj"):
+            self._seen_js_by_proj: dict[int, set[str]] = {}
+        seen_js_names = self._seen_js_by_proj.setdefault(project_id, set())
 
         def analyze_one_js(js_url: str):
             try:
-                r = self.session.get(js_url, timeout=10, verify=False)
+                safe_jname = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", js_url.split("/")[-1].split("?")[0])[-60:] or "bundle.js"
+                with self._cache_lock:
+                    if safe_jname in seen_js_names and safe_jname not in ("index.js", "main.js", "app.js", "bundle.js"):
+                        return
+                    seen_js_names.add(safe_jname)
+                r = self.session.get(js_url, timeout=8, verify=False)
                 if r.status_code != 200 or "html" in r.headers.get("Content-Type", "").lower():
                     return
                 content = r.text[:500000]
                 try:
-                    safe_jname = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", js_url.split("/")[-1].split("?")[0])[-60:] or "bundle.js"
                     (js_cache_dir / safe_jname).write_text(content, encoding="utf-8", errors="ignore")
                 except Exception:
                     pass
@@ -1288,21 +1299,32 @@ class ReconSuperAgent:
                 concurrent.futures.wait(futs_p, timeout=35)
                 ex_p.shutdown(wait=False, cancel_futures=True)
 
-                # Phase B: Deep Inspection on top-priority live web services
+                # Phase B: Deep Inspection on top-priority unique live web services (with Smart Clone Deduplication)
                 live_sorted = sorted(probe_results.keys(), key=lambda x: (-_dom_priority(x), x))
-                for dom in live_sorted[:18]:
+                scanned_app_sigs: dict[tuple, str] = {}
+                deep_scanned_count = 0
+                for dom in live_sorted[:16]:
                     if project_id in self.abort_flags:
                         break
                     url, html = probe_results[dom]
-                    is_high_val = _dom_priority(dom) >= 60
+                    m_title = re.search(r"<title[^>]*>(.*?)</title>", html[:15000], re.I | re.S)
+                    t_sig = (m_title.group(1).strip().lower()[:60] if m_title else "")
+                    sc_names = tuple(sorted({s.split("/")[-1].split("?")[0] for s in re.findall(r'src=["\']([^"\']+\.js)', html[:25000])})[:4])
+                    app_sig = (dom_ip_map.get(dom, ""), t_sig, sc_names)
+                    if dom != primary_host and (t_sig or sc_names) and app_sig in scanned_app_sigs:
+                        log_fn(f"  [⚡ Smart Clone Skip] {dom} ({url}) -> {scanned_app_sigs[app_sig]} bilan bir xil ilova shabloni, takroriy og'ir skan o'tkazib yuborildi.")
+                        continue
+                    scanned_app_sigs[app_sig] = dom
+                    deep_scanned_count += 1
+                    is_high_val = (_dom_priority(dom) >= 60) and (deep_scanned_count <= 8)
                     collected_html.append(html[:50000])
-                    js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)
+                    js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)[:35]
                     spectre_v5_modules.run_deep_web_and_fuzz_tools(
                         self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn
                     )
                     if is_high_val:
                         self._stage5_openapi_discovery(project_id, url, scope, log_fn)
-                    self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
+                    self._stage6_js_analyzer(project_id, js_list[:35], url, scope, log_fn)
                     if is_high_val:
                         spectre_predator_modules.run_predator_recon_suite(self, project_id, apex_domain, url, js_list, log_fn)
                         spectre_v10_modules.run_v10_enterprise_suite(self, project_id, apex_domain, url, js_list, log_fn)

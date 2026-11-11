@@ -136,10 +136,12 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
 
     bundle = db.get_project_bundle(project_id)
     cdn_keywords = ("cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "ddos-guard")
+    domains_rows = bundle.get("domains", [])
+    has_any_cdn = any(any(k in (d.get("cdn_waf") or "").lower() for k in cdn_keywords) for d in domains_rows)
     candidate_ips = {
         (d.get("ip") or "").strip()
-        for d in bundle.get("domains", [])
-        if (d.get("ip") or "").strip() and "." in (d.get("ip") or "") and not any(k in (d.get("cdn_waf") or "").lower() for k in cdn_keywords)
+        for d in domains_rows
+        if has_any_cdn and (d.get("ip") or "").strip() and "." in (d.get("ip") or "") and not any(k in (d.get("cdn_waf") or "").lower() for k in cdn_keywords)
     }
 
     matched_origins = []
@@ -154,6 +156,8 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
             except Exception:
                 pass
 
+    from core.scope_guard import ScopeGuard
+    apex_asset = ScopeGuard.extract_apex_domain(urllib.parse.urlparse(base_url).hostname or base_url)
     desc_extra = f" | Origin IP Match: {', '.join(matched_origins)}" if matched_origins else ""
     db.upsert_finding(
         project_id, "SPECTRE-Predator (Favicon-MMH3)",
@@ -161,7 +165,8 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
         "Reconnaissance & Shadow Asset Intelligence",
         "Medium" if matched_origins else "Info", 5.3 if matched_origins else 0.0,
         "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-        used_fav_url, f"Shodan: {shodan_dork} | Censys: services.http.response.favicons.shodan_hash:{fav_hash}{desc_extra}",
+        used_fav_url if matched_origins else apex_asset,
+        f"Sample Favicon: {used_fav_url} | Shodan: {shodan_dork} | Censys: services.http.response.favicons.shodan_hash:{fav_hash}{desc_extra}",
         "Favicon MurmurHash3 xeshi orqali internet bo'ylab barcha klon/staging serverlar va CDN ortidagi IP manzillarni qidirish mumkin.",
         "Origin serverlarda asosiy domen favicon faylini ochiq qoldirmang va IP kirishni faqat CDN subnetlariga cheklang.",
     )
@@ -179,7 +184,14 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
     route_re = re.compile(r"""['"`]((?:/api/v\d+/|/api/|/v1/|/v2/|/internal/|/admin/|/graphql|/auth/)[a-zA-Z0-9_\-/\.?=&{}]+)['"`]""")
     out_dir = BASE_DIR / "workspaces" / "sourcemaps" / f"project_{project_id}"
 
+    vendor_skip = (
+        "bootstrap", "jquery", "popper", "swiper", "lodash", "moment", "chart.", "chartjs",
+        "axios", "fontawesome", "tailwind", "owl.carousel", "select2", "fancybox", "aos.", "gsap",
+    )
     for js_u in js_urls[:25]:
+        js_fname = js_u.split("/")[-1].split("?")[0].lower()
+        if any(vk in js_fname for vk in vendor_skip):
+            continue
         map_candidates = [js_u + ".map"]
         try:
             rj = session.get(js_u, timeout=6, verify=False)

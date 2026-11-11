@@ -352,6 +352,8 @@ def harvest_cors_preflight_capabilities(db, session, project_id: int, base_url: 
             pass
 
     if custom_headers:
+        from core.scope_guard import ScopeGuard
+        apex_asset = ScopeGuard.extract_apex_domain(urllib.parse.urlparse(base_url).hostname or base_url)
         ch_list = sorted(custom_headers)
         m_list = sorted(allowed_methods)
         db.upsert_finding(
@@ -359,7 +361,7 @@ def harvest_cors_preflight_capabilities(db, session, project_id: int, base_url: 
             f"Custom Backend Headers Discovered via OPTIONS Preflight ({len(ch_list)} headers)",
             "API Header Intelligence", "Info", 0.0,
             "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-            base_url, f"Custom Allowed Headers: {', '.join(ch_list[:15])} | Allowed Methods: {', '.join(m_list)}",
+            apex_asset, f"Sample Host: {base_url} | Custom Allowed Headers: {', '.join(ch_list[:15])} | Allowed Methods: {', '.join(m_list)}",
             "CORS OPTIONS preflight javobidan backend qabul qiladigan maxsus HTTP sarlavhalar (custom headers) ro'yxati olindi.",
             "Access-Control-Allow-Headers ro'yxatida faqat tashqi mijozlar uchun zarur sarlavhalarni qoldiring.",
         )
@@ -385,7 +387,7 @@ def discover_related_sister_domains(db, project_id: int, apex_domain: str, log_f
     dom_re = re.compile(r"\b([a-z0-9\-]+\.(?:uz|com|net|org|io|gov\.uz|com\.uz))\b", re.IGNORECASE)
 
     for f in bundle.get("findings", []):
-        if "PTR" in f.get("title", "") or "TLS" in f.get("title", "") or "Certificate" in f.get("title", ""):
+        if "TLS" in f.get("title", "") or "Certificate" in f.get("title", "") or "CSP" in f.get("title", ""):
             for m in dom_re.findall(f.get("evidence", "")):
                 ap = ScopeGuard.extract_apex_domain(m.lower())
                 if ap and ap not in ignore_apex and "." in ap:

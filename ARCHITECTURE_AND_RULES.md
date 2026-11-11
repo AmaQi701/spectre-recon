@@ -71,5 +71,10 @@ Bundle keys returned by `db.get_project_bundle(project_id)`:
 - **v12.5 (Stage 1 & Stage 2 Deep Engineering Overhaul):**
   - **Stage 1:** Resolved bare sub-zones (`www.student.<apex>` -> `student.<apex>`), added 16 education/enterprise prefixes (`lms`, `cctv`, `reg`, `student`, `jurnal`, `kpi`, `syllabus`, `hemis`, etc.), filtered `dnsgen`/`gotator` outputs to `*.{apex_domain}`, and restricted `_cached_session_get` to cache only `HTTP 200` responses without custom headers.
   - **Stage 2:** Chained `Naabu (Top-1000)` BEFORE `Nmap Deep NSE (-sV)` so Nmap dynamically inspects all open ports discovered by `Shodan + Naabu + Core Ports`, added Multi-Host Parallel TLS X.509 SAN inspection across top 8 subdomains, fixed `hunt_virtual_hosts` skipping `[ISP]`-tagged IPs, and moved `IPv6 Dual-Stack` & `UDP Safe Prober (161/SNMP, 123/NTP)` into Stage 2.
+- **v12.6–v12.7 (Live-Target Telemetry Audit & Stage 3–6 Parallel/Deduplication Overhaul):**
+  - **Stage 1:** Automatically prunes 100% dead `NXDOMAIN` passive OSINT noise (`ip='' AND cname='' AND records_json='{}'`) after DNS verification; queries `MX/TXT/NS/SOA` only on `apex_domain` to eliminate duplicate `www.` SPF findings.
+  - **Stage 2:** Deduplicates `primary_host` vs IP across `Naabu/Nmap/Shodan`, preserves specific service names in `db.upsert_port`, filters router SIP/SCCP ALG fake ports (`2000, 5060`), and uses `--version-light --max-retries 1 --host-timeout 30s --script-timeout 8s` in Nmap.
+  - **Stage 3–6:** Fixed multi-thread `self._last_probe_status` race condition via `threading.local()` + port-80 scheme priority; added Phase-B `404/Error` gate and `Smart Clone Application Deduplicator` (`(ip, title, script_sig)`); parallelized `whatweb`, `katana`, `httpx`, `hakrawler`, `subjs` (`ThreadPoolExecutor(max_workers=5)`); deduplicated JS bundle downloads across subdomains (`_seen_js_by_proj`); filtered 3rd-party vendor `.js.map` files (`bootstrap`, `jquery`, etc.); and fixed `TruffleHog` info-log false positive & `Sister Domains` cloud/PTR noise.
+
 
 

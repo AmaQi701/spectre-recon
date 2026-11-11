@@ -812,21 +812,6 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
             except Exception as ex:
                 log_fn(f"  [!] FFUF JSON parse ogohlantirish: {ex}")
 
-    # 4.4 ProjectDiscovery HTTPX JSON Tech & Header Enricher
-    if "httpx" in active_ids and agent._find_binary("httpx") and is_high_val:
-        hx_bin = agent._find_binary("httpx")
-        hx_out = agent._run_cli(f"{hx_bin} -u {safe_url} -silent -title -tech-detect -status-code -server -json", log_fn, timeout=20, project_id=project_id)
-        for line in hx_out.splitlines():
-            if line.strip().startswith("{"):
-                try:
-                    hx_obj = json.loads(line.strip())
-                    hx_techs = hx_obj.get("tech", [])
-                    if hx_techs:
-                        log_fn(f"  [⚡ HTTPX Tech] {url} -> {', '.join(hx_techs[:8])}")
-                        agent.db.merge_http_tech_stack(project_id, url, hx_techs)
-                except Exception:
-                    pass
-
     # 4.5 HTTProbe Fast Web Alive Verification
     if "httprobe" in active_ids and agent._find_binary("httprobe") and dom == primary_host:
         hp_out = agent._run_cli(f"echo {safe_dom} | httprobe -c 10 -t 3000", log_fn, timeout=12, project_id=project_id)
@@ -834,44 +819,27 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
             if hp_u.strip().startswith("http"):
                 agent._record_discovered_url(project_id, hp_u.strip(), url, scope, "httprobe")
 
-    # 5.5, 5.6 & 5.7 GoSpider, Hakrawler & Waymore Redundant Crawlers
+    # 5.5 & 5.7 GoSpider & Waymore Redundant Crawlers (Primary Host)
     if "gospider" in active_ids and agent._find_binary("gospider") and dom == primary_host:
         log_fn(f"[Tool 5.5 -> GoSpider] {url} chuqur link va JS qidiruvi...")
-        gs_out = agent._run_cli(f"gospider -s {safe_url} -d 2 -c 10 -t 5 --js -q", log_fn, timeout=25, project_id=project_id)
+        gs_out = agent._run_cli(f"gospider -s {safe_url} -d 2 -c 10 -t 5 --js -q", log_fn, timeout=22, project_id=project_id)
         for gs_line in gs_out.splitlines()[:120]:
             for m_u in re.findall(r"https?://[^\s\"'<>]+", gs_line):
                 u = agent._record_discovered_url(project_id, m_u, url, scope, "gospider")
-                if u and u.endswith(".js") and u not in js_list:
+                if u and u.endswith(".js") and len(js_list) < 40 and u not in js_list:
                     js_list.append(u)
-
-    if "hakrawler" in active_ids and agent._find_binary("hakrawler") and is_high_val:
-        log_fn(f"[Tool 5.6 -> Hakrawler] {url} qo'shimcha endpoint va JS linklari yig'ilmoqda...")
-        hk_out = agent._run_cli(f"echo {safe_url} | hakrawler -d 2 -subs -u", log_fn, timeout=25, project_id=project_id)
-        for hk_url in hk_out.splitlines()[:120]:
-            u = agent._record_discovered_url(project_id, hk_url, url, scope, "hakrawler")
-            if u and u.endswith(".js") and u not in js_list:
-                js_list.append(u)
 
     if "waymore" in active_ids and agent._find_binary("waymore") and dom == primary_host:
         wm_out_file = f"/tmp/spectre_waymore_{project_id}.txt"
-        agent._run_cli(f"waymore -i {safe_dom} -mode U -l 100 -oU {wm_out_file}", log_fn, timeout=25, project_id=project_id)
+        agent._run_cli(f"waymore -i {safe_dom} -mode U -l 100 -oU {wm_out_file}", log_fn, timeout=22, project_id=project_id)
         if os.path.exists(wm_out_file):
             try:
                 for w_u in open(wm_out_file, "r", errors="ignore").read().splitlines()[:120]:
                     u = agent._record_discovered_url(project_id, w_u.strip(), url, scope, "waymore")
-                    if u and u.endswith(".js") and u not in js_list:
+                    if u and u.endswith(".js") and len(js_list) < 40 and u not in js_list:
                         js_list.append(u)
             except Exception:
                 pass
-
-    # 8.2 SubJS Extra JS Extractor
-    if "subjs" in active_ids and agent._find_binary("subjs") and is_high_val:
-        sj_out = agent._run_cli(f"echo {safe_url} | subjs", log_fn, timeout=15, project_id=project_id)
-        for sj_u in sj_out.splitlines()[:60]:
-            if sj_u.strip().startswith("http"):
-                u = agent._record_discovered_url(project_id, sj_u.strip(), url, scope, "subjs")
-                if u and u.endswith(".js") and u not in js_list:
-                    js_list.append(u)
 
     # 6.2, 6.3 & 6.4 Dirsearch / Gobuster / Wfuzz Backup Directory Fuzzers
     if dom == primary_host and os.path.exists(seclists_common):
