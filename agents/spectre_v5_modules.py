@@ -595,13 +595,14 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
                 break
             canon_host = ip_to_primary_host.get(n_ip, n_ip)
             safe_t = shlex.quote(n_ip)
-            target_ports = {21, 22, 80, 443, 445, 3306, 5432, 6379, 8080, 8443}
+            known_open = set()
             for pr in known_ports_rows:
                 if pr.get("ip") == n_ip or pr.get("host") in (n_ip, canon_host):
                     p_int = int(pr.get("port", 0))
                     if 1 <= p_int <= 65535 and p_int not in alg_false_ports:
-                        target_ports.add(p_int)
-            port_spec = ",".join(str(p) for p in sorted(target_ports)[:35])
+                        known_open.add(p_int)
+            target_ports = (known_open | {80, 443}) if known_open else {21, 22, 80, 443, 445, 3306, 5432, 6379, 8080, 8443}
+            port_spec = ",".join(str(p) for p in sorted(target_ports)[:30])
             log_fn(f"[Tool 3.2 -> Nmap Deep NSE] {canon_host} ({n_ip} | Portlar: {len(target_ports)} ta) da servis versiyalari va NSE skriptlari ishga tushirilmoqda...")
             xml_out = agent._run_cli(
                 f"nmap -Pn -sV --version-light -T4 --max-retries 1 --host-timeout 30s --script-timeout 8s -p {port_spec} --script=banner,http-title,http-headers,http-methods,ssl-cert,ftp-anon,smb-os-discovery,smb-protocols -oX - {safe_t}",

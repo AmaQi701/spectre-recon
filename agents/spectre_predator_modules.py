@@ -187,10 +187,11 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
     vendor_skip = (
         "bootstrap", "jquery", "popper", "swiper", "lodash", "moment", "chart.", "chartjs",
         "axios", "fontawesome", "tailwind", "owl.carousel", "select2", "fancybox", "aos.", "gsap",
+        "uwnd.min", "/.s/src/", "require.min", "polyfill", "modernizr",
     )
     for js_u in js_urls[:25]:
         js_fname = js_u.split("/")[-1].split("?")[0].lower()
-        if any(vk in js_fname for vk in vendor_skip):
+        if any(vk in js_fname or vk in js_u.lower() for vk in vendor_skip):
             continue
         map_candidates = [js_u + ".map"]
         try:

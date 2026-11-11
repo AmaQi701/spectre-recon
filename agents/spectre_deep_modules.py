@@ -103,8 +103,8 @@ def fingerprint_favicon(session, base_url: str, db, project_id: int, log_fn) -> 
 
 # ================= #1 NON-STANDARD WEB PORT PROBER =================
 WEB_CANDIDATE_PORTS = {
-    81, 3000, 4443, 5000, 5601, 7001, 8000, 8008, 8080, 8081,
-    8083, 8086, 8087, 8088, 8443, 8888, 9000, 9001, 9080, 9090, 9200, 9443, 9999, 10000
+    81, 1500, 1501, 2083, 2087, 3000, 4443, 5000, 5601, 7001, 8000, 8006, 8008, 8080, 8081,
+    8083, 8086, 8087, 8088, 8090, 8181, 8443, 8444, 8880, 8888, 9000, 9001, 9080, 9090, 9200, 9443, 9999, 10000
 }
 
 
@@ -126,7 +126,7 @@ def probe_nonstandard_web_ports(db, session, project_id: int, log_fn):
 
     def check_port(item):
         host, pnum = item
-        schemes = ("https", "http") if pnum in (4443, 8443, 9443, 10000) else ("http", "https")
+        schemes = ("https", "http") if pnum in (1500, 2083, 2087, 4443, 8006, 8443, 8444, 9443, 10000) else ("http", "https")
         for sch in schemes:
             url = f"{sch}://{host}:{pnum}"
             try:
@@ -313,8 +313,8 @@ def analyze_badsecrets_and_cookies(db, project_id: int, apex_domain: str, log_fn
                 db.upsert_finding(
                     project_id, "SPECTRE-Agent1 (CookieScope)", f"Cross-Subdomain Wildcard Cookie Scope (.{apex_domain})",
                     "Session Management / Subdomain Risk", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
-                    "CWE-565", "A07:2021 - Identification and Authentication Failures", url,
-                    f"Cookie shared across all *.{apex_domain} subdomains: {raw[:140]}",
+                    "CWE-565", "A07:2021 - Identification and Authentication Failures", apex_domain,
+                    f"Sample Host: {url} | Cookie shared across all *.{apex_domain} subdomains: {raw[:140]}",
                     f"Cookie Domain=.{apex_domain} qilib belgilangani sababli barcha subdomenlarga yuboriladi.",
                     "Sessiya cookie'larida Domain atributini faqat aniq host uchun cheklang (HostOnly cookie).",
                 )

@@ -490,7 +490,8 @@ class ReconSuperAgent:
                     )
                     log_fn(f"  [🚨 TAKEOVER] Dangling CNAME aniqlandi: {cand} -> {cname_val}")
             if records:
-                cdn = "Cloudflare" if any("cloudflare" in str(v).lower() for v in records.values()) else ""
+                cf_ip_prefs = ("104.16.", "104.17.", "104.18.", "104.19.", "104.20.", "104.21.", "172.64.", "172.67.", "188.114.")
+                cdn = "Cloudflare" if ("cloudflare" in cname_val.lower() or (ip_val and ip_val.startswith(cf_ip_prefs))) else ""
                 self.db.upsert_domain(project_id, cand, ip=ip_val, cname=cname_val, records=records, cdn_waf=cdn, source="dns_enum")
                 if ip_val or cname_val:
                     log_fn(f"  [+] DNS Active: {cand} -> {ip_val or cname_val} {f'(Records: {list(records.keys())})' if len(records)>1 else ''}")
@@ -609,8 +610,17 @@ class ReconSuperAgent:
                 hostnames = data.get("hostnames", [])
                 sorted_h = sorted(hosts, key=lambda x: (-_host_rank(x), len(x)))
                 primary_h = sorted_h[0]
+                std_port_svcs = {
+                    21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp", 53: "domain", 80: "http",
+                    110: "pop3", 143: "imap", 443: "https", 445: "microsoft-ds", 465: "smtps",
+                    587: "submission", 993: "imaps", 995: "pop3s", 1500: "ispmanager",
+                    3000: "http-alt", 3306: "mysql", 3389: "ms-wbt-server", 5432: "postgresql",
+                    6379: "redis", 8080: "http-proxy", 8443: "https-alt", 9200: "elasticsearch",
+                }
                 for p in ports:
-                    self.db.upsert_port(project_id, primary_h, int(p), "tcp", ip=ip, service="shodan-port", version=", ".join(cpes[:2]), source="shodan_internetdb")
+                    p_int = int(p)
+                    svc_lbl = std_port_svcs.get(p_int, "shodan-port")
+                    self.db.upsert_port(project_id, primary_h, p_int, "tcp", ip=ip, service=svc_lbl, version=", ".join(cpes[:2]), source="shodan_internetdb")
                 for hn in hostnames:
                     if scope.is_in_scope(hn)[0]:
                         self.db.upsert_domain(project_id, hn, ip=ip, source="shodan_rdns")
@@ -922,6 +932,10 @@ class ReconSuperAgent:
             soup = BeautifulSoup(html_body[:80000], "html.parser")
             for a in soup.find_all(["a", "link"], href=True):
                 self._record_discovered_url(project_id, a["href"], base_url, scope, "html_crawler")
+            for meta in soup.find_all("meta", content=True):
+                m_ref = re.search(r"url\s*=\s*['\"]?([^'\"\s;>]+)", str(meta.get("content", "")), re.IGNORECASE)
+                if m_ref:
+                    self._record_discovered_url(project_id, m_ref.group(1), base_url, scope, "meta_refresh")
             for form in soup.find_all("form"):
                 action = form.get("action") or base_url
                 method = (form.get("method") or "GET").upper()
@@ -1142,14 +1156,14 @@ class ReconSuperAgent:
                 extracted_params = set()
                 for m in param_regex.finditer(content):
                     blk, qkey = m.group(1), m.group(2)
-                    if qkey:
+                    if qkey and qkey.lower() not in ("null", "undefined", "true", "false", "http", "https"):
                         extracted_params.add(qkey)
                     elif blk:
                         for key in re.findall(r"([a-zA-Z_][a-zA-Z0-9_]{1,28})\s*:", blk):
                             if key not in ("http", "https", "true", "false", "null", "undefined"):
                                 extracted_params.add(key)
 
-                is_vendor_js = any(vk in safe_jname.lower() or f"/{vk}" in js_url.lower() for vk in ("require.min", "polyfill", "jquery", "bootstrap", "popper", "modernizr", "lodash", "swiper", "vendor"))
+                is_vendor_js = any(vk in safe_jname.lower() or f"/{vk}" in js_url.lower() for vk in ("require.min", "polyfill", "jquery", "bootstrap", "popper", "modernizr", "lodash", "swiper", "vendor", "uwnd.min", "/.s/src/"))
                 sinks = [] if is_vendor_js else sorted(set(sink_regex.findall(content)))
                 secrets = sorted({s[:120] for s in secret_regex.findall(content)})
                 eps.update(method_map.keys())
