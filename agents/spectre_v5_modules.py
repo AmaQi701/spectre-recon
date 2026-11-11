@@ -796,39 +796,35 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                             if len(js_list) < 40 and u not in js_list:
                                 js_list.append(u)
 
-    if is_high_val:
-        ex_w = concurrent.futures.ThreadPoolExecutor(max_workers=5)
-        futs_w = [ex_w.submit(fn) for fn in (_task_whatweb, _task_katana, _task_httpx, _task_hakrawler, _task_subjs)]
-        concurrent.futures.wait(futs_w, timeout=28)
-        ex_w.shutdown(wait=False, cancel_futures=True)
+    def _task_wafw00f():
+        if "wafw00f" in active_ids and agent._find_binary("wafw00f") and dom == primary_host:
+            log_fn(f"[Tool 4.3 -> Wafw00f Deep -a] {url} da barcha WAF qatlamlari tekshirilmoqda...")
+            wf_out = agent._run_cli(f"wafw00f -a {safe_url}", log_fn, timeout=22, project_id=project_id)
+            m_waf = re.search(r"is behind\s+([^\r\n(]+)", wf_out)
+            if m_waf:
+                waf_name = re.sub(r"\x1b\[[0-9;]*m", "", m_waf.group(1)).strip()
+                log_fn(f"  [🛡️ Wafw00f] Aniqlangan WAF: {waf_name}")
+                with agent.db._lock, agent.db._get_conn() as conn:
+                    conn.execute("UPDATE http_services SET waf=? WHERE project_id=? AND url=?", (waf_name[:80], project_id, url))
+            agent.db.log_task(project_id, "SPECTRE-Agent1", "wafw00f", "COMPLETED", f"wafw00f -a {url}", wf_out[:250])
 
-    # 4.3 Wafw00f All-WAF Detector (-a)
-    if "wafw00f" in active_ids and agent._find_binary("wafw00f") and dom == primary_host:
-        log_fn(f"[Tool 4.3 -> Wafw00f Deep -a] {url} da barcha WAF qatlamlari tekshirilmoqda...")
-        wf_out = agent._run_cli(f"wafw00f -a {safe_url}", log_fn, timeout=25, project_id=project_id)
-        m_waf = re.search(r"is behind\s+([^\r\n(]+)", wf_out)
-        if m_waf:
-            waf_name = re.sub(r"\x1b\[[0-9;]*m", "", m_waf.group(1)).strip()
-            log_fn(f"  [🛡️ Wafw00f] Aniqlangan WAF: {waf_name}")
-            with agent.db._lock, agent.db._get_conn() as conn:
-                conn.execute("UPDATE http_services SET waf=? WHERE project_id=? AND url=?", (waf_name[:80], project_id, url))
-        agent.db.log_task(project_id, "SPECTRE-Agent1", "wafw00f", "COMPLETED", f"wafw00f -a {url}", wf_out[:250])
-
-    # 5.3 & 5.4 Waybackurls / GAU Historical Archive Miners
-    if dom == primary_host:
-        for hist_bin in ("waybackurls", "gau"):
-            if hist_bin in active_ids and agent._find_binary(hist_bin):
-                cmd = f"echo {safe_dom} | waybackurls" if hist_bin == "waybackurls" else f"gau {safe_dom} --subs --providers otx,urlscan --timeout 5"
-                log_fn(f"[Tool 5 -> {hist_bin.upper()}] {dom} tarixiy arxiv URL'lari yig'ilmoqda...")
-                h_out = agent._run_cli(cmd, log_fn, timeout=18, project_id=project_id)
-                h_cnt = 0
-                for h_url in h_out.splitlines()[:250]:
-                    u = agent._record_discovered_url(project_id, h_url, url, scope, hist_bin)
-                    if u:
-                        h_cnt += 1
-                        if u.endswith(".js") and u not in js_list:
-                            js_list.append(u)
-                log_fn(f"  [+] {hist_bin.upper()} yakunlandi: {h_cnt} ta tarixiy URL bazaga qo'shildi.")
+    def _task_history():
+        if dom == primary_host:
+            for hist_bin in ("waybackurls", "gau"):
+                if hist_bin in active_ids and agent._find_binary(hist_bin):
+                    cmd = f"echo {safe_dom} | waybackurls" if hist_bin == "waybackurls" else f"gau {safe_dom} --subs --providers otx,urlscan --timeout 5"
+                    log_fn(f"[Tool 5 -> {hist_bin.upper()}] {dom} tarixiy arxiv URL'lari yig'ilmoqda...")
+                    h_out = agent._run_cli(cmd, log_fn, timeout=16, project_id=project_id)
+                    h_cnt = 0
+                    for h_url in h_out.splitlines()[:250]:
+                        u = agent._record_discovered_url(project_id, h_url, url, scope, hist_bin)
+                        if u:
+                            h_cnt += 1
+                            if u.endswith(".js"):
+                                with js_lock:
+                                    if len(js_list) < 40 and u not in js_list:
+                                        js_list.append(u)
+                    log_fn(f"  [+] {hist_bin.upper()} yakunlandi: {h_cnt} ta tarixiy URL bazaga qo'shildi.")
 
     # 6.1 FFUF Auto-Calibrated SecLists Fuzzer (-ac -of json)
     seclists_common = "/home/amaqi/SecLists/Discovery/Web-Content/common.txt"
