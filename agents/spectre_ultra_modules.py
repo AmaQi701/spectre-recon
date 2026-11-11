@@ -466,9 +466,8 @@ def extract_document_metadata_osint(db, session: requests.Session, project_id: i
     log_fn(f"[SPECTRE Ultra #7 -> Document Metadata OSINT] {len(doc_urls[:8])} ta PDF/DOCX/XLSX hujjat ichidan muallif va dastur metadatasi o'qilmoqda...")
     for d_url in doc_urls[:8]:
         try:
-            r = session.get(d_url, timeout=6, verify=False, stream=True)
-            raw = r.raw.read(262144, decode_content=True)
-            r.close()
+            with session.get(d_url, timeout=6, verify=False, stream=True) as r:
+                raw = r.raw.read(262144, decode_content=True)
             meta_hits = []
             if raw.startswith(b"%PDF"):
                 for k in ("Author", "Creator", "Producer", "Title"):

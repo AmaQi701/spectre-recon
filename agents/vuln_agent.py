@@ -151,6 +151,8 @@ class VulnAssessmentSuperAgent:
             return {"valid": False, "error": str(e)}
 
     def _audit_http_services(self, project_id: int, http_services: list[dict], log_fn):
+        seen_header_sigs: set[tuple[str, str]] = set()
+        cors_dead_hosts: set[str] = set()
         for svc in http_services:
             url = svc["url"]
             sec = json.loads(svc.get("security_headers_json") or "{}")
@@ -177,31 +179,37 @@ class VulnAssessmentSuperAgent:
                     "Agar API ommaviy bo'lmasa, ruxsat berilgan originlarni qat'iy belgilang.",
                 )
 
-            # Active Dynamic Origin Reflection & HTTP Methods Probe on top services
-            try:
-                r_cors = self.session.get(url, headers={"Origin": "https://evil.spectre-audit.org"}, timeout=4.0, verify=False, allow_redirects=False)
-                ref_acao = r_cors.headers.get("Access-Control-Allow-Origin", "")
-                ref_acac = r_cors.headers.get("Access-Control-Allow-Credentials", "").lower()
-                if ref_acao == "https://evil.spectre-audit.org":
-                    sev_c = "Critical" if ref_acac == "true" else "Medium"
-                    cvss_c = 8.8 if ref_acac == "true" else 5.3
-                    self.db.upsert_finding(
-                        project_id, "Agent-2 (Active-CORS)", f"[CONFIRMED] Arbitrary CORS Origin Reflection ({url})",
-                        "CORS Origin Reflection", sev_c, cvss_c, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:L/A:N",
-                        "CWE-942", "A05:2021 - Security Misconfiguration", url,
-                        f"Sent Origin: https://evil.spectre-audit.org -> Reflected ACAO: {ref_acao} | ACAC: {ref_acac}",
-                        "Server har qanday tashqi Origin sarlavhasini Access-Control-Allow-Origin ichida aks ettirmoqda.",
-                        "Origin sarlavhasini avtomatik aks ettirmang; qat'iy oq ro'yxat (allowlist) tekshiruvini o'rnating.",
-                        confidence="Confirmed-PoC",
-                    )
-            except Exception:
-                pass
+            # Active Dynamic Origin Reflection Probe (single non-duplicated check with host timeout guard)
+            host_only = re.sub(r"^https?://", "", url).split("/")[0].split(":")[0].lower()
+            if host_only not in cors_dead_hosts:
+                try:
+                    r_cors = self.session.get(url, headers={"Origin": "https://cors-check.example.org"}, timeout=3.5, verify=False, allow_redirects=False)
+                    ref_acao = r_cors.headers.get("Access-Control-Allow-Origin", "")
+                    ref_acac = r_cors.headers.get("Access-Control-Allow-Credentials", "").lower()
+                    if ref_acao == "https://cors-check.example.org":
+                        sev_c = "Critical" if ref_acac == "true" else "Medium"
+                        cvss_c = 8.8 if ref_acac == "true" else 5.3
+                        self.db.upsert_finding(
+                            project_id, "Agent-2 (Active-CORS)", f"[CONFIRMED] Arbitrary CORS Origin Reflection ({url})",
+                            "CORS Origin Reflection", sev_c, cvss_c, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:L/A:N",
+                            "CWE-942", "A05:2021 - Security Misconfiguration", url,
+                            f"Sent Origin: https://cors-check.example.org -> Reflected ACAO: {ref_acao} | ACAC: {ref_acac}",
+                            "Server har qanday tashqi Origin sarlavhasini Access-Control-Allow-Origin ichida aks ettirmoqda.",
+                            "Origin sarlavhasini avtomatik aks ettirmang; qat'iy oq ro'yxat (allowlist) tekshiruvini o'rnating.",
+                            confidence="Confirmed-PoC",
+                        )
+                except requests.exceptions.RequestException:
+                    cors_dead_hosts.add(host_only)
+                except Exception:
+                    pass
 
             missing_headers = [
                 h for h in ("Strict-Transport-Security", "Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options")
                 if not sec.get(h)
             ]
-            if missing_headers:
+            hdr_sig = (svc.get("server", ""), ",".join(missing_headers))
+            if missing_headers and hdr_sig not in seen_header_sigs:
+                seen_header_sigs.add(hdr_sig)
                 self.db.upsert_finding(
                     project_id, "Agent-2 (VulnAudit)", "Missing HTTP Security Hardening Headers",
                     "Security Misconfiguration", "Low", 3.1, "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:N/A:N",
@@ -233,26 +241,6 @@ class VulnAssessmentSuperAgent:
                     "Veb-server o'zining aniq versiyasini HTTP javob headerida oshkor qilmoqda.",
                     "Nginx da 'server_tokens off;' yoki Apache da 'ServerTokens Prod' sozlamasini yoqing.",
                 )
-
-            # Active Safe CORS Origin Reflection Test
-            try:
-                test_origin = "https://evil-cors-audit.example.com"
-                r_cors = requests.get(url, headers={"Origin": test_origin, "User-Agent": "APEX-ASM-Audit/2.0"}, timeout=6, verify=False)
-                ref_acao = r_cors.headers.get("Access-Control-Allow-Origin", "")
-                ref_acac = r_cors.headers.get("Access-Control-Allow-Credentials", "").lower()
-                if ref_acao == test_origin:
-                    sev = "High" if ref_acac == "true" else "Medium"
-                    score = 8.3 if ref_acac == "true" else 5.3
-                    self.db.upsert_finding(
-                        project_id, "Agent-2 (Active-CORS)", "Arbitrary CORS Origin Reflection Detected",
-                        "CORS Misconfiguration", sev, score, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:L/A:N",
-                        "CWE-942", "A05:2021 - Security Misconfiguration", url,
-                        f"Sent Origin: {test_origin} -> Reflected ACAO: {ref_acao} | ACAC: {ref_acac}",
-                        "Server tashqaridan yuborilgan ixtiyoriy Origin headerini tekshirmasdan Access-Control-Allow-Origin da aks ettirmoqda.",
-                        "Origin headerini dinamik aks ettirish o'rniga qat'iy tasdiqlangan domenlar ro'yxati bilan solishtiring.",
-                    )
-            except Exception:
-                pass
         log_fn(f"  [+] {len(http_services)} ta HTTP servis, Server versiyalari va Active CORS Reflection tekshirildi.")
 
     def _audit_open_ports(self, project_id: int, ports: list[dict], log_fn):

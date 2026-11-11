@@ -583,7 +583,8 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
                         continue
                     ip_val = h_part if re.match(r"^\d+\.\d+\.\d+\.\d+$", h_part) else ""
                     canon_h = ip_to_primary_host.get(ip_val, h_part)
-                    agent.db.upsert_port(project_id, canon_h, p_num, "tcp", ip=ip_val, service="tcp-open", source="naabu")
+                    svc_lbl = agent.STANDARD_PORT_SERVICES.get(p_num, "tcp-open")
+                    agent.db.upsert_port(project_id, canon_h, p_num, "tcp", ip=ip_val, service=svc_lbl, source="naabu")
 
     # 3.2 Nmap Deep NSE Recon Scanner SECOND (Smart Port Chaining on Unique Non-CDN IPs)
     if "nmap" in active_ids and agent._find_binary("nmap") and non_cdn_ips:
@@ -694,7 +695,7 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
             agent.db.log_task(project_id, "SPECTRE-Agent1", "kerbrute", "COMPLETED", f"kerbrute AD check on {kip}:88", kb_out[:200])
 
 
-def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, primary_host: str, is_high_val: bool, scope, active_ids: set, js_list: list, log_fn):
+def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, primary_host: str, is_high_val: bool, scope, active_ids: set, js_list: list, log_fn, phase: str = "all"):
     import os
     import re
     import shlex
@@ -802,14 +803,17 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
     def _task_wafw00f():
         if "wafw00f" in active_ids and agent._find_binary("wafw00f") and dom == primary_host:
             log_fn(f"[Tool 4.3 -> Wafw00f Deep -a] {url} da barcha WAF qatlamlari tekshirilmoqda...")
-            wf_out = agent._run_cli(f"wafw00f -a {safe_url}", log_fn, timeout=22, project_id=project_id)
-            m_waf = re.search(r"is behind\s+([^\r\n(]+)", wf_out)
+            wf_out = agent._run_cli(f"wafw00f --no-colors -a {safe_url}", log_fn, timeout=22, project_id=project_id)
+            clean_wf = re.sub(r"\x1b\[[0-9;]*m", "", wf_out)
+            m_waf = re.search(r"is behind\s+([^\r\n(]+)", clean_wf)
+            waf_summary = "No WAF detected"
             if m_waf:
-                waf_name = re.sub(r"\x1b\[[0-9;]*m", "", m_waf.group(1)).strip()
+                waf_name = m_waf.group(1).strip()
+                waf_summary = f"Detected WAF: {waf_name}"
                 log_fn(f"  [🛡️ Wafw00f] Aniqlangan WAF: {waf_name}")
                 with agent.db._lock, agent.db._get_conn() as conn:
                     conn.execute("UPDATE http_services SET waf=? WHERE project_id=? AND url=?", (waf_name[:80], project_id, url))
-            agent.db.log_task(project_id, "SPECTRE-Agent1", "wafw00f", "COMPLETED", f"wafw00f -a {url}", wf_out[:250])
+            agent.db.log_task(project_id, "SPECTRE-Agent1", "wafw00f", "COMPLETED", f"wafw00f -a {url}", waf_summary)
 
     def _task_history():
         if dom == primary_host:
@@ -861,82 +865,77 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                 except Exception:
                     pass
 
-    if is_high_val:
-        tasks_to_run = [_task_whatweb, _task_katana, _task_httpx, _task_hakrawler, _task_subjs]
-        if dom == primary_host:
-            tasks_to_run.extend([_task_wafw00f, _task_history, _task_primary_crawlers])
-        ex_w = concurrent.futures.ThreadPoolExecutor(max_workers=6)
-        futs_w = [ex_w.submit(fn) for fn in tasks_to_run]
-        concurrent.futures.wait(futs_w, timeout=34)
-        ex_w.shutdown(wait=False, cancel_futures=True)
+    if phase in ("all", "crawl_only"):
+        if is_high_val:
+            tasks_to_run = [_task_whatweb, _task_katana, _task_httpx, _task_hakrawler, _task_subjs]
+            if dom == primary_host:
+                tasks_to_run.extend([_task_wafw00f, _task_history, _task_primary_crawlers])
+            ex_w = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+            futs_w = [ex_w.submit(fn) for fn in tasks_to_run]
+            concurrent.futures.wait(futs_w, timeout=34)
+            ex_w.shutdown(wait=False, cancel_futures=True)
+        if phase == "crawl_only":
+            return
 
-    # 6.1 FFUF Auto-Calibrated SecLists Fuzzer (-ac -of json)
+    if dom.lower() in getattr(agent, "_dead_hosts", set()):
+        return
+
     seclists_common = "/home/amaqi/SecLists/Discovery/Web-Content/common.txt"
     is_fuzz_target = (dom == primary_host) or any(k in dom.split(".")[0].lower() for k in ("api", "admin", "my", "id", "auth", "sso", "portal"))
-    if "ffuf" in active_ids and agent._find_binary("ffuf") and os.path.exists(seclists_common) and is_fuzz_target:
-        ffuf_json = f"/tmp/spectre_ffuf_{project_id}.json"
-        try:
-            if os.path.exists(ffuf_json):
-                os.remove(ffuf_json)
-        except Exception:
-            pass
-        log_fn(f"[Tool 6.1 -> FFUF Auto-Calibrated (-ac) SecLists] {url}/FUZZ da 4,700+ yashirin katalog va fayllar qidirilmoqda...")
-        agent._run_cli(
-            f"ffuf -u {safe_url}/FUZZ -w {seclists_common} -mc 200,204,301,302,307,401,403,405 -ac -t 35 -maxtime 22 -of json -o {ffuf_json} -s",
-            log_fn,
-            timeout=28,
-            project_id=project_id,
-        )
-        if os.path.exists(ffuf_json):
-            try:
-                f_data = json.load(open(ffuf_json, "r", errors="ignore"))
-                results = f_data.get("results", [])
-                for res in results[:60]:
-                    f_url = res.get("url", "")
-                    f_stat = int(res.get("status", 0))
-                    f_len = int(res.get("length", 0))
-                    if f_url:
-                        agent._record_discovered_url(project_id, f_url, url, scope, f"ffuf_ac_{f_stat}")
-                        log_fn(f"  [📂 FFUF Hit] HTTP {f_stat} ({f_len}B) -> {f_url}")
-            except Exception as ex:
-                log_fn(f"  [!] FFUF JSON parse ogohlantirish: {ex}")
 
-    # 6.2, 6.3 & 6.4 Dirsearch / Gobuster / Wfuzz Backup Directory Fuzzers
-    if dom == primary_host and os.path.exists(seclists_common):
-        if "gobuster" in active_ids and agent._find_binary("gobuster") and "ffuf" not in active_ids:
-            gb_out = agent._run_cli(f"gobuster dir -u {safe_url} -w {seclists_common} -t 30 -q --no-error -k", log_fn, timeout=28, project_id=project_id)
-            for g_line in gb_out.splitlines():
-                m_gb = re.search(r"^(/[^\s]+)\s+\(Status:\s*(\d+)", g_line.strip())
-                if m_gb:
-                    agent._record_discovered_url(project_id, m_gb.group(1), url, scope, f"gobuster_{m_gb.group(2)}")
-        elif "dirsearch" in active_ids and agent._find_binary("dirsearch") and "ffuf" not in active_ids:
-            ds_out = agent._run_cli(f"dirsearch -u {safe_url} -t 25 -q --format=simple", log_fn, timeout=28, project_id=project_id)
-            for d_line in ds_out.splitlines():
-                if d_line.strip().startswith("http"):
-                    agent._record_discovered_url(project_id, d_line.strip(), url, scope, "dirsearch")
-        elif "wfuzz" in active_ids and agent._find_binary("wfuzz") and "ffuf" not in active_ids:
-            agent._run_cli(f"wfuzz -c -z file,{seclists_common} --hc 404,403 {safe_url}/FUZZ", log_fn, timeout=25, project_id=project_id)
-
-    # 5.8 Arjun Hidden HTTP Parameter Miner
-    if "arjun" in active_ids and agent._find_binary("arjun") and dom == primary_host:
-        arjun_json = f"/tmp/spectre_arjun_{project_id}.json"
-        try:
-            if os.path.exists(arjun_json):
-                os.remove(arjun_json)
-        except Exception:
-            pass
-        log_fn(f"[Tool 5.8 -> Arjun Parameter Miner] {url} da yashirin GET parametrlar qidirilmoqda...")
-        agent._run_cli(f"arjun -u {safe_url} -oJ {arjun_json} -q -t 10", log_fn, timeout=30, project_id=project_id)
-        if os.path.exists(arjun_json):
+    def _task_ffuf():
+        if "ffuf" in active_ids and agent._find_binary("ffuf") and os.path.exists(seclists_common) and is_fuzz_target:
+            ffuf_json = f"/tmp/spectre_ffuf_{project_id}.json"
             try:
-                a_data = json.load(open(arjun_json, "r", errors="ignore"))
-                for ep_u, ep_info in a_data.items():
-                    params_found = ep_info.get("params", []) if isinstance(ep_info, dict) else []
-                    if params_found:
-                        log_fn(f"  [🎯 Arjun Hidden Params] {ep_u} -> {params_found}")
-                        agent._record_discovered_url(project_id, ep_u, url, scope, "arjun_miner", extra_params=params_found)
+                if os.path.exists(ffuf_json):
+                    os.remove(ffuf_json)
             except Exception:
                 pass
+            log_fn(f"[Tool 6.1 -> FFUF Auto-Calibrated (-ac) SecLists] {url}/FUZZ da yashirin katalog va fayllar qidirilmoqda...")
+            agent._run_cli(
+                f"ffuf -u {safe_url}/FUZZ -w {seclists_common} -mc 200,204,301,302,307,401,403,405 -ac -t 20 -rate 120 -maxtime 20 -of json -o {ffuf_json} -s",
+                log_fn,
+                timeout=25,
+                project_id=project_id,
+            )
+            if os.path.exists(ffuf_json):
+                try:
+                    f_data = json.load(open(ffuf_json, "r", errors="ignore"))
+                    for res in f_data.get("results", [])[:60]:
+                        f_url = res.get("url", "")
+                        f_stat = int(res.get("status", 0))
+                        f_len = int(res.get("length", 0))
+                        if f_url:
+                            agent._record_discovered_url(project_id, f_url, url, scope, f"ffuf_ac_{f_stat}")
+                            log_fn(f"  [📂 FFUF Hit] HTTP {f_stat} ({f_len}B) -> {f_url}")
+                except Exception as ex:
+                    log_fn(f"  [!] FFUF JSON parse ogohlantirish: {ex}")
+
+    def _task_arjun_parallel():
+        if "arjun" in active_ids and agent._find_binary("arjun") and dom == primary_host:
+            arjun_json = f"/tmp/spectre_arjun_{project_id}.json"
+            try:
+                if os.path.exists(arjun_json):
+                    os.remove(arjun_json)
+            except Exception:
+                pass
+            log_fn(f"[Tool 5.8 -> Arjun Parameter Miner] {url} da yashirin GET parametrlar qidirilmoqda...")
+            agent._run_cli(f"arjun -u {safe_url} -oJ {arjun_json} -q -t 8", log_fn, timeout=25, project_id=project_id)
+            if os.path.exists(arjun_json):
+                try:
+                    a_data = json.load(open(arjun_json, "r", errors="ignore"))
+                    for ep_u, ep_info in a_data.items():
+                        params_found = ep_info.get("params", []) if isinstance(ep_info, dict) else []
+                        if params_found:
+                            log_fn(f"  [🎯 Arjun Hidden Params] {ep_u} -> {params_found}")
+                            agent._record_discovered_url(project_id, ep_u, url, scope, "arjun_miner", extra_params=params_found)
+                except Exception:
+                    pass
+
+    ex_fz = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+    futs_fz = [ex_fz.submit(_task_ffuf), ex_fz.submit(_task_arjun_parallel)]
+    concurrent.futures.wait(futs_fz, timeout=28)
+    ex_fz.shutdown(wait=False, cancel_futures=True)
 
 
 def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str, primary_host: str, active_ids: set, log_fn):

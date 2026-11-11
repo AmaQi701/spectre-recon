@@ -417,13 +417,21 @@ def run_v11_apex_suite(agent, project_id: int, apex_domain: str, base_url: str, 
     db = agent.db
     session = agent.session
 
+    ran_apex = getattr(agent, "_ran_apex_suites", None)
+    if ran_apex is None:
+        agent._ran_apex_suites = {}
+        ran_apex = agent._ran_apex_suites
+    proj_done = ran_apex.setdefault(project_id, set())
+
     map_iam_and_keycloak_realms(db, session, project_id, base_url, log_fn)
     resolve_openapi_schema_refs(db, session, project_id, base_url, log_fn)
     predict_and_fetch_webpack_chunks(db, session, project_id, base_url, js_urls, log_fn)
     mine_i18n_translation_dictionaries(db, session, project_id, base_url, log_fn)
     fingerprint_load_balancer_and_etag(db, session, project_id, base_url, log_fn)
     harvest_cors_preflight_capabilities(db, session, project_id, base_url, log_fn)
-    discover_related_sister_domains(db, project_id, apex_domain, log_fn)
+    if "v11_sister_domains" not in proj_done:
+        proj_done.add("v11_sister_domains")
+        discover_related_sister_domains(db, project_id, apex_domain, log_fn)
     db.log_task(project_id, "SPECTRE-v11", "v11_apex_suite", "COMPLETED", f"v11_suite {base_url}", f"Executed 8 v11 Apex Intelligence modules on {base_url}")
 
 

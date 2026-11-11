@@ -1,4 +1,5 @@
 import concurrent.futures
+import hashlib
 import json
 import os
 import re
@@ -67,40 +68,82 @@ class ReconSuperAgent:
         "/crossdomain.xml", "/admin", "/api", "/api/v1", "/backup.zip"
     ]
 
+    STANDARD_PORT_SERVICES = {
+        21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp", 26: "smtp-alt", 53: "domain", 80: "http",
+        110: "pop3", 125: "smtp-relay", 143: "imap", 443: "https", 445: "microsoft-ds", 465: "smtps",
+        587: "submission", 993: "imaps", 995: "pop3s", 1022: "ssh-alt", 1500: "ispmanager",
+        2082: "cpanel", 2083: "cpanel-ssl", 2086: "whm", 2087: "whm-ssl", 2095: "webmail", 2096: "webmail-ssl",
+        3000: "http-alt", 3306: "mysql", 3389: "ms-wbt-server", 5432: "postgresql", 6379: "redis",
+        8000: "http-alt", 8001: "http-alt", 8006: "proxmox", 8080: "http-proxy", 8443: "https-alt",
+        8888: "http-alt", 9000: "http-alt", 9200: "elasticsearch",
+    }
+
     def __init__(self, db: DatabaseManager, registry_path: str = "/home/amaqi/projects/apex-pentest-gui/config/tools_registry.yaml"):
         self.db = db
         self.registry_path = Path(registry_path)
         self.session = requests.Session()
-        adapter = requests.adapters.HTTPAdapter(pool_connections=50, pool_maxsize=50)
+        adapter = requests.adapters.HTTPAdapter(pool_connections=30, pool_maxsize=30)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
-        self.session.headers.update({"User-Agent": "SPECTRE-ASM-Security-Audit/12.2"})
-        self._http_get_cache: dict[tuple[str, bool], Any] = {}
+        self.session.headers.update({"User-Agent": "SPECTRE-ASM-Security-Audit/12.13"})
+        self._http_get_cache: dict[tuple[str, bool], object] = {}
         self._cache_lock = threading.Lock()
         self._probe_tls = threading.local()
+        self._host_fail_counts: dict[str, int] = {}
+        self._dead_hosts: set[str] = set()
+        self._host_to_ip: dict[str, str] = {}
         _orig_get = self.session.get
+        _orig_post = self.session.post
+        _orig_head = self.session.head
+        self._raw_session_get = _orig_get
+
+        def _guard_call(fn, url, **kwargs):
+            h_key = (urllib.parse.urlparse(str(url)).hostname or "").lower()
+            ip_key = self._host_to_ip.get(h_key, "")
+            with self._cache_lock:
+                if h_key and (h_key in self._dead_hosts or (ip_key and ip_key in self._dead_hosts)):
+                    raise requests.exceptions.ConnectTimeout(f"Circuit-Breaker: {h_key} unreachable")
+            try:
+                resp = fn(url, **kwargs)
+                if h_key:
+                    with self._cache_lock:
+                        self._host_fail_counts[h_key] = 0
+                return resp
+            except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
+                if h_key:
+                    with self._cache_lock:
+                        cnt = self._host_fail_counts.get(h_key, 0) + 1
+                        self._host_fail_counts[h_key] = cnt
+                        if cnt >= 4:
+                            self._dead_hosts.add(h_key)
+                            if ip_key:
+                                self._dead_hosts.add(ip_key)
+                raise
 
         def _cached_session_get(url, **kwargs):
-            if not kwargs.get("headers") and not kwargs.get("stream") and not kwargs.get("params"):
+            bypass_cache = bool(kwargs.pop("_bypass_cache", False))
+            if not bypass_cache and not kwargs.get("headers") and not kwargs.get("stream") and not kwargs.get("params"):
                 ckey = (str(url), bool(kwargs.get("allow_redirects", True)))
                 with self._cache_lock:
                     if ckey in self._http_get_cache:
                         return self._http_get_cache[ckey]
-                resp = _orig_get(url, **kwargs)
+                resp = _guard_call(_orig_get, url, **kwargs)
                 if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
                     resp.encoding = "utf-8"
                 if resp.status_code == 200 and len(resp.content) < 600000:
                     with self._cache_lock:
-                        if len(self._http_get_cache) > 160:
+                        if len(self._http_get_cache) > 200:
                             self._http_get_cache.clear()
                         self._http_get_cache[ckey] = resp
                 return resp
-            resp = _orig_get(url, **kwargs)
+            resp = _guard_call(_orig_get, url, **kwargs)
             if not kwargs.get("stream") and (not resp.encoding or resp.encoding.lower() == "iso-8859-1"):
                 resp.encoding = "utf-8"
             return resp
 
         self.session.get = _cached_session_get
+        self.session.post = lambda url, **kw: _guard_call(_orig_post, url, **kw)
+        self.session.head = lambda url, **kw: _guard_call(_orig_head, url, **kw)
         self.active_procs: dict[int, list[subprocess.Popen]] = {}
         self.abort_flags: set[int] = set()
 
@@ -436,17 +479,7 @@ class ReconSuperAgent:
                     elif rtype == "TXT":
                         for txt_v in vals:
                             if "v=spf1" in txt_v.lower():
-                                spf_ips = re.findall(r"ip4:([0-9./]+)", txt_v)
                                 spf_inc = re.findall(r"include:([a-zA-Z0-9.\-_]+)", txt_v)
-                                if spf_ips or spf_inc:
-                                    self.db.upsert_finding(
-                                        project_id, "SPECTRE-Agent1 (SPF-Intel)", f"SPF Network & Mail Infrastructure Intelligence ({cand})",
-                                        "Infrastructure Intelligence", "Low", 2.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
-                                        "CWE-200", "A05:2021 - Security Misconfiguration", cand,
-                                        f"SPF IPs/Subnets: {', '.join(spf_ips) or 'None'} | Includes: {', '.join(spf_inc) or 'None'} | Raw: {txt_v[:140]}",
-                                        "DNS TXT (SPF) yozuvi orqali tashkilotning rasmiy pochta va server tarmoqlari aniqlandi.",
-                                        "SPF yozuvida eskirgan yoki ichki test IP diapazonlari qolib ketmaganini tekshiring.",
-                                    )
                                 for inc_h in spf_inc:
                                     if scope.is_in_scope(inc_h)[0]:
                                         self.db.upsert_domain(project_id, inc_h, source="dns_spf")
@@ -610,17 +643,22 @@ class ReconSuperAgent:
                 hostnames = data.get("hostnames", [])
                 sorted_h = sorted(hosts, key=lambda x: (-_host_rank(x), len(x)))
                 primary_h = sorted_h[0]
-                std_port_svcs = {
-                    21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp", 53: "domain", 80: "http",
-                    110: "pop3", 143: "imap", 443: "https", 445: "microsoft-ds", 465: "smtps",
-                    587: "submission", 993: "imaps", 995: "pop3s", 1500: "ispmanager",
-                    3000: "http-alt", 3306: "mysql", 3389: "ms-wbt-server", 5432: "postgresql",
-                    6379: "redis", 8080: "http-proxy", 8443: "https-alt", 9200: "elasticsearch",
-                }
+                web_port_set = {80, 443, 1500, 2082, 2083, 2086, 2087, 2095, 2096, 3000, 8000, 8001, 8006, 8080, 8443, 8888, 9000}
                 for p in ports:
                     p_int = int(p)
-                    svc_lbl = std_port_svcs.get(p_int, "shodan-port")
-                    self.db.upsert_port(project_id, primary_h, p_int, "tcp", ip=ip, service=svc_lbl, version=", ".join(cpes[:2]), source="shodan_internetdb")
+                    svc_lbl = self.STANDARD_PORT_SERVICES.get(p_int, "shodan-port")
+                    matched_cpes = []
+                    for c_str in cpes:
+                        cl = c_str.lower()
+                        if p_int == 21 and any(k in cl for k in ("ftpd", "vsftpd", "proftpd", "filezilla")):
+                            matched_cpes.append(c_str)
+                        elif p_int in (22, 1022) and "ssh" in cl:
+                            matched_cpes.append(c_str)
+                        elif p_int == 3306 and any(k in cl for k in ("mysql", "mariadb")):
+                            matched_cpes.append(c_str)
+                        elif p_int in web_port_set and any(k in cl for k in ("nginx", "apache", "litespeed", "openresty", "iis", "caddy", "php")):
+                            matched_cpes.append(c_str)
+                    self.db.upsert_port(project_id, primary_h, p_int, "tcp", ip=ip, service=svc_lbl, version=", ".join(matched_cpes[:2]), source="shodan_internetdb")
                 for hn in hostnames:
                     if scope.is_in_scope(hn)[0]:
                         self.db.upsert_domain(project_id, hn, ip=ip, source="shodan_rdns")
@@ -1262,6 +1300,9 @@ class ReconSuperAgent:
         self.abort_flags.discard(project_id)
         with self._cache_lock:
             self._http_get_cache.clear()
+            self._host_fail_counts.clear()
+            self._dead_hosts.clear()
+            self._host_to_ip.clear()
         shutil.rmtree(f"/tmp/spectre_js_cache_{project_id}", ignore_errors=True)
         before_snap = spectre_deep_modules.take_recon_snapshot(self.db, project_id)
         collected_html: list[str] = []
@@ -1365,6 +1406,10 @@ class ReconSuperAgent:
                 probe_results: dict[str, tuple[str, str]] = {}
                 b_cur = self.db.get_project_bundle(project_id)
                 dom_ip_map = {d["domain"]: d.get("ip", "") for d in b_cur.get("domains", [])}
+                with self._cache_lock:
+                    for dm_k, dm_ip in dom_ip_map.items():
+                        if dm_ip:
+                            self._host_to_ip[dm_k.lower()] = dm_ip
                 open_ports_by_ip: dict[str, set[int]] = {}
                 for pt in b_cur.get("ports", []):
                     pip = pt.get("ip") or pt.get("host") or ""
@@ -1405,15 +1450,19 @@ class ReconSuperAgent:
                     url, html = probe_results[dom]
                     dip = dom_ip_map.get(dom, "")
                     first_lbl = dom.split(".")[0].lower()
-                    if dom != primary_host and first_lbl in ("cpcalendars", "cpcontacts", "webdisk", "autodiscover"):
-                        log_fn(f"  [⚡ cPanel Stub Skip] {dom} ({url}) -> avto-servis stabi, og'ir fuzzerlar o'tkazib yuborildi.")
+                    if dom != primary_host and first_lbl in ("cpcalendars", "cpcontacts", "webdisk", "autodiscover", "ftp", "smtp", "pop", "pop3", "imap", "relay"):
+                        log_fn(f"  [⚡ Infra Stub Skip] {dom} ({url}) -> pochta/fayl servis stabi, og'ir veb-fuzzerlar o'tkazib yuborildi.")
                         continue
                     if dip and dip in tarpitted_ips:
                         log_fn(f"  [⚡ Firewall Circuit-Breaker] {dom} ({dip}) IP avvalgi bosqichda tarpit/ban qilingan — ortiqcha kutish o'tkazib yuborildi.")
                         continue
                     try:
-                        self.session.get(url, timeout=(2.5, 3.5), verify=False, allow_redirects=False)
+                        self._raw_session_get(url, timeout=(2.5, 3.5), verify=False, allow_redirects=False)
                     except requests.exceptions.RequestException:
+                        with self._cache_lock:
+                            self._dead_hosts.add(dom.lower())
+                            if dip:
+                                self._dead_hosts.add(dip)
                         if dip:
                             tarpitted_ips.add(dip)
                         log_fn(f"  [⚡ Firewall Circuit-Breaker] {dom} ({url}) ulanishni uzdi yoki javob bermayapti (WAF/CSF IP-ban) — sekin modullar o'tkazib yuborildi.")
@@ -1421,8 +1470,9 @@ class ReconSuperAgent:
                     m_title = re.search(r"<title[^>]*>(.*?)</title>", html[:15000], re.I | re.S)
                     t_sig = (m_title.group(1).strip().lower()[:60] if m_title else "")
                     sc_names = tuple(sorted({s.split("/")[-1].split("?")[0] for s in re.findall(r'src=["\']([^"\']+\.js)', html[:25000])})[:4])
-                    app_sig = (dip, t_sig, sc_names)
-                    if dom != primary_host and (t_sig or sc_names) and app_sig in scanned_app_sigs:
+                    body_sig = "" if (t_sig or sc_names) else hashlib.md5(html[:4096].encode("utf-8", errors="ignore")).hexdigest()[:10]
+                    app_sig = (dip, t_sig, sc_names, body_sig)
+                    if dom != primary_host and html and app_sig in scanned_app_sigs:
                         log_fn(f"  [⚡ Smart Clone Skip] {dom} ({url}) -> {scanned_app_sigs[app_sig]} bilan bir xil ilova shabloni, takroriy og'ir skan o'tkazib yuborildi.")
                         continue
                     scanned_app_sigs[app_sig] = dom
@@ -1431,16 +1481,18 @@ class ReconSuperAgent:
                     collected_html.append(html[:50000])
                     js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)[:35]
                     spectre_v5_modules.run_deep_web_and_fuzz_tools(
-                        self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn
+                        self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn, phase="crawl_only"
                     )
-                    if is_high_val:
-                        self._stage5_openapi_discovery(project_id, url, scope, log_fn)
                     self._stage6_js_analyzer(project_id, js_list[:35], url, scope, log_fn)
                     if is_high_val:
+                        self._stage5_openapi_discovery(project_id, url, scope, log_fn)
                         spectre_predator_modules.run_predator_recon_suite(self, project_id, apex_domain, url, js_list, log_fn)
                         spectre_v10_modules.run_v10_enterprise_suite(self, project_id, apex_domain, url, js_list, log_fn)
                         spectre_v11_modules.run_v11_apex_suite(self, project_id, apex_domain, url, js_list, log_fn)
                         spectre_v12_modules.run_v12_titan_suite(self, project_id, apex_domain, primary_host, url, js_list, log_fn)
+                    spectre_v5_modules.run_deep_web_and_fuzz_tools(
+                        self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn, phase="fuzz_only"
+                    )
 
             _prog(0.90, "Stage 6/6: Adaptive Brain, Auto-Validator, SPA Manifests, Secrets v2 & Mobile/OIDC...")
             spectre_ultra_modules.run_adaptive_brain_strategy(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
@@ -1497,6 +1549,9 @@ class ReconSuperAgent:
             return
 
         self.abort_flags.discard(project_id)
+        with self._cache_lock:
+            self._host_fail_counts.pop(target_host.lower(), None)
+            self._dead_hosts.discard(target_host.lower())
         active_ids = {t["id"] for t in self.get_tools_status() if t.get("enabled") and t.get("installed")}
         apex_domain = ScopeGuard.extract_apex_domain(target_host)
         log_fn(f"═══ 🎯 SINGLE-HOST DEEP SURGICAL RECON: {target_host} ═══")
@@ -1513,14 +1568,17 @@ class ReconSuperAgent:
             if html:
                 js_list = self._stage4_html_and_wayback(project_id, url, html, target_host, scope, log_fn)
                 spectre_v5_modules.run_deep_web_and_fuzz_tools(
-                    self, project_id, url, target_host, target_host, True, scope, active_ids, js_list, log_fn
+                    self, project_id, url, target_host, target_host, True, scope, active_ids, js_list, log_fn, phase="crawl_only"
                 )
-                self._stage5_openapi_discovery(project_id, url, scope, log_fn)
                 self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
+                self._stage5_openapi_discovery(project_id, url, scope, log_fn)
                 spectre_predator_modules.run_predator_recon_suite(self, project_id, apex_domain, url, js_list, log_fn)
                 spectre_v10_modules.run_v10_enterprise_suite(self, project_id, apex_domain, url, js_list, log_fn)
                 spectre_v11_modules.run_v11_apex_suite(self, project_id, apex_domain, url, js_list, log_fn)
                 spectre_v12_modules.run_v12_titan_suite(self, project_id, apex_domain, target_host, url, js_list, log_fn)
+                spectre_v5_modules.run_deep_web_and_fuzz_tools(
+                    self, project_id, url, target_host, target_host, True, scope, active_ids, js_list, log_fn, phase="fuzz_only"
+                )
                 break
 
         _prog(0.85, f"Single-Host Adaptive Brain, Auto-Validator, SPA Manifest & SecretHunter v2: {target_host}...")

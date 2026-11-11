@@ -881,12 +881,20 @@ def run_predator_recon_suite(agent, project_id: int, apex_domain: str, base_url:
     db = agent.db
     session = agent.session
 
+    ran_apex = getattr(agent, "_ran_apex_suites", None)
+    if ran_apex is None:
+        agent._ran_apex_suites = {}
+        ran_apex = agent._ran_apex_suites
+    proj_done = ran_apex.setdefault(project_id, set())
+
     fingerprint_favicon_hash_and_tech(db, session, project_id, base_url, log_fn)
     unpack_js_sourcemaps(db, session, project_id, js_urls, base_url, log_fn)
     audit_reverse_proxy_acl_misconfigs(db, session, project_id, base_url, log_fn)
     mine_hidden_query_parameters(db, session, project_id, base_url, log_fn)
     audit_websocket_endpoints_and_cswsh(db, session, project_id, base_url, log_fn)
-    enumerate_multicloud_and_containers(db, session, project_id, apex_domain, base_url, log_fn)
+    if "v9_multicloud" not in proj_done:
+        proj_done.add("v9_multicloud")
+        enumerate_multicloud_and_containers(db, session, project_id, apex_domain, base_url, log_fn)
     introspect_graphql_field_suggestions(db, session, project_id, base_url, log_fn)
     hunt_dependency_confusion_risks(db, session, project_id, js_urls, base_url, log_fn)
     harvest_and_audit_jwt_tokens(db, session, project_id, apex_domain, base_url, js_urls, log_fn)

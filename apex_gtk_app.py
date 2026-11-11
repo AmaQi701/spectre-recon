@@ -256,7 +256,7 @@ class ApexNativeWindow(Gtk.Window):
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
         hb.props.title = "SPECTRE  —  Kiber-Razvedka va Hujum Yuzasi Platformasi"
-        hb.props.subtitle = "●  v12.12 Obsidian Emerald  •  Avtonom Razvedka, Zaiflik Auditi va Bug Chaining"
+        hb.props.subtitle = "●  v12.13 Obsidian Emerald  •  Avtonom Razvedka, Zaiflik Auditi va Bug Chaining"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -1064,7 +1064,8 @@ class ApexNativeWindow(Gtk.Window):
         target = ScopeGuard.extract_host(raw_target)
         apex_dom = ScopeGuard.extract_apex_domain(target)
         name = self.ent_pname.get_text().strip() or target
-        in_sc = self.ent_pinscope.get_text().strip() or f"{target}\n{apex_dom}\n*.{apex_dom}"
+        default_scope_items = list(dict.fromkeys([target, apex_dom, f"*.{apex_dom}"]))
+        in_sc = self.ent_pinscope.get_text().strip() or "\n".join(default_scope_items)
         out_sc = self.ent_poutscope.get_text().strip()
         code_p = self.ent_pcode.get_text().strip()
         pid = self.db.create_project(name, target, in_sc, out_sc, code_p)

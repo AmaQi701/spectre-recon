@@ -621,12 +621,20 @@ def run_v10_enterprise_suite(agent, project_id: int, apex_domain: str, base_url:
     db = agent.db
     session = agent.session
 
+    ran_apex = getattr(agent, "_ran_apex_suites", None)
+    if ran_apex is None:
+        agent._ran_apex_suites = {}
+        ran_apex = agent._ran_apex_suites
+    proj_done = ran_apex.setdefault(project_id, set())
+
     audit_vcs_metadata_exposure(db, session, project_id, base_url, log_fn)
     audit_static_routing_headers(db, session, project_id, base_url, log_fn)
     extract_grpc_and_protobuf_schemas(db, session, project_id, base_url, js_urls, log_fn)
     analyze_postmessage_handlers(db, session, project_id, base_url, js_urls, log_fn)
     audit_cache_policy_and_headers(db, session, project_id, base_url, log_fn)
-    validate_spf_dmarc_recursive(db, project_id, apex_domain, log_fn)
+    if "v10_spf_dmarc" not in proj_done:
+        proj_done.add("v10_spf_dmarc")
+        validate_spf_dmarc_recursive(db, project_id, apex_domain, log_fn)
     parse_service_worker_manifests(db, session, project_id, base_url, log_fn)
     inspect_http_protocol_and_proxy_topology(db, session, project_id, base_url, log_fn)
     audit_oauth_oidc_parameters(db, project_id, base_url, log_fn)

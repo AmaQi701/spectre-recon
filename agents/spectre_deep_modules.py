@@ -144,18 +144,24 @@ def probe_nonstandard_web_ports(db, session, project_id: int, log_fn):
                 soup = BeautifulSoup(text_sample, "html.parser")
                 title = soup.title.string.strip() if (soup.title and soup.title.string) else ""
                 srv = r.headers.get("Server", "")
+                t_low = title.lower()
+                if any(ch_kw in t_low for ch_kw in ("one moment, please", "just a moment", "attention required", "ddos-guard", "security check")):
+                    break
                 db.upsert_http_service(
                     project_id, url, code, title=title[:120], server=srv,
                     tech_stack=[srv] if srv else ["Custom-Port-Web"],
                     content_length=len(r.content), priority_score=85, source=f"port_{pnum}_probe"
                 )
+                is_std_hosting = pnum in (1500, 2082, 2083, 2086, 2087, 2095, 2096) or "login" in t_low
+                sev_pw = "Low" if is_std_hosting else "Medium"
+                cvss_pw = 3.7 if is_std_hosting else 6.5
                 db.upsert_finding(
                     project_id, "SPECTRE-Agent1 (PortWeb)", f"Exposed Web Interface on Non-Standard Port ({url})",
-                    "Exposed Management / Web Port", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+                    "Exposed Management / Web Port", sev_pw, cvss_pw, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
                     "CWE-284", "A05:2021 - Security Misconfiguration", url,
                     f"HTTP {code} | Title: '{title[:60]}' | Server: {srv} | Size: {len(r.content)}B",
                     f"Nostandart {pnum}-portda ochiq HTTP/HTTPS servis yoki boshqaruv paneli aniqlandi.",
-                    f"{pnum}-portni tashqi internetdan Firewall orqali yoping.",
+                    f"{pnum}-portni tashqi internetdan Firewall orqali cheklang.",
                 )
                 log_fn(f"  [🔥 PORT-WEB] {url} -> HTTP {code} | Title: '{title[:45]}' | Server: {srv}")
                 break
@@ -257,10 +263,10 @@ def hunt_cloud_and_storage_buckets(db, session, project_id: int, apex_domain: st
         shost, path = item
         url = f"https://{shost}{path}"
         try:
-            r = session.get(url, timeout=(2.5, 3.0), verify=False, stream=True)
-            chunk = next(r.iter_content(chunk_size=16384), b"").decode("utf-8", errors="ignore")
-            r.close()
-            if r.status_code == 200 and any(sig in chunk for sig in ("Index of /", "<ListBucketResult", "Directory listing for", "<EnumerationResults")):
+            with session.get(url, timeout=(2.5, 3.0), verify=False, stream=True) as r:
+                chunk = next(r.iter_content(chunk_size=16384), b"").decode("utf-8", errors="ignore")
+                status_c = r.status_code
+            if status_c == 200 and any(sig in chunk for sig in ("Index of /", "<ListBucketResult", "Directory listing for", "<EnumerationResults")):
                 db.upsert_finding(
                     project_id, "SPECTRE-Agent1 (StorageHunter)", f"Open Directory / Bucket Listing ({url})",
                     "Storage / Bucket Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
