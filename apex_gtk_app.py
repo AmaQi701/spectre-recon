@@ -79,7 +79,7 @@ progressbar progress { min-height: 22px; background-image: none; background-colo
 
 class ApexNativeWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="SPECTRE Recon & Attack Surface Studio v12.5 Titan")
+        super().__init__(title="SPECTRE Recon & Attack Surface Studio v12.10 Titan")
         self.set_default_size(1280, 760)
         self.maximize()
         self.set_wmclass("spectre-recon", "spectre-recon")
@@ -219,8 +219,8 @@ class ApexNativeWindow(Gtk.Window):
         # Clean Minimal HeaderBar (window controls stay sleek & native)
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
-        hb.props.title = "👻 SPECTRE Recon & Attack Surface Studio v12.5 Titan"
-        hb.props.subtitle = "49-Tool Arsenal • Headless Chrome V8 • IPv6 Dual-Stack • SourceMap-to-SAST • Visual Topology"
+        hb.props.title = "👻 SPECTRE Recon & Attack Surface Studio v12.10 Titan"
+        hb.props.subtitle = "49-Tool Arsenal • Headless Chrome V8 • IPv6 Dual-Stack • SourceMap-to-SAST • Firewall Circuit-Breaker"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -231,7 +231,7 @@ class ApexNativeWindow(Gtk.Window):
         sidebar.get_style_context().add_class("sidebar")
         sidebar.set_size_request(205, -1)
         brand_lbl = Gtk.Label(xalign=0)
-        brand_lbl.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>👻 SPECTRE v12.5</span>\n<span foreground='#64748b' size='small'>Titan Cyber-Recon Studio</span>")
+        brand_lbl.set_markup("<span foreground='#38bdf8' weight='bold' size='large'>👻 SPECTRE v12.10</span>\n<span foreground='#64748b' size='small'>Titan Cyber-Recon Studio</span>")
         brand_lbl.set_margin_bottom(8)
         sidebar.pack_start(brand_lbl, False, False, 4)
 
@@ -310,7 +310,7 @@ class ApexNativeWindow(Gtk.Window):
 
         self.progress_bar = Gtk.ProgressBar()
         self.progress_bar.set_show_text(True)
-        self.progress_bar.set_text("SPECTRE v12.4 Titan Ready — Nishonni tanlang yoki skanerni boshlang")
+        self.progress_bar.set_text("SPECTRE v12.10 Titan Ready — Nishonni tanlang yoki skanerni boshlang")
         self.progress_bar.set_fraction(0.0)
         self.progress_bar.set_hexpand(True)
         self.progress_bar.set_valign(Gtk.Align.CENTER)
@@ -562,7 +562,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v12.0 TITAN GTK3 STUDIO] 49/49 Recon Tools • Predator v9 + Phantom v10 + Apex v11 + Titan v12 (Headless V8 / IPv6 / WASM / UDP) tayyor.\n")
+        self.term_buf.set_text("[SPECTRE v12.10 TITAN GTK3 STUDIO] 49/49 Recon Tools • Predator v9 + Phantom v10 + Apex v11 + Titan v12 (Headless V8 / IPv6 / WASM / Circuit-Breaker) tayyor.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)
@@ -669,7 +669,7 @@ class ApexNativeWindow(Gtk.Window):
 
         q = (self.search_entry.get_text() or "").strip().lower() if hasattr(self, "search_entry") else ""
         f_mode = self.finding_filter_combo.get_active_id() if hasattr(self, "finding_filter_combo") else "all"
-        ip_cnt = sum(1 for d in doms if d.get("ip"))
+        ip_cnt = len({d["ip"] for d in doms if d.get("ip")})
         fp_cnt = sum(1 for f in finds if f.get("triage_status") == "False-Positive")
         sig = (self.current_project_id, len(doms), ip_cnt, len(ports), len(https), len(eps), len(js_list), len(finds), fp_cnt, len(chains), q, f_mode)
         if preserve_if_unchanged and sig == self._last_data_sig:
@@ -708,7 +708,8 @@ class ApexNativeWindow(Gtk.Window):
             if pt.get("ip"):
                 ports_by_ip.setdefault(pt["ip"], set()).add(p_tag)
         self.store_dom.clear()
-        for d in doms:
+        sorted_doms = sorted(doms, key=lambda d: (0 if d.get("source") in ("primary_target", "apex_domain") else (1 if d.get("ip") else 2), d.get("id", 0)))
+        for d in sorted_doms:
             combined_ports = sorted(ports_by_host.get(d["domain"], set()) | ports_by_ip.get(d.get("ip", ""), set()), key=lambda x: int(x.split("/")[0]))
             p_str = ", ".join(combined_ports)
             raw_str = f"{d['domain']} {d['ip']} {d['cname']} {d['source']} {p_str}".lower()
