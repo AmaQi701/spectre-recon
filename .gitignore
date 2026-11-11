@@ -3,6 +3,9 @@ workspaces/*.db
 workspaces/*.db-shm
 workspaces/*.db-wal
 workspaces/*.txt
+workspaces/*.json
+workspaces/*.csv
+workspaces/sourcemaps/
 reports/*.md
 reports/*.html
 reports/*.pdf
