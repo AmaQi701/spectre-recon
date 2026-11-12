@@ -415,7 +415,7 @@ def analyze_wasm_binaries_and_server_timing(db, session, project_id: int, base_u
 # MASTER ORCHESTRATOR FOR ALL SPECTRE v12.0 TITAN MODULES
 # ══════════════════════════════════════════════════════════════════════════════
 
-from core.plugin_runner import run_plugin_safely
+from core.plugin_runner import ScanPhase, run_plugin_safely
 
 
 def run_v12_titan_suite(agent, project_id: int, apex_domain: str, primary_host: str, base_url: str, js_urls: list[str], log_fn) -> None:
@@ -423,12 +423,12 @@ def run_v12_titan_suite(agent, project_id: int, apex_domain: str, primary_host: 
     db = agent.db
     session = agent.session
 
-    run_plugin_safely(db, project_id, "v12_headless_v8", headless_chrome_dom_and_route_renderer, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn)
-    run_plugin_safely(db, project_id, "v12_csp_nonce", audit_csp_deep_and_static_nonce, db, session, project_id, base_url, apex_domain, log_fn, log_fn=log_fn)
-    run_plugin_safely(db, project_id, "v12_semantic_rest", predict_and_verify_semantic_rest_endpoints, db, session, project_id, base_url, log_fn, log_fn=log_fn)
-    run_plugin_safely(db, project_id, "v12_wasm_timing", analyze_wasm_binaries_and_server_timing, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn)
+    run_plugin_safely(db, project_id, "v12_headless_v8", headless_chrome_dom_and_route_renderer, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "v12_csp_nonce", audit_csp_deep_and_static_nonce, db, session, project_id, base_url, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+    run_plugin_safely(db, project_id, "v12_semantic_rest", predict_and_verify_semantic_rest_endpoints, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+    run_plugin_safely(db, project_id, "v12_wasm_timing", analyze_wasm_binaries_and_server_timing, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
     if urllib.parse.urlparse(base_url).hostname == primary_host.split(":")[0].lower():
-        run_plugin_safely(db, project_id, "v12_backend_correlator", build_corporate_org_and_backend_correlation_graph, db, session, project_id, apex_domain, log_fn, log_fn=log_fn)
+        run_plugin_safely(db, project_id, "v12_backend_correlator", build_corporate_org_and_backend_correlation_graph, db, session, project_id, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_END)
     db.log_task(project_id, "SPECTRE-v12", "v12_titan_suite", "COMPLETED", f"v12_suite {base_url}", f"Executed v12 Titan Intelligence Suite on {base_url}")
 
 

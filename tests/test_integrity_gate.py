@@ -102,7 +102,17 @@ def run_integrity_gate() -> list[str]:
                     if "ThreadPoolExecutor" in ctx_s:
                         errors.append(f"[BLOCKING WITH-EXECUTOR] {pf.name}:{node.lineno} -> Use explicit wait(timeout=...) + shutdown(wait=False, cancel_futures=True)")
 
-    # 5. Runtime Smoke Check of DB, ScopeGuard, and 49/49 Tools
+    # 5. Runtime Smoke Check of DB, ScopeGuard, KB Gate, Advisory Catalog, and 49/49 Tools
+    from core.advisory_kb import match_version_advisories
+    from core.plugin_runner import ScanContextKB
+
+    kb_smoke = ScanContextKB(1, "target.local")
+    kb_smoke.add_fact("Ports/tcp", 6379)
+    if not kb_smoke.check_gate(require_ports=[6379])[0] or kb_smoke.check_gate(require_ports=[27017])[0]:
+        errors.append("[KB GATE BROKEN] ScanContextKB.check_gate port gating failed")
+    if not match_version_advisories("Nginx:1.18.0") or match_version_advisories("OpenSSH_9.8p1"):
+        errors.append("[ADVISORY KB BROKEN] match_version_advisories failed smoke check")
+
     with tempfile.TemporaryDirectory() as tmpd:
         db = DatabaseManager(str(pathlib.Path(tmpd) / "gate.db"))
         ra = ReconSuperAgent(db, str(ROOT_DIR / "config" / "tools_registry.yaml"))

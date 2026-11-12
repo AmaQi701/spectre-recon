@@ -196,6 +196,7 @@ class VulnAssessmentSuperAgent:
                     f"Access-Control-Allow-Origin: {acao} | Allow-Credentials: {acac}",
                     "Server barcha tashqi domenlarga autentifikatsiya ma'lumotlari bilan so'rov yuborishga ruxsat bermoqda.",
                     "Access-Control-Allow-Origin qiymatini faqat ishonchli domenlar oq ro'yxati bilan cheklang.",
+                    confidence=QoD.HEADER_CONFIG,
                 )
             elif acao == "*":
                 self.db.upsert_finding(
@@ -205,6 +206,7 @@ class VulnAssessmentSuperAgent:
                     "Header: Access-Control-Allow-Origin: *",
                     "Barcha tashqi originlar uchun javoblarni o'qish ruxsat etilgan.",
                     "Agar API ommaviy bo'lmasa, ruxsat berilgan originlarni qat'iy belgilang.",
+                    confidence=QoD.HEADER_CONFIG,
                 )
 
             # Active Dynamic Origin Reflection Probe (single non-duplicated check with host timeout guard)
@@ -245,17 +247,19 @@ class VulnAssessmentSuperAgent:
                     f"Yetishmayotgan headerlar: {', '.join(missing_headers)}",
                     "Veb-server javobida himoya headerlari (CSP, HSTS, XFO, XCTO) sozlanmagan.",
                     "Nginx/Apache yoki ilova darajasida HSTS, CSP, X-Frame-Options: DENY va X-Content-Type-Options: nosniff qo'shing.",
+                    confidence=QoD.HEADER_CONFIG,
                 )
 
             for ck in cookies:
                 if not ck.get("httponly") or not ck.get("secure"):
                     self.db.upsert_finding(
                         project_id, "Agent-2 (VulnAudit)", f"Insecure Cookie Flags ({ck.get('name', 'session')})",
-                        "Session Management", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+                        "Session Management", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:N/A:N",
                         "CWE-614", "A07:2021 - Identification and Authentication Failures", url,
                         f"Cookie: {ck.get('raw', '')}",
                         "Session cookie'da HttpOnly yoki Secure bayrog'i o'rnatilmagan.",
                         "Set-Cookie headeriga 'HttpOnly; Secure; SameSite=Strict' atributlarini qo'shing.",
+                        confidence=QoD.HEADER_CONFIG,
                     )
 
             # Server Version Disclosure
@@ -268,6 +272,7 @@ class VulnAssessmentSuperAgent:
                     f"Server Header: {srv}",
                     "Veb-server o'zining aniq versiyasini HTTP javob headerida oshkor qilmoqda.",
                     "Nginx da 'server_tokens off;' yoki Apache da 'ServerTokens Prod' sozlamasini yoqing.",
+                    confidence=QoD.HEADER_CONFIG,
                 )
         log_fn(f"  [+] {len(http_services)} ta HTTP servis, Server versiyalari va Active CORS Reflection tekshirildi.")
 
@@ -445,7 +450,7 @@ class VulnAssessmentSuperAgent:
                 " | ".join(routes[:10]),
                 "Ushbu endpointlar obyekt identifikatorini qabul qiladi — avtorizatsiya tekshiruvi yo'qligi IDOR/BOLA ga olib kelishi mumkin.",
                 "Har bir so'rovda foydalanuvchining obyektga egalik huquqini server tomonida tekshiring.",
-                confidence="Manual-Review",
+                confidence=QoD.HEURISTIC,
             )
         for host, routes in ssrf_by_host.items():
             self.db.upsert_finding(
@@ -455,7 +460,7 @@ class VulnAssessmentSuperAgent:
                 " | ".join(routes[:10]),
                 "Tashqi manzil yoki yo'naltirish qabul qiluvchi parametrlar aniqlandi.",
                 "URL manzillarini oq ro'yxat asosida tekshiring va ichki IP diapazonlarini bloklang.",
-                confidence="Manual-Review",
+                confidence=QoD.HEURISTIC,
             )
         for host, routes in biz_by_host.items():
             self.db.upsert_finding(
@@ -465,7 +470,7 @@ class VulnAssessmentSuperAgent:
                 " | ".join(routes[:10]),
                 "Narx, miqdor, chegirma yoki foydalanuvchi roli bilan bog'liq parametrlar aniqlandi.",
                 "Moliya va rolga oid qiymatlarni mijoz so'rovidan emas, faqat server bazasidan hisoblang.",
-                confidence="Manual-Review",
+                confidence=QoD.HEURISTIC,
             )
 
         for js in js_assets:
@@ -479,6 +484,7 @@ class VulnAssessmentSuperAgent:
                     f"Topilgan xavfli DOM sinklar: {', '.join(sinks)}",
                     "JavaScript faylda ma'lumotlarni DOM ga xavfsiz tozalashsiz yozishi mumkin bo'lgan metodlar ishlatilgan.",
                     "innerHTML/document.write o'rniga textContent ishlating yoki DOMPurify orqali sanitizatsiya qiling.",
+                    confidence=QoD.STATIC_SAST,
                 )
             if secrets:
                 self.db.upsert_finding(
@@ -488,6 +494,7 @@ class VulnAssessmentSuperAgent:
                     f"Topilgan kalit/konfiguratsiya satrlari: {', '.join(secrets[:5])}",
                     "Mijozga yuklanadigan JS bundle ichida API baseURL, token yoki konfiguratsiya kalitlari aniqlandi.",
                     "JS bundle ichida maxfiy tokenlar yo'qligini tekshiring va ularni backend proksi orqali yashiring.",
+                    confidence=QoD.STATIC_SAST,
                 )
 
 
@@ -543,6 +550,7 @@ class VulnAssessmentSuperAgent:
                         f"OPTIONS Allow Header: {allow_hdr}",
                         "Veb-server root yo'lida xavfli HTTP metodlar (PUT/DELETE/TRACE) ruxsat etilgan sifatida e'lon qilingan.",
                         "Veb-serverda keraksiz PUT, DELETE va TRACE metodlarini o'chiring.",
+                        confidence=QoD.HEADER_CONFIG,
                     )
             except Exception:
                 pass
@@ -592,6 +600,7 @@ class VulnAssessmentSuperAgent:
                                 f"Alphanumeric canary '{canary}' reflected verbatim in text/html response via '{p_name}'.",
                                 "Foydalanuvchi parametri HTML sahifa tanasida aks etmoqda — kontekstli encoding tekshiruvi zarur.",
                                 "HTML/JS kontekstida chiqish ma'lumotlarini kontekstli kodlang va CSP o'rnating.",
+                                confidence=QoD.HEADER_CONFIG,
                             )
                     except Exception:
                         pass
@@ -695,7 +704,7 @@ class VulnAssessmentSuperAgent:
                                 f"Template: {t_id} | Matched: {matched_at}",
                                 info.get("description") or f"Nuclei '{t_id}' shabloni bo'yicha zaiflik tasdiqlandi.",
                                 info.get("remediation") or "Nuclei tavsiyasiga asosan konfiguratsiya kamchiligini bartaraf eting.",
-                                confidence="Confirmed-PoC",
+                                confidence=QoD.ACTIVE_VERIFIED,
                             )
                             log_fn(f"  [NUCLEI HIT] [{n_sev}] {n_name} -> {matched_at}")
                 self.db.log_task(project_id, "SPECTRE-Agent2", "nuclei", "COMPLETED", f"nuclei ({len(svcs)} targets)", "Completed active template verification")

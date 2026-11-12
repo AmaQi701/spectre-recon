@@ -180,6 +180,8 @@ def run_benchmark() -> None:
             assert any("CVE-2021-23017" in t for t in titles), f"Semantic CVE engine missed nginx 1.18.0: {titles}"
             assert any("CVE-2024-6387" in t for t in titles), f"Semantic CVE engine missed OpenSSH 8.9p1: {titles}"
             assert any("Exposed Backend Data Store Port" in t for t in titles), f"Port posture missed Redis: {titles}"
+            agent2_confs = [f["confidence"] for f in bundle["findings"] if str(f.get("agent", "")).startswith("Agent-2")]
+            assert all("QoD:" in c for c in agent2_confs), f"Missing QoD label in Agent-2 findings: {agent2_confs}"
             assert any("QoD: 99%" in c for c in confs), f"QoD 99% tag missing: {confs}"
             assert any("QoD: 75%" in c for c in confs), f"QoD 75% Banner-CVE tag missing: {confs}"
             assert len(chains) >= 5, f"Asset-Bound Graph Chainer produced too few chains: {chains}"

@@ -15,14 +15,14 @@ from typing import Any
 _SEMVER_RE = re.compile(r"(?i)^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:p(\d+))?")
 
 _PRODUCT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("apache", re.compile(r"(?i)\bapache(?:\s+httpd|\s+http\s+server)?[/\s]+(\d+\.\d+(?:\.\d+)?)")),
-    ("nginx", re.compile(r"(?i)\bnginx[/\s]+(\d+\.\d+(?:\.\d+)?)")),
-    ("openssh", re.compile(r"(?i)\bopenssh[_\s/]+(\d+\.\d+(?:\.\d+)?(?:p\d+)?)")),
-    ("php", re.compile(r"(?i)\bphp[/\s]+(\d+\.\d+(?:\.\d+)?)")),
-    ("openssl", re.compile(r"(?i)\bopenssl[/\s]+(\d+\.\d+\.\d+)")),
-    ("redis", re.compile(r"(?i)\bredis(?:\s+server)?[:/\s=v]+(\d+\.\d+(?:\.\d+)?)")),
-    ("exim", re.compile(r"(?i)\bexim[/\s]+(\d+\.\d+(?:\.\d+)?)")),
-    ("iis", re.compile(r"(?i)\bmicrosoft-iis[/\s]+(\d+\.\d+)")),
+    ("apache", re.compile(r"(?i)\bapache(?:\s+httpd|\s+http\s+server)?[:/\s\-_]+(\d+\.\d+(?:\.\d+)?)")),
+    ("nginx", re.compile(r"(?i)\bnginx[:/\s\-_]+(\d+\.\d+(?:\.\d+)?)")),
+    ("openssh", re.compile(r"(?i)\bopenssh[:/\s\-_]+(\d+\.\d+(?:\.\d+)?(?:p\d+)?)")),
+    ("php", re.compile(r"(?i)\bphp[:/\s\-_]+(\d+\.\d+(?:\.\d+)?)")),
+    ("openssl", re.compile(r"(?i)\bopenssl[:/\s\-_]+(\d+\.\d+(?:\.\d+)?)")),
+    ("redis", re.compile(r"(?i)\bredis(?:\s+server)?[:/\s=v\-_]+(\d+\.\d+(?:\.\d+)?)")),
+    ("exim", re.compile(r"(?i)\bexim[:/\s\-_]+(\d+\.\d+(?:\.\d+)?)")),
+    ("iis", re.compile(r"(?i)\bmicrosoft-iis[:/\s\-_]+(\d+\.\d+)")),
 )
 
 
@@ -173,6 +173,32 @@ CURATED_CVE_ADVISORIES: tuple[dict[str, Any], ...] = (
     },
     {
         "product": "php",
+        "min": "8.2.0",
+        "max": "8.2.20",
+        "cve": "CVE-2024-4577",
+        "title": "Outdated PHP 8.2 (< 8.2.20) Runtime Security Advisory",
+        "severity": "High",
+        "cvss": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "cwe": "CWE-1104",
+        "owasp": "A06:2021 - Vulnerable and Outdated Components",
+        "remediation": "PHP 8.2 tarmog'ini 8.2.20+ versiyasiga yangilang va `expose_php = Off` o'rnating.",
+    },
+    {
+        "product": "php",
+        "min": "8.3.0",
+        "max": "8.3.8",
+        "cve": "CVE-2024-4577",
+        "title": "Outdated PHP 8.3 (< 8.3.8) Runtime Security Advisory",
+        "severity": "High",
+        "cvss": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "cwe": "CWE-1104",
+        "owasp": "A06:2021 - Vulnerable and Outdated Components",
+        "remediation": "PHP 8.3 tarmog'ini 8.3.8+ versiyasiga yangilang va `expose_php = Off` o'rnating.",
+    },
+    {
+        "product": "php",
         "min": "5.0.0",
         "max": "8.0.99",
         "cve": "EOL-PHP-LEGACY",
@@ -240,18 +266,28 @@ CURATED_CVE_ADVISORIES: tuple[dict[str, Any], ...] = (
 
 
 def match_version_advisories(raw_text: str) -> list[dict[str, Any]]:
-    """Matches `(product, version)` pairs extracted from `raw_text` against `CURATED_CVE_ADVISORIES`."""
+    """
+    Matches `(product, version)` pairs extracted from `raw_text` against `CURATED_CVE_ADVISORIES`.
+    Consolidates overlapping advisories for the same `(product, version)` into a single highest-CVSS entry.
+    """
     pairs = extract_product_versions(raw_text)
     if not pairs:
         return []
     matches: list[dict[str, Any]] = []
-    seen_cves: set[str] = set()
+    seen_products: set[str] = set()
     for prod, ver in pairs:
-        for adv in CURATED_CVE_ADVISORIES:
-            if adv["product"] == prod and adv["cve"] not in seen_cves:
-                if version_in_range(ver, adv["min"], adv["max"]):
-                    seen_cves.add(adv["cve"])
-                    hit = dict(adv)
-                    hit["detected_version"] = ver
-                    matches.append(hit)
+        if prod in seen_products:
+            continue
+        prod_hits = [
+            adv for adv in CURATED_CVE_ADVISORIES
+            if adv["product"] == prod and version_in_range(ver, adv["min"], adv["max"])
+        ]
+        if not prod_hits:
+            continue
+        seen_products.add(prod)
+        best = dict(max(prod_hits, key=lambda x: float(x["cvss"])))
+        all_cves = list(dict.fromkeys(h["cve"] for h in prod_hits))
+        best["cve"] = ", ".join(all_cves)
+        best["detected_version"] = ver
+        matches.append(best)
     return matches
