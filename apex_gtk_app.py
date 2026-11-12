@@ -81,7 +81,7 @@ progressbar progress { min-height: 22px; background-image: none; background-colo
 
 class ApexNativeWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="SPECTRE Recon & Attack Surface Studio v12.10 Titan")
+        super().__init__(title="SPECTRE Recon & Attack Surface Studio v14.0 NASL-Titan")
         self.set_default_size(1280, 760)
         self.maximize()
         self.set_wmclass("spectre-recon", "spectre-recon")
@@ -532,6 +532,7 @@ class ApexNativeWindow(Gtk.Window):
         tab3_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         triage_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.finding_filter_combo = Gtk.ComboBoxText()
+        self.finding_filter_combo.append("qod_80", "Filter: QoD >= 80% (High-Precision Only)")
         self.finding_filter_combo.append("no_noise", "Filter: Medium & Above (No Info/Low)")
         self.finding_filter_combo.append("crit_high", "Filter: Critical & High Only")
         self.finding_filter_combo.append("confirmed", "Filter: Verified / Confirmed Only")
@@ -731,6 +732,7 @@ class ApexNativeWindow(Gtk.Window):
                     "─" * 88,
                     f"Title       : {f_obj.get('title', '')}",
                     f"Category    : {f_obj.get('category', '')}   |   Agent: {f_obj.get('agent', '')}",
+                    f"Confidence  : {f_obj.get('confidence', '')}",
                     f"Taxonomy    : {f_obj.get('cwe', '')}   |   {f_obj.get('owasp', '')}",
                     f"CVSS Vector : {f_obj.get('cvss_vector', '')}",
                     f"Target Asset: {f_obj.get('asset', '')}",
@@ -894,6 +896,11 @@ class ApexNativeWindow(Gtk.Window):
                 continue
             if f_mode == "confirmed" and not ("[CONFIRMED]" in title_str or "Confirmed" in conf_str or triage_str == "Verified"):
                 continue
+            if f_mode == "qod_80":
+                m_qod = re.search(r"QoD:\s*(\d+)%", conf_str)
+                qod_num = int(m_qod.group(1)) if m_qod else (95 if "[CONFIRMED]" in title_str or "Confirmed" in conf_str else 80 if conf_str == "High" else 65)
+                if qod_num < 80:
+                    continue
             raw_str = f"{sev} {title_str} {f['cwe']} {f['asset']} {f['evidence']}".lower()
             if not q or q in raw_str:
                 t_col = "#34d399" if triage_str == "Verified" else ("#fbbf24" if triage_str == "Manual-Review" else "#64748b")

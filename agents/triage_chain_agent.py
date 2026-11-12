@@ -53,11 +53,12 @@ class TriageAndChainSuperAgent:
         verified_count = 0
         manual_count = 0
         for f in findings:
-            if "[CONFIRMED]" in str(f.get("title", "")) or f.get("confidence") == "Confirmed-PoC":
+            conf_val = str(f.get("confidence", ""))
+            if "[CONFIRMED]" in str(f.get("title", "")) or "Confirmed-PoC" in conf_val:
                 if f.get("triage_status") != "Verified":
                     self.db.update_finding_triage(int(f["id"]), "Verified")
                 verified_count += 1
-            elif f.get("confidence") == "Manual-Review":
+            elif "Manual-Review" in conf_val:
                 manual_count += 1
             else:
                 verified_count += 1
@@ -70,7 +71,7 @@ class TriageAndChainSuperAgent:
             return {
                 "cors": [], "weak_cookies": [], "xss_sinks": [], "bola_authz": [],
                 "redirects": [], "cves": [], "open_ports": [], "api_routes": [],
-                "state_routes": [],
+                "state_routes": [], "data_stores": [], "has_web": False,
             }
 
         graph: dict[str, dict] = {}
@@ -81,6 +82,7 @@ class TriageAndChainSuperAgent:
             if not h:
                 continue
             g = graph.setdefault(h, _node())
+            g["has_web"] = True
             for ck in json.loads(svc.get("cookies_json") or "[]"):
                 if not ck.get("httponly"):
                     g["weak_cookies"].append(ck.get("name", "session"))
@@ -127,8 +129,10 @@ class TriageAndChainSuperAgent:
                 g["bola_authz"].append(f)
             if "redirect" in tl or "oauth" in tl or "ssrf" in tl:
                 g["redirects"].append(f)
-            if "cve" in tl or "nuclei:" in tl:
+            if "cve" in tl or "nuclei:" in tl or "advisory" in tl or "end-of-life" in tl:
                 g["cves"].append(f)
+            if "data store" in tl or "database / cache" in cat_l:
+                g["data_stores"].append(f)
 
         # Per-Host Asset-Bound Graph Correlation Rules
         for host, g in graph.items():
@@ -185,17 +189,32 @@ class TriageAndChainSuperAgent:
                     "Redirect URI parametrlarini aniq domen va yo'l bo'yicha tasdiqlang.",
                 )
 
-            if g["cves"] and g["open_ports"]:
+            if g["cves"] and (g["open_ports"] or g["has_web"]):
                 cf = g["cves"][0]
+                surf_lbl = f"Open Ports: {', '.join(g['open_ports'][:4])}" if g["open_ports"] else "Public HTTP/HTTPS Surface"
                 self.db.upsert_bug_chain(
                     project_id,
-                    f"[{host}] Exposed Network Ports + Known Service CVEs -> Initial Access Vector",
+                    f"[{host}] Exposed Service Surface + Outdated Component Advisory -> Infrastructure Risk",
                     "High", 8.9,
-                    [f"Host: {host}", f"Open Ports: {', '.join(g['open_ports'][:4])}", cf["title"]],
-                    f"'{host}' xostida ochiq qoldirilgan tarmoq portlari va eskirgan servis CVE zaifliklari to'g'ridan-to'g'ri dastlabki kirish xavfini tug'diradi.",
-                    "Tashqi tarmoqdan serverga ruxsatsiz kirish.",
-                    "Ma'muriy portlarni Firewall orqali yoping va servis versiyalarini yangilang.",
+                    [f"Host: {host}", surf_lbl, cf["title"]],
+                    f"'{host}' xostida ochiq tarmoq/veb xizmati va eskirgan komponent versiyasi ({cf['title']}) aniqlandi.",
+                    "Tashqi tarmoqdan xizmat barqarorligi va xavfsizligiga ta'sir.",
+                    "Ma'muriy portlarni Firewall orqali yoping va xizmat paketlarini yangilang.",
                 )
+                log_fn(f"  [CHAIN] {host}: Exposed Surface + CVE Advisory ({cf['title'][:45]}) zanjiri tuzildi!")
+
+            if g["data_stores"] and g["has_web"]:
+                df = g["data_stores"][0]
+                self.db.upsert_bug_chain(
+                    project_id,
+                    f"[{host}] Public Web Application + Exposed Backend Data Store -> Backend Risk Chain",
+                    "Critical", 9.2,
+                    [f"Host: {host}", "Public Web Service", df["title"]],
+                    f"'{host}' xostida ommaviy veb-ilova bilan bir qatorda ma'lumotlar ombori porti ({df['title']}) tashqi interfeysda ochiq qoldirilgan.",
+                    "Ma'lumotlar bazasi va ilova sessiyalarining bevosita xavf ostida qolishi.",
+                    "Ma'lumotlar ombori portlarini faqat lokal/VPC tarmoqqa bog'lang va tashqi kirishni yoping.",
+                )
+                log_fn(f"  [CHAIN] {host}: Web Surface + Exposed Data Store zanjiri tuzildi!")
 
         pt_host = proj.get("primary_target", "").lower()
         cf_hosts = [d["domain"] for d in domains if "cloudflare" in str(d.get("cdn_waf", "")).lower()]
@@ -298,7 +317,7 @@ class TriageAndChainSuperAgent:
         # HTML Printable Report (with proper HTML escaping for safe rendering)
         import html as _html
         rows_html = "".join(
-            f"<tr><td><b>{_html.escape(str(f['severity']))}</b> ({_html.escape(str(f['cvss_score']))})</td>"
+            f"<tr><td><b>{_html.escape(str(f['severity']))}</b> ({_html.escape(str(f['cvss_score']))})<br><small>{_html.escape(str(f.get('confidence', '')))}</small></td>"
             f"<td>{_html.escape(str(f['title']))}<br><small>{_html.escape(str(f['cwe']))} | {_html.escape(str(f['owasp']))}</small></td>"
             f"<td><code>{_html.escape(str(f['asset']))}</code></td>"
             f"<td><code>{_html.escape(str(f['evidence']))}</code></td>"
@@ -313,7 +332,7 @@ class TriageAndChainSuperAgent:
             for ch in chains
         )
         html_content = f"""<!DOCTYPE html>
-<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v13.0 Obsidian Emerald Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
+<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v14.0 NASL-Titan Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
 <style>
 body {{ font-family: "Inter", system-ui, sans-serif; background: #090c0a; color: #e2e8f0; padding: 32px; }}
 h1, h2 {{ color: #4ade80; border-bottom: 1px solid #1b2a21; padding-bottom: 8px; }}
@@ -322,7 +341,7 @@ th, td {{ border: 1px solid #1b2a21; padding: 10px 12px; text-align: left; font-
 th {{ background: #13281c; color: #4ade80; font-weight: 700; }}
 code {{ color: #86efac; background: #080b09; padding: 2px 6px; border-radius: 4px; }}
 </style></head><body>
-<h1>SPECTRE v13.0 Obsidian Emerald — Security &amp; Attack Surface Audit Report: {_html.escape(str(proj.get('name', '')))}</h1>
+<h1>SPECTRE v14.0 NASL-Titan — Security &amp; Attack Surface Audit Report: {_html.escape(str(proj.get('name', '')))}</h1>
 <p><b>Primary Target:</b> <code>{_html.escape(str(proj.get('primary_target', '')))}</code> | <b>In-Scope:</b> <code>{_html.escape(str(proj.get('in_scope', '')))}</code></p>
 <h2>🔗 Zaifliklar Zanjiri (Bug Chaining Scenarios — {len(chains)})</h2>
 <table><thead><tr><th>Severity / CVSS</th><th>Zanjir Nomi va Bosqichlari</th><th>Hujum Ssenariysi</th><th>Remediation</th></tr></thead>

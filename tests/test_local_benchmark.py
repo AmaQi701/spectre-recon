@@ -17,6 +17,7 @@ ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from core.database import DatabaseManager
+from core.plugin_runner import ScanContextKB
 from core.scope_guard import ScopeGuard
 from agents.recon_agent import ReconSuperAgent
 from agents.vuln_agent import VulnAssessmentSuperAgent
@@ -134,8 +135,10 @@ def run_benchmark() -> None:
 
             db = DatabaseManager(str(tmp_path / "bench.db"))
             base_url = f"http://127.0.0.1:{port}"
-            pid = db.create_project("Benchmark-v13", f"127.0.0.1:{port}", "127.0.0.1", "", str(sast_dir))
+            pid = db.create_project("Benchmark-v14", f"127.0.0.1:{port}", "127.0.0.1", "", str(sast_dir))
             db.upsert_domain(pid, "127.0.0.1", ip="127.0.0.1", source="primary_target")
+            db.upsert_port(pid, "127.0.0.1", 22, "tcp", ip="127.0.0.1", service="ssh", version="OpenSSH 8.9p1", banner="SSH-2.0-OpenSSH_8.9p1 ssh-dss")
+            db.upsert_port(pid, "127.0.0.1", 6379, "tcp", ip="127.0.0.1", service="redis", version="6.0.5", banner="Redis 6.0.5")
 
             logs: list[str] = []
             scope = ScopeGuard("127.0.0.1", "")
@@ -146,6 +149,11 @@ def run_benchmark() -> None:
             js_urls = recon._stage4_html_and_wayback(pid, base_url, html, "127.0.0.1", scope, logs.append)
             recon._stage5_openapi_discovery(pid, base_url, scope, logs.append)
             recon._stage6_js_analyzer(pid, js_urls, base_url, scope, logs.append)
+
+            kb_check = ScanContextKB(pid, "127.0.0.1")
+            kb_check.hydrate_from_bundle(db.get_project_bundle(pid), has_auth_a=True)
+            assert kb_check.check_gate(require_ports=[6379])[0] is True, "KB Gate failed to detect port 6379"
+            assert kb_check.check_gate(require_ports=[27017])[0] is False, "KB Gate failed to block closed port 27017"
 
             vuln = VulnAssessmentSuperAgent(db)
             vuln.configure_context(
@@ -160,6 +168,7 @@ def run_benchmark() -> None:
 
             bundle = db.get_project_bundle(pid)
             titles = [f["title"] for f in bundle["findings"]]
+            confs = [f["confidence"] for f in bundle["findings"]]
             chains = [c["chain_title"] for c in bundle["bug_chains"]]
 
             assert len(bundle["js_assets"]) >= 1, "JS Analyzer failed to capture app.js"
@@ -168,7 +177,12 @@ def run_benchmark() -> None:
             assert any("Arbitrary CORS Origin Reflection" in t for t in titles), f"CORS audit missed flaw: {titles}"
             assert any("Verified Open Redirect" in t for t in titles), f"Redirect verifier missed flaw: {titles}"
             assert any("SQL Injection" in t for t in titles), f"SAST engine missed flaw: {titles}"
-            assert len(chains) >= 3, f"Asset-Bound Graph Chainer produced too few chains: {chains}"
+            assert any("CVE-2021-23017" in t for t in titles), f"Semantic CVE engine missed nginx 1.18.0: {titles}"
+            assert any("CVE-2024-6387" in t for t in titles), f"Semantic CVE engine missed OpenSSH 8.9p1: {titles}"
+            assert any("Exposed Backend Data Store Port" in t for t in titles), f"Port posture missed Redis: {titles}"
+            assert any("QoD: 99%" in c for c in confs), f"QoD 99% tag missing: {confs}"
+            assert any("QoD: 75%" in c for c in confs), f"QoD 75% Banner-CVE tag missing: {confs}"
+            assert len(chains) >= 5, f"Asset-Bound Graph Chainer produced too few chains: {chains}"
             assert pathlib.Path(rep_paths["html_path"]).is_file(), "HTML report was not generated"
 
             print(

@@ -9,8 +9,10 @@ import urllib.parse
 from pathlib import Path
 import requests
 
+from core.advisory_kb import match_version_advisories
 from core.database import DatabaseManager
 from core.http_engine import RateLimitedHttpEngine
+from core.plugin_runner import QoD, ScanContextKB, ScanPhase, run_plugin_safely
 
 
 class VulnAssessmentSuperAgent:
@@ -222,7 +224,7 @@ class VulnAssessmentSuperAgent:
                             f"Sent Origin: https://cors-check.example.org -> Reflected ACAO: {ref_acao} | ACAC: {ref_acac}",
                             "Server har qanday tashqi Origin sarlavhasini Access-Control-Allow-Origin ichida aks ettirmoqda.",
                             "Origin sarlavhasini avtomatik aks ettirmang; qat'iy oq ro'yxat (allowlist) tekshiruvini o'rnating.",
-                            confidence="Confirmed-PoC",
+                            confidence=QoD.ACTIVE_VERIFIED,
                         )
                 except requests.exceptions.RequestException:
                     cors_dead_hosts.add(host_only)
@@ -270,28 +272,147 @@ class VulnAssessmentSuperAgent:
         log_fn(f"  [+] {len(http_services)} ta HTTP servis, Server versiyalari va Active CORS Reflection tekshirildi.")
 
     def _audit_open_ports(self, project_id: int, ports: list[dict], log_fn):
+        data_store_ports = {
+            3306: "MySQL", 5432: "PostgreSQL", 6379: "Redis",
+            11211: "Memcached", 27017: "MongoDB", 9200: "Elasticsearch",
+        }
+        legacy_cleartext_ports = {21: "FTP", 23: "Telnet", 873: "Rsync"}
         for pt in ports:
             pnum = int(pt.get("port", 0))
             host = pt.get("host", "")
             svc = pt.get("service", "")
             ver = pt.get("version", "")
+            banner = pt.get("banner", "")
+            b_low = f"{svc} {ver} {banner}".lower()
             if pnum == 22:
                 self.db.upsert_finding(
                     project_id, "Agent-2 (NetworkAudit)", f"Publicly Exposed SSH Service ({host}:22)",
                     "Network Exposure", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
                     "CWE-284", "A05:2021 - Security Misconfiguration", f"{host}:22",
-                    f"Port 22/tcp open | Service: {svc} {ver}",
+                    f"Port 22/tcp open | Service: {svc} {ver} {banner}".strip(),
                     "SSH boshqaruv porti tashqi internet uchun ochiq qoldirilgan.",
-                    "SSH portini faqat VPN yoki ma'lum ma'muriy IP manzillar (Firewall allowlist) uchun oching va PasswordAuthentication ni o'chiring.",
+                    "SSH portini faqat VPN yoki ma'muriy IP manzillar (Firewall allowlist) uchun oching va PasswordAuthentication ni o'chiring.",
+                    confidence=QoD.HEADER_CONFIG,
                 )
-            elif pnum in (21, 23, 137, 139, 445, 3306, 3389, 5432, 5900, 6379, 11211, 27017, 9200):
+                if any(wk in b_low for wk in ("ssh-1.99", "ssh-1.5", "arcfour", "diffie-hellman-group1-sha1", "ssh-dss", "3des-cbc")):
+                    self.db.upsert_finding(
+                        project_id, "Agent-2 (ProtocolAudit)", f"[CONFIRMED] Weak / Legacy SSH Protocol or Algorithm ({host}:22)",
+                        "Cryptographic Failure", "Medium", 5.9, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                        "CWE-327", "A02:2021 - Cryptographic Failures", f"{host}:22",
+                        f"SSH Banner / Negotiated Info: {svc} {ver} {banner}".strip(),
+                        "SSH xizmatida eskirgan protokol yoki zaif shifrlash algoritmi yoqilgan.",
+                        "sshd_config ichida zamonaviy Curve25519 KEX va ChaCha20-Poly1305 / AES-GCM shifrlarini qoldiring.",
+                        confidence=QoD.PROTOCOL_VERIFIED,
+                    )
+            elif pnum in data_store_ports:
+                ds_name = data_store_ports[pnum]
                 self.db.upsert_finding(
-                    project_id, "Agent-2 (NetworkAudit)", f"Exposed Critical Network Service / Port ({host}:{pnum})",
+                    project_id, "Agent-2 (ProtocolAudit)", f"Exposed Backend Data Store Port ({ds_name} on {host}:{pnum})",
+                    "Database / Cache Exposure", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                    "CWE-284", "A05:2021 - Security Misconfiguration", f"{host}:{pnum}",
+                    f"Port {pnum}/tcp ({ds_name}) open | Banner: {svc} {ver} {banner}".strip(),
+                    f"{ds_name} ma'lumotlar ombori porti tashqi tarmoq interfeysida ochiq qoldirilgan.",
+                    f"{ds_name} xizmatini `127.0.0.1` / ichki VPC ga bog'lang, kuchli autentifikatsiya va TLS yoqing.",
+                    confidence=QoD.PROTOCOL_VERIFIED,
+                )
+            elif pnum in legacy_cleartext_ports:
+                pr_name = legacy_cleartext_ports[pnum]
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (ProtocolAudit)", f"Cleartext Legacy Service Exposed ({pr_name} on {host}:{pnum})",
+                    "Cleartext Transmission / Network Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                    "CWE-319", "A02:2021 - Cryptographic Failures", f"{host}:{pnum}",
+                    f"Port {pnum}/tcp ({pr_name}) open | Banner: {svc} {ver} {banner}".strip(),
+                    f"Shifrlanmagan {pr_name} protokoli tashqi tarmoq uchun ochiq qoldirilgan.",
+                    f"{pr_name} o'rniga SFTP/SSH ishlating va portni tashqi interfeysdan Firewall orqali yoping.",
+                    confidence=QoD.PROTOCOL_VERIFIED,
+                )
+            elif pnum in (137, 139, 445, 3389, 5900):
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (NetworkAudit)", f"Exposed Critical Management / SMB Port ({host}:{pnum})",
                     "Network Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
                     "CWE-284", "A05:2021 - Security Misconfiguration", f"{host}:{pnum}",
                     f"Port {pnum}/tcp open | Service: {svc} {ver}",
-                    "SMB/FTP/DB/RDP kabi sezgir tarmoq porti tashqi internet uchun ochiq qoldirilgan.",
-                    "Ushbu portni tashqi interfeysdan Firewall orqali yoping (faqat ichki VLAN yoki VPN orqali ruxsat bering).",
+                    "SMB/RDP/VNC boshqaruv porti tashqi internet uchun ochiq qoldirilgan.",
+                    "Ushbu portni tashqi interfeysdan Firewall orqali yoping (faqat VPN orqali ruxsat bering).",
+                    confidence=QoD.HEADER_CONFIG,
+                )
+
+    def _audit_version_cve_advisories(self, project_id: int, http_services: list[dict], ports: list[dict], log_fn):
+        seen_adv: set[tuple[str, str]] = set()
+        hits = 0
+        for svc in http_services:
+            url = svc.get("url", "")
+            host_k = (urllib.parse.urlparse(url).hostname or url).lower()
+            hdrs = json.loads(svc.get("headers_json") or "{}")
+            techs = " ".join(json.loads(svc.get("tech_stack") or "[]"))
+            combined = f"{svc.get('server', '')} {hdrs.get('X-Powered-By', '')} {hdrs.get('x-powered-by', '')} {techs}"
+            for adv in match_version_advisories(combined):
+                sig = (host_k, adv["cve"])
+                if sig in seen_adv:
+                    continue
+                seen_adv.add(sig)
+                hits += 1
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (CVE-Engine)", f"{adv['title']} [{adv['cve']}]",
+                    "Vulnerable & Outdated Components", adv["severity"], adv["cvss"], adv["vector"],
+                    adv["cwe"], adv["owasp"], url,
+                    f"Detected: {adv['product']} {adv['detected_version']} (Range: >= {adv['min']}, < {adv['max']}) | Banner: {combined.strip()[:120]}",
+                    f"HTTP servis bannerida eskirgan '{adv['product']} {adv['detected_version']}' versiyasi aniqlandi ({adv['cve']}).",
+                    adv["remediation"],
+                    confidence=QoD.BANNER_CVE,
+                )
+        for pt in ports:
+            host_k = str(pt.get("host") or pt.get("ip") or "").lower()
+            pnum = int(pt.get("port") or 0)
+            combined = f"{pt.get('service', '')} {pt.get('version', '')} {pt.get('banner', '')}".strip()
+            for adv in match_version_advisories(combined):
+                sig = (host_k, adv["cve"])
+                if sig in seen_adv:
+                    continue
+                seen_adv.add(sig)
+                hits += 1
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (CVE-Engine)", f"{adv['title']} [{adv['cve']}]",
+                    "Vulnerable & Outdated Components", adv["severity"], adv["cvss"], adv["vector"],
+                    adv["cwe"], adv["owasp"], f"{host_k}:{pnum}",
+                    f"Detected: {adv['product']} {adv['detected_version']} on {host_k}:{pnum} | Banner: {combined[:120]}",
+                    f"Tarmoq porti bannerida eskirgan '{adv['product']} {adv['detected_version']}' versiyasi aniqlandi ({adv['cve']}).",
+                    adv["remediation"],
+                    confidence=QoD.BANNER_CVE,
+                )
+        if hits:
+            log_fn(f"  [CVE-ENGINE] Semantic Version tahlili orqali {hits} ta eskirgan komponent / CVE tavsiyasi aniqlandi.")
+
+    def _audit_tls_and_cache_posture(self, project_id: int, http_services: list[dict], log_fn):
+        seen_tls: set[str] = set()
+        for svc in http_services:
+            url = svc.get("url", "")
+            host_k = (urllib.parse.urlparse(url).hostname or url).lower()
+            tls = json.loads(svc.get("tls_json") or "{}")
+            hdrs = {str(k).lower(): str(v) for k, v in json.loads(svc.get("headers_json") or "{}").items()}
+            proto_ver = str(tls.get("protocol") or tls.get("version") or "")
+            if proto_ver and any(lp in proto_ver.upper() for lp in ("SSL", "TLSV1.0", "TLSV1.1")) and host_k not in seen_tls:
+                seen_tls.add(host_k)
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (TLS-Audit)", f"[CONFIRMED] Deprecated TLS Protocol Negotiated ({proto_ver})",
+                    "Cryptographic Failure", "Medium", 6.5, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                    "CWE-326", "A02:2021 - Cryptographic Failures", url,
+                    f"Negotiated TLS Version: {proto_ver}",
+                    "Server eskirgan TLSv1.0/TLSv1.1 yoki SSL protokolini qo'llab-quvvatlamoqda.",
+                    "Faqat TLSv1.2 va TLSv1.3 protokollarini qoldiring (`ssl_protocols TLSv1.2 TLSv1.3;`).",
+                    confidence=QoD.PROTOCOL_VERIFIED,
+                )
+            acao = hdrs.get("access-control-allow-origin", "")
+            vary = hdrs.get("vary", "")
+            if acao and acao != "*" and "origin" not in vary.lower():
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (Cache-Audit)", "Dynamic CORS Header Without 'Vary: Origin' Cache Isolation",
+                    "Cache & CORS Misconfiguration", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+                    "CWE-525", "A05:2021 - Security Misconfiguration", url,
+                    f"Access-Control-Allow-Origin: {acao} | Vary: {vary or '(missing)'}",
+                    "Dinamik ACAO sarlavhasi qaytarilganda 'Vary: Origin' ko'rsatilmagan — kesh noto'g'ri Origin javobini saqlab qolishi mumkin.",
+                    "Dinamik CORS javoblariga har doim 'Vary: Origin' sarlavhasini qo'shing.",
+                    confidence=QoD.HEADER_CONFIG,
                 )
 
 
@@ -397,6 +518,7 @@ class VulnAssessmentSuperAgent:
                                 f"Line {idx}: {line.strip()[:160]}",
                                 f"Kodning {idx}-qatorida xavfli konstruksiya aniqlandi.",
                                 rule["remediation"],
+                                confidence=QoD.STATIC_SAST,
                             )
                             hits += 1
             except Exception:
@@ -452,7 +574,7 @@ class VulnAssessmentSuperAgent:
                                 f"Parameter: {p_name} -> HTTP {r.status_code} Location: {loc}",
                                 f"'{p_name}' parametri tashqi domenga tekshiruvsiz yo'naltirishi tasdiqlandi.",
                                 "Yo'naltirish parametrlarini qat'iy ichki yo'llar oq ro'yxati bilan cheklang.",
-                                confidence="Confirmed-PoC",
+                                confidence=QoD.ACTIVE_VERIFIED,
                             )
                             log_fn(f"  [CONFIRMED REDIRECT] {u} ({p_name}) -> {loc}")
                     except Exception:
@@ -512,7 +634,7 @@ class VulnAssessmentSuperAgent:
                                 f"Role-A HTTP 200 ({len(r_a.text)}B, keys={keys_a[:6]}) == Guest HTTP 200 ({len(r_guest.text)}B)",
                                 "Sezgir API yo'li avtorizatsiya sarlavhasisiz (Guest) ham Role-A bilan bir xil JSON ma'lumot qaytarmoqda.",
                                 "Ushbu route ustiga autentifikatsiya va rol tekshiruvi (RBAC middleware) o'rnating.",
-                                confidence="Confirmed-PoC",
+                                confidence=QoD.ACTIVE_VERIFIED,
                             )
                             log_fn(f"  [CONFIRMED AUTHZ BYPASS] {u} -> Guest == Role-A (HTTP 200 JSON)")
                             continue
@@ -530,7 +652,7 @@ class VulnAssessmentSuperAgent:
                                 f"Guest={r_guest.status_code} | Role-A=200 ({len(r_a.text)}B) | Role-B=200 ({len(r_b.text)}B, keys={keys_b[:6]})",
                                 "Guest uchun yopiq (401/403) bo'lgan obyekt endpointi ikkinchi foydalanuvchi (Role-B) sessiyasi orqali ham bir xil JSON strukturani qaytarmoqda.",
                                 "Backendda obyekt egasini joriy foydalanuvchi identifikatori bilan qat'iy solishtiring.",
-                                confidence="Confirmed-PoC",
+                                confidence=QoD.ACTIVE_VERIFIED,
                             )
                             log_fn(f"  [CONFIRMED BOLA] {u} -> Guest {r_guest.status_code}, lekin Role-B 200 JSON oldi!")
             except Exception:
@@ -588,20 +710,34 @@ class VulnAssessmentSuperAgent:
             return
         self.http_engine.reset()
         self.db.update_project_status(project_id, "RUNNING_VULN_AUDIT")
-        log_fn(f"═══ 2-SUPERAGENT: ENTERPRISE VULN, BOLA MATRIX & SAST AUDIT ({proj['name']}) ═══")
-        self._audit_http_services(project_id, bundle.get("http_services", []), log_fn)
-        self._audit_http_methods_and_overrides(project_id, bundle.get("http_services", []), log_fn)
-        self._audit_open_ports(project_id, bundle.get("ports", []), log_fn)
-        self._audit_endpoints_and_js(project_id, bundle.get("endpoints", []), bundle.get("js_assets", []), log_fn)
-        self._audit_multi_role_access_control(project_id, bundle.get("endpoints", []), log_fn)
-        self._audit_safe_differential_verifiers(project_id, bundle.get("endpoints", []), log_fn)
-        self._run_cli_vuln_scanners(project_id, bundle, log_fn, enable_cli=enable_cli)
+
+        kb = ScanContextKB(project_id, str(proj.get("primary_target", "")))
+        kb.hydrate_from_bundle(bundle, has_auth_a=bool(self.role_a_headers), has_auth_b=bool(self.role_b_headers))
+
+        log_fn(f"═══ 2-SUPERAGENT (v14.0 NASL-TITAN): KB-GATED CVE, POSTURE & BOLA AUDIT ({proj['name']}) ═══")
+        http_svcs = bundle.get("http_services", [])
+        ports = bundle.get("ports", [])
+        eps = bundle.get("endpoints", [])
+        js_list = bundle.get("js_assets", [])
+
+        run_plugin_safely(self.db, project_id, "nvt_http_headers_cors", self._audit_http_services, project_id, http_svcs, log_fn, log_fn=log_fn, kb=kb, require_keys=["Services/www"], phase=ScanPhase.ACT_GATHER_INFO)
+        run_plugin_safely(self.db, project_id, "nvt_tls_cache_posture", self._audit_tls_and_cache_posture, project_id, http_svcs, log_fn, log_fn=log_fn, kb=kb, require_keys=["Services/www"], phase=ScanPhase.ACT_GATHER_INFO)
+        run_plugin_safely(self.db, project_id, "nvt_http_methods", self._audit_http_methods_and_overrides, project_id, http_svcs, log_fn, log_fn=log_fn, kb=kb, require_keys=["Services/www"], phase=ScanPhase.ACT_VERIFY)
+        run_plugin_safely(self.db, project_id, "nvt_network_ports", self._audit_open_ports, project_id, ports, log_fn, log_fn=log_fn, kb=kb, require_keys=["Ports/tcp"], phase=ScanPhase.ACT_GATHER_INFO)
+        run_plugin_safely(self.db, project_id, "nvt_semantic_cve_engine", self._audit_version_cve_advisories, project_id, http_svcs, ports, log_fn, log_fn=log_fn, kb=kb, phase=ScanPhase.ACT_GATHER_INFO)
+        run_plugin_safely(self.db, project_id, "nvt_endpoints_js_sinks", self._audit_endpoints_and_js, project_id, eps, js_list, log_fn, log_fn=log_fn, kb=kb, phase=ScanPhase.ACT_GATHER_INFO)
+        run_plugin_safely(self.db, project_id, "nvt_multi_role_bola", self._audit_multi_role_access_control, project_id, eps, log_fn, log_fn=log_fn, kb=kb, require_keys=["Auth/role_a", "Endpoints/api"], phase=ScanPhase.ACT_VERIFY)
+        run_plugin_safely(self.db, project_id, "nvt_differential_verifier", self._audit_safe_differential_verifiers, project_id, eps, log_fn, log_fn=log_fn, kb=kb, require_keys=["Endpoints/parameterized"], phase=ScanPhase.ACT_VERIFY)
+        run_plugin_safely(self.db, project_id, "nvt_cli_scanners", self._run_cli_vuln_scanners, project_id, bundle, log_fn, enable_cli=enable_cli, log_fn=log_fn, kb=kb, phase=ScanPhase.ACT_VERIFY)
+
         if proj.get("source_code_path"):
-            self._run_sast_scan(project_id, proj["source_code_path"], log_fn)
+            run_plugin_safely(self.db, project_id, "nvt_whitebox_sast", self._run_sast_scan, project_id, proj["source_code_path"], log_fn, log_fn=log_fn, kb=kb, require_keys=["Source/local_path"], phase=ScanPhase.ACT_GATHER_INFO)
         smap_dir = Path(__file__).resolve().parent.parent / "workspaces" / "sourcemaps" / f"project_{project_id}"
         if smap_dir.is_dir() and any(smap_dir.rglob("*")):
             log_fn(f"  [SOURCEMAP->SAST] 1-SuperAgent tiklagan asl manba kodlari ({smap_dir.name}) White-Box SAST orqali tekshirilmoqda...")
             self._run_sast_scan(project_id, str(smap_dir), log_fn)
+
+        log_fn(f"  [KB-GATEKEEPER] Executed Plugins: {kb.executed_plugins} | Skipped by KB Gate (0 ms): {kb.skipped_plugins}")
         self.db.update_project_status(project_id, "VULN_AUDIT_COMPLETED")
         log_fn("═══ 2-SUPERAGENT: ZAIFLIKLAR VA AVTORIZATSIYA TAHLILI YAKUNLANDI ═══")
 

@@ -91,6 +91,11 @@ Bundle keys returned by `db.get_project_bundle(project_id)`:
     6. *S3Scanner & NetExec Output Parsers:* Parsed structured bucket/region/ACL fields from `s3scanner` logs and stripped IP/column padding from `netexec` SSH banners.
     7. *Browser-Grade User-Agent:* Replaced legacy scanner `User-Agent` in `ReconSuperAgent` and `apex_gtk_app.py` with standard Chrome Linux UA to reduce WAF `403` blocks.
     8. *Full-Pipeline Launch Button on Tab 0:* Added `Yaratish va To'liq Skaner (1 -> 2 -> 3)` (`auto_mode="all"`) on the New Target screen so all 3 SuperAgents run end-to-end automatically.
+- **v14.0 (NASL-Titan KB-Driven Phased Orchestrator, Semantic CVE Catalog & QoD Standard):**
+  - **KB-Driven Phased Gatekeeper (`core/plugin_runner.py`):** Added `ScanPhase` (`ACT_INIT` .. `ACT_END`), `QoD` (`Quality of Detection %` taxonomy: `99%`, `95%`, `90%`, `75%`, `70%`, `60%`), `ScanContextKB.hydrate_from_bundle()`, and O(1) `check_gate(require_keys, require_ports)` in `run_plugin_safely()` so plugins skip in 0 ms when required KB keys or ports are absent.
+  - **Semantic Version & Vendor CVE Catalog (`core/advisory_kb.py`):** Added `parse_semver()`, `version_in_range()`, and `CURATED_CVE_ADVISORIES` matching `Apache`, `nginx`, `OpenSSH`, `PHP`, `OpenSSL`, `Redis`, `Exim`, and `IIS` versions from HTTP headers and port banners (`QoD: 75%`).
+  - **Protocol, TLS & Cache Posture Auditors (`agents/vuln_agent.py`):** Added KB-gated `run_assessment` pipeline, `_audit_version_cve_advisories()`, `_audit_tls_and_cache_posture()` (deprecated TLS protocols & missing `Vary: Origin` on dynamic CORS), weak SSH KEX/cipher banner detection, and exposed backend data store / cleartext protocol classification.
+  - **Graph Chainer & UI QoD Integration (`agents/triage_chain_agent.py`, `apex_gtk_app.py`):** Added `Public Web Application + Exposed Backend Data Store -> Backend Risk Chain` and `Exposed Service Surface + Outdated Component Advisory` correlation rules, HTML report `QoD` badges, and `Confidence / QoD` metadata in GTK3 Finding Inspector.
 
 
 
