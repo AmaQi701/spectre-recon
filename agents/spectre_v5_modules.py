@@ -676,7 +676,9 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
             nxc_ssh = agent._run_cli(f"{nxc_bin} ssh {shlex.quote(ship)}", log_fn, timeout=12, project_id=project_id)
             if nxc_ssh.strip():
                 ssh_line = nxc_ssh.strip().splitlines()[-1]
-                agent.db.upsert_port(project_id, canon_h, 22, "tcp", ip=ship, service="ssh", version=ssh_line[:180], source="netexec_ssh")
+                m_ssh_ver = re.search(r"\[\*\]\s*(.+)$", ssh_line)
+                clean_ssh_ver = m_ssh_ver.group(1).strip() if m_ssh_ver else ssh_line.strip()
+                agent.db.upsert_port(project_id, canon_h, 22, "tcp", ip=ship, service="ssh", version=clean_ssh_ver[:180], source="netexec_ssh")
 
     # 3.3 MapCIDR Subnet Aggregator
     if "mapcidr" in active_ids and agent._find_binary("mapcidr"):
@@ -953,10 +955,13 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
         s3_out = agent._run_cli(f"s3scanner -bucket-file {b_file}", log_fn, timeout=20, project_id=project_id)
         for line in s3_out.splitlines():
             if "exists" in line.lower() and "not_exist" not in line.lower():
+                m_s3 = re.search(r'exists\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^"]+)', line, re.IGNORECASE)
+                b_label = f"{m_s3.group(1).strip()} ({m_s3.group(2).strip()})" if m_s3 else line.strip()[:50]
+                b_ev = m_s3.group(0).strip() if m_s3 else line.strip()[:200]
                 agent.db.upsert_finding(
-                    project_id, "SPECTRE-Agent1 (S3Scanner)", f"Public Cloud Bucket Identified ({line[:60]})",
+                    project_id, "SPECTRE-Agent1 (S3Scanner)", f"Public Cloud Bucket Identified: {b_label}",
                     "Cloud Storage Exposure", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
-                    "CWE-284", "A05:2021 - Security Misconfiguration", apex_domain, line[:200],
+                    "CWE-284", "A05:2021 - Security Misconfiguration", apex_domain, b_ev,
                     "S3Scanner orqali tashkilot nomiga mos ochiq bulutli bucket aniqlandi.",
                     "Bucket ACL ruxsatlarini yoping.",
                 )

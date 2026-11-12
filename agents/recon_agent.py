@@ -85,7 +85,9 @@ class ReconSuperAgent:
         adapter = requests.adapters.HTTPAdapter(pool_connections=30, pool_maxsize=30)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
-        self.session.headers.update({"User-Agent": "SPECTRE-ASM-Security-Audit/12.13"})
+        self.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        })
         self._http_get_cache: dict[tuple[str, bool], object] = {}
         self._cache_lock = threading.Lock()
         self._probe_tls = threading.local()
@@ -888,7 +890,14 @@ class ReconSuperAgent:
                 })
 
             waf = ""
-            if "cf-ray" in headers_l or "cloudflare" in server.lower():
+            t_low_probe = title.lower()
+            is_isp_or_fw_block = any(
+                blk in t_low_probe
+                for blk in ("fortinet secure dns", "fortiguard", "web page blocked", "cisco umbrella", "opendns")
+            )
+            if is_isp_or_fw_block:
+                waf = "FortiGuard / DNS Filter"
+            elif "cf-ray" in headers_l or "cloudflare" in server.lower():
                 waf = "Cloudflare"
             elif "x-sucuri-id" in headers_l:
                 waf = "Sucuri"
@@ -898,11 +907,12 @@ class ReconSuperAgent:
                 waf = "Akamai"
 
             # High-Value Target priority score
-            prio = 50
-            if any(k in url.lower() for k in ("admin", "dev", "stage", "test", "api", "internal", "portal", "auth")):
-                prio += 30
-            if resp.status_code in (200, 401, 403):
-                prio += 15
+            prio = 15 if is_isp_or_fw_block else 50
+            if not is_isp_or_fw_block:
+                if any(k in url.lower() for k in ("admin", "dev", "stage", "test", "api", "internal", "portal", "auth")):
+                    prio += 30
+                if resp.status_code in (200, 401, 403):
+                    prio += 15
 
             self.db.upsert_http_service(
                 project_id=project_id,
@@ -921,7 +931,7 @@ class ReconSuperAgent:
                 source="http_prober",
             )
             log_fn(f"  [+] HTTP {resp.status_code} | {url} | Title: '{title[:45]}' | Tech: {', '.join(tech) or 'N/A'}")
-            if resp.status_code in (400, 404, 410, 500, 502, 503, 504):
+            if is_isp_or_fw_block or resp.status_code in (400, 404, 410, 500, 502, 503, 504):
                 return ""
             return resp.text
         except Exception as e:
@@ -1030,19 +1040,33 @@ class ReconSuperAgent:
                     "Production sahifalardan barcha HTML izohlarni (<!-- ... -->) olib tashlang.",
                 )
 
-            for sc in soup.find_all("script", src=True):
-                u = self._record_discovered_url(project_id, sc["src"], base_url, scope, "script_tag")
-                if u and u.endswith(".js"):
-                    js_urls.add(u)
+            analytics_ignore = ("googletagmanager.com", "google-analytics.com", "mc.yandex.ru", "connect.facebook.net", "doubleclick.net", "cloudflareinsights.com", "hotjar.com")
+            live_js_list: list[str] = []
 
-            # Vite / Vue 3 / Modern Bundler <link rel="modulepreload" href="...js"> extractor
+            def _collect_script_src(raw_src: str, tag_source: str) -> None:
+                s_clean = (raw_src or "").strip()
+                if not s_clean or any(c.isspace() for c in s_clean):
+                    return
+                u_in = self._record_discovered_url(project_id, s_clean, base_url, scope, tag_source)
+                if u_in and u_in.endswith(".js") and u_in not in live_js_list:
+                    live_js_list.append(u_in)
+                    return
+                full_ext = urllib.parse.urljoin(base_url, s_clean)
+                p_ext = urllib.parse.urlparse(full_ext)
+                if p_ext.scheme in ("http", "https") and p_ext.path.lower().endswith(".js"):
+                    if not any(ag in (p_ext.hostname or "").lower() for ag in analytics_ignore):
+                        clean_ext = f"{p_ext.scheme}://{p_ext.netloc}{p_ext.path}"
+                        if clean_ext not in live_js_list:
+                            live_js_list.append(clean_ext)
+
+            for sc in soup.find_all("script", src=True):
+                _collect_script_src(sc["src"], "script_tag")
+
             for lnk in soup.find_all("link", href=True):
                 rel_s = " ".join(lnk.get("rel") or []).lower()
                 href_v = lnk["href"].strip()
                 if ("modulepreload" in rel_s or "preload" in rel_s or href_v.endswith(".js")) and ".js" in href_v:
-                    u = self._record_discovered_url(project_id, href_v, base_url, scope, "modulepreload_js")
-                    if u and u.endswith(".js"):
-                        js_urls.add(u)
+                    _collect_script_src(href_v, "modulepreload_js")
 
             # Inline <script> route & subdomain extractor
             inline_ep_re = re.compile(r"""['"`]((?:/api/v\d+/|/api/|/v1/|/v2/|/v3/|/graphql|/auth/|/admin/|/internal/)[a-zA-Z0-9_\-/\.?=&{}]+)['"`]""")
@@ -1061,12 +1085,12 @@ class ReconSuperAgent:
                 for row in rows[1:]:
                     if row:
                         u = self._record_discovered_url(project_id, row[0], base_url, scope, "wayback")
-                        if u and u.endswith(".js"):
+                        if u and u.endswith(".js") and u not in live_js_list:
                             js_urls.add(u)
                 log_fn(f"  [+] Wayback Archive: {max(0, len(rows)-1)} ta tarixiy URL olindi.")
         except Exception:
             pass
-        return sorted(js_urls)
+        return live_js_list + sorted(js_urls)
 
     def _stage5_openapi_discovery(self, project_id: int, base_url: str, scope: ScopeGuard, log_fn):
         baseline_len = -1
@@ -1473,7 +1497,7 @@ class ReconSuperAgent:
                     t_sig = (m_title.group(1).strip().lower()[:60] if m_title else "")
                     sc_names = tuple(sorted({s.split("/")[-1].split("?")[0] for s in re.findall(r'src=["\']([^"\']+\.js)', html[:25000])})[:4])
                     body_sig = "" if (t_sig or sc_names) else hashlib.md5(html[:4096].encode("utf-8", errors="ignore")).hexdigest()[:10]
-                    app_sig = (dip, t_sig, sc_names, body_sig)
+                    app_sig = (t_sig, sc_names, body_sig)
                     if dom != primary_host and html and app_sig in scanned_app_sigs:
                         log_fn(f"  [⚡ Smart Clone Skip] {dom} ({url}) -> {scanned_app_sigs[app_sig]} bilan bir xil ilova shabloni, takroriy og'ir skan o'tkazib yuborildi.")
                         continue

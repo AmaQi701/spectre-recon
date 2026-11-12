@@ -62,7 +62,7 @@ Bundle keys returned by `db.get_project_bundle(project_id)`:
 
 ---
 
-## 4. Cumulative Changelog (`v8.5 -> v12.4`)
+## 4. Cumulative Changelog (`v8.5 -> v13.1`)
 - **v8.5:** Wired all 49/49 CLI tools, fixed `merge_http_tech_stack` SQL column bug, added SQLite indexes, fixed `ScopeGuard` CDN override & `.lstrip('www.')` bug, non-blocking Ollama AI thread.
 - **v9.0 (Predator):** Added 10 Dark-Attack-Surface modules + SourceMap-to-SAST bridge.
 - **v10.0–v10.2 (Phantom):** Added 12 Enterprise Protocol/AST modules, calibrated `MagicByte-Verifier` (`Accept-Encoding: identity`), calibrated `X-Original-URL` & `Param-Miner`, fixed JS parameter bleed, skipped `502/503/504` dead hosts, added `HTTPAdapter(50, 50)`.
@@ -75,6 +75,23 @@ Bundle keys returned by `db.get_project_bundle(project_id)`:
   - **Stage 1:** Automatically prunes 100% dead `NXDOMAIN` passive OSINT noise (`ip='' AND cname='' AND records_json='{}'`) after DNS verification; queries `MX/TXT/NS/SOA` only on `apex_domain` to eliminate duplicate `www.` SPF findings.
   - **Stage 2:** Deduplicates `primary_host` vs IP across `Naabu/Nmap/Shodan`, preserves specific service names in `db.upsert_port`, filters router SIP/SCCP ALG fake ports (`2000, 5060`), and uses `--version-light --max-retries 1 --host-timeout 30s --script-timeout 8s` in Nmap.
   - **Stage 3–6:** Fixed multi-thread `self._last_probe_status` race condition via `threading.local()` + port-80 scheme priority; added Phase-B `404/Error` gate and `Smart Clone Application Deduplicator` (`(ip, title, script_sig)`); parallelized `whatweb`, `katana`, `httpx`, `hakrawler`, `subjs` (`ThreadPoolExecutor(max_workers=5)`); deduplicated JS bundle downloads across subdomains (`_seen_js_by_proj`); filtered 3rd-party vendor `.js.map` files (`bootstrap`, `jquery`, etc.); and fixed `TruffleHog` info-log false positive & `Sister Domains` cloud/PTR noise.
+- **v12.8–v12.13 (Multi-Target Live Telemetry Hardening & Obsidian Emerald UI):**
+  - **Pre-Flight & Loopback Safety:** Added 1.5s NXDOMAIN typo guard on `apex_domain` and `127.0.0.1` loopback DNS rebinding detector/self-scan blocker.
+  - **Cloudflare NS vs Proxy & Hosting Ports:** Fixed false `cdn_waf="Cloudflare"` tag on origin IPs using Cloudflare NS only; added `1500/ISPmanager`, `2082–2096/cPanel-WHM`, `8006/Proxmox` to `STANDARD_PORT_SERVICES` and `WEB_CANDIDATE_PORTS`; mapped CPEs strictly by port protocol.
+  - **Firewall Tarpit Protection & Crawl-Before-Fuzz Order:** Added Global Session Circuit-Breaker (`_guard_call`), uncached Phase-B liveness probe (`_raw_session_get`), safe out-of-scope `301/302` redirect capture, `Hakrawler` whitespace sanitizer, `wafw00f --no-colors` clean summary, `stream=True` context-manager socket closure, single-run `_ran_apex_suites` deduplication, and reordered Phase B (`Crawl -> JS Analyzer -> v9–v12 -> FFUF/Arjun`) so all JS bundles are cached before active brute-forcing.
+  - **Obsidian & Cyber-Emerald UI:** Redesigned GTK3 workstation with Obsidian/Emerald palette (`#090c0a` + `#22c55e`), native `-symbolic` vector icons, borderless tables, interactive **Finding Inspector**, and syntax-colored **Target Dossier**.
+- **v13.0–v13.1 (Enterprise Multi-Role BOLA Matrix, Asset-Bound Graph Chainer & Live-Audit Polish):**
+  - **Enterprise v13.0 Modules:** Added `core/http_engine.py` (`RateLimitedHttpEngine` with per-host token-bucket RPS pacing & circuit-breaker), `agents/domain_facade.py`, **Multi-Role BOLA / Authz Matrix (`Guest vs Role-A vs Role-B`)** in `agents/vuln_agent.py` + `Role-B Auth` UI input, **Host-Indexed Asset-Bound Attack Graph Chainer** in `agents/triage_chain_agent.py`, and 2-second local E2E benchmark `tests/test_local_benchmark.py`.
+  - **Live-Audit v13.1 Fixes (8 Root-Cause Remediations):**
+    1. *ISP/FortiGuard Block-Page Filter & Cross-IP Clone Dedup:* Detected `Fortinet Secure DNS` / `FortiGuard` / `Cisco Umbrella` block portals in `_stage3_http_probe` (skipping Phase B fuzzing) and removed IP from `app_sig` (`(t_sig, sc_names, body_sig)`) so multi-subnet clones are deduplicated globally.
+    2. *SecretHunter v2 Fintech Regex Fix:* Tightened `payme/click/uzum` regex to require explicit credential suffixes (`payme_(id|key|merchant|secret)`), eliminating false positives on generic English `PaymentMethod*` identifiers.
+    3. *External Static-CDN `<script src>` Capture:* Prioritized live first-party `<script src>` / `modulepreload` JS bundles hosted on static CDNs ahead of archival Wayback URLs in `_stage4_html_and_wayback` while excluding analytics scripts.
+    4. *Strict OIDC JSON Schema Check:* Required valid `"issuer"` + endpoint URLs in `mine_well_known_and_mobile_links` to prevent empty OIDC findings on generic JSON responses.
+    5. *Preflight Echo Filter:* Excluded self-sent `X-Custom-Check` probe header in `harvest_cors_preflight_capabilities`.
+    6. *S3Scanner & NetExec Output Parsers:* Parsed structured bucket/region/ACL fields from `s3scanner` logs and stripped IP/column padding from `netexec` SSH banners.
+    7. *Browser-Grade User-Agent:* Replaced legacy scanner `User-Agent` in `ReconSuperAgent` and `apex_gtk_app.py` with standard Chrome Linux UA to reduce WAF `403` blocks.
+    8. *Full-Pipeline Launch Button on Tab 0:* Added `Yaratish va To'liq Skaner (1 -> 2 -> 3)` (`auto_mode="all"`) on the New Target screen so all 3 SuperAgents run end-to-end automatically.
+
 
 
 

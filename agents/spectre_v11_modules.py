@@ -327,7 +327,11 @@ def fingerprint_load_balancer_and_etag(db, session, project_id: int, base_url: s
 def harvest_cors_preflight_capabilities(db, session, project_id: int, base_url: str, log_fn) -> dict[str, list[str]]:
     custom_headers: set[str] = set()
     allowed_methods: set[str] = set()
-    standard_hdrs = {"accept", "accept-language", "content-language", "content-type", "origin", "authorization", "cache-control", "pragma", "expires", "x-requested-with"}
+    standard_hdrs = {
+        "accept", "accept-language", "content-language", "content-type", "origin",
+        "authorization", "cache-control", "pragma", "expires", "x-requested-with",
+        "x-custom-check",
+    }
 
     for p in ("/", "/api", "/api/v1", "/v1"):
         u = urllib.parse.urljoin(base_url, p)

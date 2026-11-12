@@ -256,7 +256,7 @@ class ApexNativeWindow(Gtk.Window):
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
         hb.props.title = "SPECTRE  —  Kiber-Razvedka va Hujum Yuzasi Platformasi"
-        hb.props.subtitle = "●  v13.0 Obsidian Emerald  •  Multi-Role BOLA Matrix, Asset-Bound Graph Chaining & Recon"
+        hb.props.subtitle = "●  v13.1 Obsidian Emerald  •  Multi-Role BOLA Matrix, Asset-Bound Graph Chaining & Recon"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -411,20 +411,20 @@ class ApexNativeWindow(Gtk.Window):
         tab0.get_style_context().add_class("panel-box")
         tab0.set_margin_top(8); tab0.set_margin_start(8); tab0.set_margin_end(8)
         hdr0 = Gtk.Label(xalign=0)
-        hdr0.set_markup("<span foreground='#f0f6fc' weight='bold' size='large'>New Target &amp; Engagement Scope</span>\n<span foreground='#8b949e'>Enter a primary domain, URL, or IP. Leaving In-Scope empty automatically authorizes target.tld and *.target.tld.</span>")
+        hdr0.set_markup("<span foreground='#f8fafc' weight='bold' size='large'>Yangi Nishon va Audit Doirasi (Scope)</span>\n<span foreground='#94a3b8'>Asosiy domen, URL yoki IP kiriting. In-Scope bo‘sh qoldirilsa, target.tld va *.target.tld avtomatik olinadi.</span>")
         tab0.pack_start(hdr0, False, False, 4)
         grid0 = Gtk.Grid(column_spacing=14, row_spacing=12)
-        self.ent_pname = Gtk.Entry(); self.ent_pname.set_placeholder_text("Engagement name (e.g., Corp-Prod-Q4)")
-        self.ent_ptarget = Gtk.Entry(); self.ent_ptarget.set_placeholder_text("Primary target (e.g., example.com or https://app.example.com)")
-        self.ent_pinscope = Gtk.Entry(); self.ent_pinscope.set_placeholder_text("Optional custom scope (auto-populates target.tld and *.target.tld)")
-        self.ent_poutscope = Gtk.Entry(); self.ent_poutscope.set_placeholder_text("Excluded hosts or paths (optional)")
-        self.ent_pcode = Gtk.Entry(); self.ent_pcode.set_placeholder_text("/path/to/source-code (optional White-box SAST directory)")
+        self.ent_pname = Gtk.Entry(); self.ent_pname.set_placeholder_text("Loyiha nomi (masalan: Corp-Audit-2026)")
+        self.ent_ptarget = Gtk.Entry(); self.ent_ptarget.set_placeholder_text("Asosiy nishon (masalan: example.uz yoki https://app.example.uz)")
+        self.ent_pinscope = Gtk.Entry(); self.ent_pinscope.set_placeholder_text("Ixtiyoriy scope (bo‘sh qolsa avtomatik target.tld va *.target.tld olinadi)")
+        self.ent_poutscope = Gtk.Entry(); self.ent_poutscope.set_placeholder_text("Taqiqlangan xost yoki yo‘llar (ixtiyoriy)")
+        self.ent_pcode = Gtk.Entry(); self.ent_pcode.set_placeholder_text("/path/to/source-code (ixtiyoriy White-Box SAST papkasi)")
         for r_idx, (title_txt, widget) in enumerate([
-            ("01. Engagement Name:", self.ent_pname),
-            ("02. Primary Target (Domain / URL / IP):", self.ent_ptarget),
-            ("03. Authorized In-Scope:", self.ent_pinscope),
-            ("04. Out-of-Scope Exclusions:", self.ent_poutscope),
-            ("05. White-Box Repository (SAST):", self.ent_pcode),
+            ("01. Loyiha Nomi:", self.ent_pname),
+            ("02. Asosiy Nishon (Domain / URL / IP):", self.ent_ptarget),
+            ("03. Ruxsat Etilgan Scope (In-Scope):", self.ent_pinscope),
+            ("04. Taqiqlangan Manzillar (Out-of-Scope):", self.ent_poutscope),
+            ("05. Manba Kodi Papkasi (White-Box SAST):", self.ent_pcode),
         ]):
             lbl = Gtk.Label(label=title_txt, xalign=0)
             widget.set_hexpand(True)
@@ -432,8 +432,9 @@ class ApexNativeWindow(Gtk.Window):
             grid0.attach(widget, 1, r_idx, 1, 1)
         tab0.pack_start(grid0, False, False, 4)
         btn_row0 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        btn_row0.pack_start(self._make_btn("Create Workspace", "act-btn", self.on_create_project), False, False, 0)
-        btn_row0.pack_start(self._make_btn("Create & Launch Stage 1 Recon", "btn-purple", lambda b: self.on_create_project(b, auto_start=True)), False, False, 0)
+        btn_row0.pack_start(self._make_btn("Loyihani Yaratish", "act-btn", self.on_create_project), False, False, 0)
+        btn_row0.pack_start(self._make_btn("Yaratish + 1-Razvedka", "btn-green", lambda b: self.on_create_project(b, auto_mode="recon")), False, False, 0)
+        btn_row0.pack_start(self._make_btn("Yaratish va To‘liq Skaner (1 -> 2 -> 3)", "btn-purple", lambda b: self.on_create_project(b, auto_mode="all"), "media-playback-start-symbolic"), False, False, 0)
         tab0.pack_start(btn_row0, False, False, 6)
 
 
@@ -1061,10 +1062,10 @@ class ApexNativeWindow(Gtk.Window):
         return False
 
 
-    def on_create_project(self, _btn, auto_start: bool = False):
+    def on_create_project(self, _btn, auto_start: bool = False, auto_mode: str = ""):
         raw_target = self.ent_ptarget.get_text().strip()
         if not raw_target:
-            self.log_msg("[ERR] ⚠️ Asosiy nishon (Domain / IP) kiritilishi shart!")
+            self.log_msg("[ERR] Asosiy nishon (Domain / IP) kiritilishi shart!")
             return
         target = ScopeGuard.extract_host(raw_target)
         apex_dom = ScopeGuard.extract_apex_domain(target)
@@ -1079,9 +1080,10 @@ class ApexNativeWindow(Gtk.Window):
         self.refresh_projects()
         self.load_bundle()
         self._switch_page("p_recon", self.nav_buttons[1])
-        self.log_msg(f"[INIT] ✅ Yangi loyiha #{pid} yaratildi va faollashtirildi: {name} ({target})")
-        if auto_start:
-            self.on_run_agent("recon")
+        self.log_msg(f"[INIT] Yangi loyiha #{pid} yaratildi va faollashtirildi: {name} ({target})")
+        launch_mode = auto_mode or ("recon" if auto_start else "")
+        if launch_mode:
+            self.on_run_agent(launch_mode)
 
     def on_run_agent(self, agent_type: str):
         if not self.current_project_id:
@@ -1090,9 +1092,10 @@ class ApexNativeWindow(Gtk.Window):
         pid = self.current_project_id
         self.is_running_job = True
         self._switch_page("p_recon", self.nav_buttons[1])
-        # Avvalgi loyihadan qolgan custom Header/Cookie va Proxy sozlamalarini tozalash (Zero Cross-Project State Leak)
         self.recon_agent.session.headers.clear()
-        self.recon_agent.session.headers.update({"User-Agent": "SPECTRE-ASM-Security-Audit/8.5"})
+        self.recon_agent.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        })
         self.recon_agent.session.proxies.clear()
 
         auth = self.auth_entry.get_text().strip()

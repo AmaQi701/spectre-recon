@@ -315,7 +315,7 @@ def hunt_deep_secrets_and_uz_ecosystem(db, session: requests.Session, project_id
         ("GitHub Personal Access Token", "Critical", 9.0, r"\b(gh[pousr]_[A-Za-z0-9_]{36,255})\b"),
         ("Slack Webhook / Bot Token", "High", 7.5, r"\b(xox[baprs]-[0-9a-zA-Z-]{10,48})\b"),
         ("Sentry DSN Endpoint", "Low", 3.7, r"(https://[a-f0-9]{32}@[a-z0-9.]+\.ingest\.sentry\.io/\d+)"),
-        ("Uzbekistan Fintech / Payment Merchant Key (Payme/Click/Uzum)", "Medium", 5.8, r"(?i)((?:payme|paycom|click_?merchant|click_?service_?id|uzum_?merchant)[a-z0-9_]*\s*[:=]\s*['\"][a-zA-Z0-9_\-]{6,64}['\"])"),
+        ("Uzbekistan Fintech / Payment Merchant Key (Payme/Click/Uzum)", "Medium", 5.8, r"(?i)\b((?:payme_(?:id|key|merchant|secret|token)|paycom_(?:id|key|secret)|click_(?:merchant|service|secret)_?(?:id|key)?|uzum_(?:merchant|secret|api)_?(?:id|key)?)\s*[:=]\s*['\"][a-zA-Z0-9_\-]{6,64}['\"])"),
     ]
 
     targets_to_scan = [j["js_url"] for j in js_assets[:25]] + [s["url"] for s in services[:8]]
@@ -400,12 +400,13 @@ def mine_well_known_and_mobile_links(db, session: requests.Session, project_id: 
                         applinks = data.get("applinks", {}).get("details", [])
                         if isinstance(applinks, list) and applinks:
                             summary = f"iOS App Details: {json.dumps(applinks)[:220]}"
-                    elif "openid" in path or "oauth" in path:
-                        eps = [data.get(k, "") for k in ("authorization_endpoint", "token_endpoint", "userinfo_endpoint", "jwks_uri") if data.get(k)]
-                        for ep in eps:
-                            if record_url_fn:
-                                record_url_fn(project_id, ep, base_url, scope, "oidc_discovery")
-                        summary = f"OIDC Endpoints: {', '.join(eps[:4])}"
+                    elif ("openid" in path or "oauth" in path) and isinstance(data, dict) and data.get("issuer"):
+                        eps = [data.get(k, "") for k in ("authorization_endpoint", "token_endpoint", "userinfo_endpoint", "jwks_uri") if isinstance(data.get(k), str) and data.get(k)]
+                        if eps:
+                            for ep in eps:
+                                if record_url_fn:
+                                    record_url_fn(project_id, ep, base_url, scope, "oidc_discovery")
+                            summary = f"Issuer: {data.get('issuer')} | OIDC Endpoints: {', '.join(eps[:4])}"
 
                     if summary:
                         log_fn(f"  [📱 {label}] {full_u} -> {summary[:140]}")
