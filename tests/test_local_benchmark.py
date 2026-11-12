@@ -1,0 +1,184 @@
+"""
+SPECTRE v13.0 — Local 5-Second End-to-End Integration Benchmark
+"""
+
+from __future__ import annotations
+
+import http.server
+import json
+import pathlib
+import socketserver
+import sys
+import tempfile
+import threading
+import urllib.parse
+
+ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT_DIR))
+
+from core.database import DatabaseManager
+from core.scope_guard import ScopeGuard
+from agents.recon_agent import ReconSuperAgent
+from agents.vuln_agent import VulnAssessmentSuperAgent
+from agents.triage_chain_agent import TriageAndChainSuperAgent
+
+
+class _BenchmarkHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, fmt: str, *args: object) -> None:
+        return
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(200)
+        self.send_header("Allow", "GET, POST, PUT, DELETE, OPTIONS")
+        self.end_headers()
+
+    def do_GET(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed.query)
+        origin = self.headers.get("Origin", "")
+
+        if parsed.path == "/":
+            body = (
+                "<html><head><title>Benchmark Portal</title></head>"
+                "<body><a href='/go?next=/home'>Go</a>"
+                "<a href='/search?q=item'>Search</a>"
+                "<script src='/static/app.js'></script></body></html>"
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Server", "nginx/1.18.0")
+            self.send_header("Set-Cookie", "sid=abc123; Path=/")
+            if origin:
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Access-Control-Allow-Credentials", "true")
+            self.end_headers()
+            self.wfile.write(body)
+        elif parsed.path == "/static/app.js":
+            js_code = (
+                "const api = '/api/v1/orders/101';\n"
+                "const adm = '/api/v1/admin/export';\n"
+                "document.getElementById('x').innerHTML = location.hash;\n"
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript")
+            self.end_headers()
+            self.wfile.write(js_code)
+        elif parsed.path == "/openapi.json":
+            spec = {
+                "openapi": "3.0.0",
+                "paths": {
+                    "/api/v1/orders/{id}": {"get": {"parameters": [{"name": "id", "in": "path"}]}},
+                    "/api/v1/orders/101": {"put": {}},
+                },
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(spec).encode())
+        elif parsed.path.startswith("/api/v1/orders/"):
+            if not self.headers.get("Authorization", ""):
+                self.send_response(401)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"error":"unauthorized"}')
+                return
+            payload = {"order_id": 101, "owner": "alice", "total": 450.0, "address": "Tashkent"}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode())
+        elif parsed.path == "/api/v1/admin/export":
+            payload = {"users_count": 42, "export_ready": True, "role_scope": "internal"}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode())
+        elif parsed.path == "/go":
+            nxt = (qs.get("next") or ["/home"])[0]
+            self.send_response(302)
+            self.send_header("Location", nxt)
+            self.end_headers()
+        elif parsed.path == "/search":
+            q_val = (qs.get("q") or [""])[0]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(f"<html><body>Results for {q_val}</body></html>".encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
+
+class _ReusableTCPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+def run_benchmark() -> None:
+    srv = _ReusableTCPServer(("127.0.0.1", 0), _BenchmarkHandler)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+
+    try:
+        with tempfile.TemporaryDirectory() as tmpd:
+            tmp_path = pathlib.Path(tmpd)
+            sast_dir = tmp_path / "src"
+            sast_dir.mkdir()
+            (sast_dir / "repo_sample.py").write_text(
+                "def get_order(cursor, uid):\n"
+                "    cursor.execute(f'SELECT * FROM orders WHERE id = {uid}')\n",
+                encoding="utf-8",
+            )
+
+            db = DatabaseManager(str(tmp_path / "bench.db"))
+            base_url = f"http://127.0.0.1:{port}"
+            pid = db.create_project("Benchmark-v13", f"127.0.0.1:{port}", "127.0.0.1", "", str(sast_dir))
+            db.upsert_domain(pid, "127.0.0.1", ip="127.0.0.1", source="primary_target")
+
+            logs: list[str] = []
+            scope = ScopeGuard("127.0.0.1", "")
+            recon = ReconSuperAgent(db, str(ROOT_DIR / "config" / "tools_registry.yaml"))
+
+            html = recon._stage3_http_probe(pid, base_url, {}, scope, logs.append)
+            assert html, "Stage 3 failed to probe local benchmark server"
+            js_urls = recon._stage4_html_and_wayback(pid, base_url, html, "127.0.0.1", scope, logs.append)
+            recon._stage5_openapi_discovery(pid, base_url, scope, logs.append)
+            recon._stage6_js_analyzer(pid, js_urls, base_url, scope, logs.append)
+
+            vuln = VulnAssessmentSuperAgent(db)
+            vuln.configure_context(
+                primary_auth="Authorization: Bearer token_user_a",
+                secondary_auth="Authorization: Bearer token_user_b",
+            )
+            vuln.run_assessment(pid, logs.append, enable_cli=False)
+
+            triage = TriageAndChainSuperAgent(db, str(tmp_path / "reports"))
+            triage.run_triage_and_chaining(pid, logs.append)
+            rep_paths = triage.generate_reports(pid)
+
+            bundle = db.get_project_bundle(pid)
+            titles = [f["title"] for f in bundle["findings"]]
+            chains = [c["chain_title"] for c in bundle["bug_chains"]]
+
+            assert len(bundle["js_assets"]) >= 1, "JS Analyzer failed to capture app.js"
+            assert any("BOLA" in t for t in titles), f"Multi-Role BOLA Matrix missed flaw: {titles}"
+            assert any("Unauthenticated Access" in t for t in titles), f"Authz Matrix missed flaw: {titles}"
+            assert any("Arbitrary CORS Origin Reflection" in t for t in titles), f"CORS audit missed flaw: {titles}"
+            assert any("Verified Open Redirect" in t for t in titles), f"Redirect verifier missed flaw: {titles}"
+            assert any("SQL Injection" in t for t in titles), f"SAST engine missed flaw: {titles}"
+            assert len(chains) >= 3, f"Asset-Bound Graph Chainer produced too few chains: {chains}"
+            assert pathlib.Path(rep_paths["html_path"]).is_file(), "HTML report was not generated"
+
+            print(
+                f"BENCHMARK_OK | Endpoints={len(bundle['endpoints'])} | JS={len(bundle['js_assets'])} "
+                f"| Findings={len(titles)} | Chains={len(chains)}"
+            )
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+if __name__ == "__main__":
+    run_benchmark()

@@ -1020,63 +1020,6 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
                     if used_svcs:
                         agent.db.log_task(project_id, "SPECTRE-Agent1", "holehe", "COMPLETED", f"holehe {em}", ", ".join(used_svcs[:10]))
 
-    # 14.1 Nuclei Fast Exposure & Misconfiguration Scanner (Top 6 Live Web Services)
-    if "nuclei" in active_ids and agent._find_binary("nuclei"):
-        svcs = [s["url"] for s in bundle.get("http_services", []) if int(s.get("status_code") or 0) in (200, 401, 403)][:6]
-        if not svcs:
-            svcs = [f"https://{primary_host}"]
-        nuc_list_file = f"/tmp/spectre_nuclei_targets_{project_id}.txt"
-        open(nuc_list_file, "w").write("\n".join(svcs) + "\n")
-        log_fn(f"[Tool 14.1 -> Nuclei Scanner] {len(svcs)} ta asosiy servisda miskonfiguratsiya, ochiq panel va CVE shablonlari tekshirilmoqda...")
-        nuc_out = agent._run_cli(
-            f"nuclei -l {nuc_list_file} -tags exposure,misconfig,panel,token -severity low,medium,high,critical -silent -jsonl -timeout 4 -c 25",
-            log_fn,
-            timeout=45,
-            project_id=project_id,
-        )
-        for nl in nuc_out.splitlines():
-            if nl.strip().startswith("{"):
-                try:
-                    nobj = json.loads(nl.strip())
-                    t_id = nobj.get("template-id", "nuclei-hit")
-                    info = nobj.get("info", {})
-                    n_name = info.get("name", t_id)
-                    n_sev = str(info.get("severity", "medium")).capitalize()
-                    matched_at = nobj.get("matched-at", svcs[0])
-                    cvss_map = {"Critical": 9.3, "High": 8.1, "Medium": 6.1, "Low": 3.7}
-                    if n_sev in cvss_map:
-                        agent.db.upsert_finding(
-                            project_id, "SPECTRE-Agent1 (Nuclei)", f"[CONFIRMED] Nuclei: {n_name} ({t_id})",
-                            "Nuclei Active Scan", n_sev, cvss_map[n_sev], "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
-                            "CWE-200", "A05:2021 - Security Misconfiguration", matched_at,
-                            f"Template: {t_id} | Matched: {matched_at}",
-                            info.get("description") or f"Nuclei '{t_id}' shabloni bo'yicha zaiflik tasdiqlandi.",
-                            info.get("remediation") or "Nuclei tavsiyasiga asosan miskonfiguratsiyani yoping.",
-                            confidence="Confirmed-PoC",
-                        )
-                        log_fn(f"  [🚨 NUCLEI HIT] [{n_sev}] {n_name} -> {matched_at}")
-                except Exception:
-                    pass
-
-    # 14.2 Dalfox Parameter & DOM XSS Analyzer
-    if "dalfox" in active_ids and agent._find_binary("dalfox"):
-        param_eps = [e for e in bundle.get("endpoints", []) if json.loads(e.get("params_json") or "[]")][:3]
-        for pep in param_eps:
-            p_list = json.loads(pep.get("params_json") or "[]")
-            q_str = "&".join(f"{k}=spectre" for k in p_list[:3])
-            full_p_url = f"{pep['url']}?{q_str}"
-            log_fn(f"[Tool 14.2 -> Dalfox XSS Scanner] {full_p_url} da XSS va DOM sinklar tekshirilmoqda...")
-            df_out = agent._run_cli(f"dalfox url {shlex.quote(full_p_url)} --silence --no-color --skip-bav", log_fn, timeout=22, project_id=project_id)
-            for dl in df_out.splitlines():
-                if "[V]" in dl or "[POC]" in dl:
-                    agent.db.upsert_finding(
-                        project_id, "SPECTRE-Agent1 (Dalfox XSS)", f"[CONFIRMED] Dalfox Verified XSS on {pep['url']}",
-                        "Cross-Site Scripting (XSS)", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:L/A:N",
-                        "CWE-79", "A03:2021 - Injection", pep["url"], dl.strip()[:250],
-                        "Dalfox skaneri tomonidan XSS payload bajarilishi tasdiqlandi.",
-                        "Kontekstli HTML encoding va qat'iy CSP qo'llang.", confidence="Confirmed-PoC"
-                    )
-                    log_fn(f"  [🚨 DALFOX XSS CONFIRMED] {dl.strip()[:140]}")
 
 
 

@@ -1,10 +1,16 @@
 import base64
 import json
+import os
 import re
+import shlex
+import shutil
+import subprocess
+import urllib.parse
 from pathlib import Path
 import requests
 
 from core.database import DatabaseManager
+from core.http_engine import RateLimitedHttpEngine
 
 
 class VulnAssessmentSuperAgent:
@@ -122,7 +128,27 @@ class VulnAssessmentSuperAgent:
     def __init__(self, db: DatabaseManager):
         self.db = db
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "SPECTRE-VulnAgent/12.2"})
+        self.session.headers.update({"User-Agent": "SPECTRE-VulnAgent/13.0"})
+        self.http_engine = RateLimitedHttpEngine(self.session, max_rps_per_host=10.0, fail_threshold=4)
+        self.role_a_headers: dict[str, str] = {}
+        self.role_b_headers: dict[str, str] = {}
+
+    @staticmethod
+    def _parse_auth_header(raw_auth: str) -> dict[str, str]:
+        s = (raw_auth or "").strip()
+        if not s:
+            return {}
+        if ":" in s:
+            k, v = s.split(":", 1)
+            return {k.strip(): v.strip()}
+        return {"Cookie": s}
+
+    def configure_context(self, primary_auth: str = "", secondary_auth: str = "", proxy_url: str = "") -> None:
+        self.role_a_headers = self._parse_auth_header(primary_auth)
+        self.role_b_headers = self._parse_auth_header(secondary_auth)
+        self.session.proxies.clear()
+        if proxy_url.strip():
+            self.session.proxies.update({"http": proxy_url.strip(), "https": proxy_url.strip()})
 
     def audit_jwt_token(self, token: str) -> dict:
         parts = token.strip().split(".")
@@ -377,25 +403,207 @@ class VulnAssessmentSuperAgent:
                 pass
         log_fn(f"  [+] SAST yakunlandi: {len(files[:150])} ta fayl tekshirildi, {hits} ta xavfli qator topildi.")
 
-    def run_assessment(self, project_id: int, log_fn):
+    def _audit_http_methods_and_overrides(self, project_id: int, http_services: list[dict], log_fn):
+        for svc in http_services[:10]:
+            url = svc["url"]
+            if self.http_engine.is_host_dead(url):
+                continue
+            try:
+                r_opt = self.http_engine.request("OPTIONS", url, allow_redirects=False)
+                allow_hdr = (r_opt.headers.get("Allow") or r_opt.headers.get("Public") or "").upper()
+                allowed_set = {x.strip() for x in allow_hdr.split(",") if x.strip()}
+                risky = [m for m in ("PUT", "DELETE", "TRACE") if m in allowed_set]
+                if risky:
+                    self.db.upsert_finding(
+                        project_id, "Agent-2 (Method-Audit)", f"Unsafe HTTP Methods Advertised ({', '.join(risky)})",
+                        "HTTP Protocol Configuration", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+                        "CWE-749", "A05:2021 - Security Misconfiguration", url,
+                        f"OPTIONS Allow Header: {allow_hdr}",
+                        "Veb-server root yo'lida xavfli HTTP metodlar (PUT/DELETE/TRACE) ruxsat etilgan sifatida e'lon qilingan.",
+                        "Veb-serverda keraksiz PUT, DELETE va TRACE metodlarini o'chiring.",
+                    )
+            except Exception:
+                pass
+
+    def _audit_safe_differential_verifiers(self, project_id: int, endpoints: list[dict], log_fn):
+        redir_params = {"url", "redirect", "redirect_uri", "next", "return", "returnurl", "return_to", "goto", "dest", "destination"}
+        canary = "spectrecheck9182"
+        for ep in endpoints[:35]:
+            u = ep["url"]
+            if self.http_engine.is_host_dead(u):
+                continue
+            params = json.loads(ep.get("params_json") or "[]")
+            if not params:
+                continue
+            p_parsed = urllib.parse.urlparse(u)
+            for p_name in params[:2]:
+                qs = urllib.parse.parse_qs(p_parsed.query, keep_blank_values=True)
+                if p_name.lower() in redir_params:
+                    qs[p_name] = ["https://example.org/spectre_check"]
+                    test_u = urllib.parse.urlunparse(p_parsed._replace(query=urllib.parse.urlencode(qs, doseq=True)))
+                    try:
+                        r = self.http_engine.request("GET", test_u, headers=self.role_a_headers or None, allow_redirects=False)
+                        loc = r.headers.get("Location", "")
+                        if r.status_code in (301, 302, 303, 307, 308) and urllib.parse.urlparse(loc).hostname == "example.org":
+                            self.db.upsert_finding(
+                                project_id, "Agent-2 (Differential-Verifier)", f"[CONFIRMED] Verified Open Redirect via '{p_name}' Parameter",
+                                "Open Redirect (Validated PoC)", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                                "CWE-601", "A01:2021 - Broken Access Control", u,
+                                f"Parameter: {p_name} -> HTTP {r.status_code} Location: {loc}",
+                                f"'{p_name}' parametri tashqi domenga tekshiruvsiz yo'naltirishi tasdiqlandi.",
+                                "Yo'naltirish parametrlarini qat'iy ichki yo'llar oq ro'yxati bilan cheklang.",
+                                confidence="Confirmed-PoC",
+                            )
+                            log_fn(f"  [CONFIRMED REDIRECT] {u} ({p_name}) -> {loc}")
+                    except Exception:
+                        pass
+                else:
+                    qs[p_name] = [canary]
+                    test_u = urllib.parse.urlunparse(p_parsed._replace(query=urllib.parse.urlencode(qs, doseq=True)))
+                    try:
+                        r = self.http_engine.request("GET", test_u, headers=self.role_a_headers or None, allow_redirects=False)
+                        if r.status_code == 200 and "text/html" in r.headers.get("Content-Type", "").lower() and canary in r.text:
+                            self.db.upsert_finding(
+                                project_id, "Agent-2 (Differential-Verifier)", f"Unfiltered HTML Parameter Reflection ('{p_name}')",
+                                "Input Reflection / XSS Candidate", "Medium", 5.4, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                                "CWE-79", "A03:2021 - Injection", u,
+                                f"Alphanumeric canary '{canary}' reflected verbatim in text/html response via '{p_name}'.",
+                                "Foydalanuvchi parametri HTML sahifa tanasida aks etmoqda — kontekstli encoding tekshiruvi zarur.",
+                                "HTML/JS kontekstida chiqish ma'lumotlarini kontekstli kodlang va CSP o'rnating.",
+                            )
+                    except Exception:
+                        pass
+
+    def _audit_multi_role_access_control(self, project_id: int, endpoints: list[dict], log_fn):
+        if not self.role_a_headers:
+            return
+        api_cands = [
+            e for e in endpoints
+            if e.get("method", "GET") == "GET"
+            and (e.get("category") in ("api_endpoint", "high_value_endpoint") or "IDOR_Candidate" in (e.get("risk_tags_json") or ""))
+        ][:16]
+        if not api_cands:
+            return
+        log_fn(f"[Agent-2 -> Multi-Role Authz Matrix] {len(api_cands)} ta API/IDOR route da avtorizatsiya matritsasi solishtirilmoqda...")
+        err_markers = ('"unauthorized"', '"unauthenticated"', '"forbidden"', '"access denied"', '"error":true', '"status":401', '"status":403')
+        public_ignore = ("/health", "/ping", "/version", "/config", "/public", "/openapi", "/swagger", "/i18n", "/locale")
+
+        for ep in api_cands:
+            u = ep["url"].replace("{param}", "1")
+            if any(pi in u.lower() for pi in public_ignore) or self.http_engine.is_host_dead(u):
+                continue
+            try:
+                r_a = self.http_engine.request("GET", u, headers=self.role_a_headers, allow_redirects=False)
+                if r_a.status_code != 200 or "application/json" not in r_a.headers.get("Content-Type", "").lower() or len(r_a.text) < 25:
+                    continue
+                if any(em in r_a.text.lower() for em in err_markers):
+                    continue
+                obj_a = r_a.json()
+                keys_a = sorted(obj_a.keys()) if isinstance(obj_a, dict) else ["_list"]
+
+                r_guest = self.http_engine.request("GET", u, headers={}, allow_redirects=False)
+                if r_guest.status_code == 200 and "application/json" in r_guest.headers.get("Content-Type", "").lower():
+                    if abs(len(r_guest.text) - len(r_a.text)) < 40 and not any(em in r_guest.text.lower() for em in err_markers):
+                        if any(priv_k in u.lower() for priv_k in ("/admin", "/internal", "/users", "/account", "/orders", "/profile", "/me")):
+                            self.db.upsert_finding(
+                                project_id, "Agent-2 (Authz-Matrix)", f"[CONFIRMED] Unauthenticated Access to Sensitive API Route ({u})",
+                                "Missing Function-Level Access Control", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                                "CWE-306", "A01:2021 - Broken Access Control", u,
+                                f"Role-A HTTP 200 ({len(r_a.text)}B, keys={keys_a[:6]}) == Guest HTTP 200 ({len(r_guest.text)}B)",
+                                "Sezgir API yo'li avtorizatsiya sarlavhasisiz (Guest) ham Role-A bilan bir xil JSON ma'lumot qaytarmoqda.",
+                                "Ushbu route ustiga autentifikatsiya va rol tekshiruvi (RBAC middleware) o'rnating.",
+                                confidence="Confirmed-PoC",
+                            )
+                            log_fn(f"  [CONFIRMED AUTHZ BYPASS] {u} -> Guest == Role-A (HTTP 200 JSON)")
+                            continue
+
+                if self.role_b_headers and r_guest.status_code in (401, 403):
+                    r_b = self.http_engine.request("GET", u, headers=self.role_b_headers, allow_redirects=False)
+                    if r_b.status_code == 200 and "application/json" in r_b.headers.get("Content-Type", "").lower() and not any(em in r_b.text.lower() for em in err_markers):
+                        obj_b = r_b.json()
+                        keys_b = sorted(obj_b.keys()) if isinstance(obj_b, dict) else ["_list"]
+                        if keys_a == keys_b and ("IDOR_Candidate" in (ep.get("risk_tags_json") or "") or any(ch.isdigit() for ch in urllib.parse.urlparse(u).path)):
+                            self.db.upsert_finding(
+                                project_id, "Agent-2 (BOLA-Matrix)", f"[CONFIRMED] Cross-Role BOLA / IDOR Data Exposure ({u})",
+                                "Broken Object Level Authorization (BOLA)", "High", 8.6, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+                                "CWE-639", "A01:2021 - Broken Access Control", u,
+                                f"Guest={r_guest.status_code} | Role-A=200 ({len(r_a.text)}B) | Role-B=200 ({len(r_b.text)}B, keys={keys_b[:6]})",
+                                "Guest uchun yopiq (401/403) bo'lgan obyekt endpointi ikkinchi foydalanuvchi (Role-B) sessiyasi orqali ham bir xil JSON strukturani qaytarmoqda.",
+                                "Backendda obyekt egasini joriy foydalanuvchi identifikatori bilan qat'iy solishtiring.",
+                                confidence="Confirmed-PoC",
+                            )
+                            log_fn(f"  [CONFIRMED BOLA] {u} -> Guest {r_guest.status_code}, lekin Role-B 200 JSON oldi!")
+            except Exception:
+                pass
+
+    def _run_cli_vuln_scanners(self, project_id: int, bundle: dict, log_fn, enable_cli: bool = True):
+        if not enable_cli:
+            return
+        env = os.environ.copy()
+        env["PATH"] = "/home/amaqi/go/bin:/home/amaqi/.local/bin:/usr/local/bin:/usr/bin:" + env.get("PATH", "")
+        nuc_bin = shutil.which("nuclei", path=env["PATH"])
+        svcs = [
+            s["url"] for s in bundle.get("http_services", [])
+            if int(s.get("status_code") or 0) in (200, 401, 403) and not self.http_engine.is_host_dead(s["url"])
+            and urllib.parse.urlparse(s["url"]).hostname not in ("127.0.0.1", "localhost")
+        ][:6]
+        if nuc_bin and svcs:
+            nuc_file = f"/tmp/spectre_v13_nuclei_{project_id}.txt"
+            Path(nuc_file).write_text("\n".join(svcs) + "\n", encoding="utf-8")
+            log_fn(f"[Agent-2 -> Nuclei Audit] {len(svcs)} ta faol veb-servisda miskonfiguratsiya va CVE shablonlari tekshirilmoqda...")
+            try:
+                proc = subprocess.run(
+                    [nuc_bin, "-l", nuc_file, "-tags", "exposure,misconfig,panel,token", "-severity", "low,medium,high,critical", "-silent", "-jsonl", "-timeout", "4", "-c", "20"],
+                    capture_output=True, text=True, timeout=45, env=env,
+                )
+                for nl in (proc.stdout or "").splitlines():
+                    if nl.strip().startswith("{"):
+                        nobj = json.loads(nl.strip())
+                        t_id = nobj.get("template-id", "nuclei-hit")
+                        info = nobj.get("info", {})
+                        n_name = info.get("name", t_id)
+                        n_sev = str(info.get("severity", "medium")).capitalize()
+                        matched_at = nobj.get("matched-at", svcs[0])
+                        cvss_map = {"Critical": 9.3, "High": 8.1, "Medium": 6.1, "Low": 3.7}
+                        if n_sev in cvss_map:
+                            self.db.upsert_finding(
+                                project_id, "Agent-2 (Nuclei)", f"[CONFIRMED] Nuclei: {n_name} ({t_id})",
+                                "Nuclei Template Verification", n_sev, cvss_map[n_sev], "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                                "CWE-200", "A05:2021 - Security Misconfiguration", matched_at,
+                                f"Template: {t_id} | Matched: {matched_at}",
+                                info.get("description") or f"Nuclei '{t_id}' shabloni bo'yicha zaiflik tasdiqlandi.",
+                                info.get("remediation") or "Nuclei tavsiyasiga asosan konfiguratsiya kamchiligini bartaraf eting.",
+                                confidence="Confirmed-PoC",
+                            )
+                            log_fn(f"  [NUCLEI HIT] [{n_sev}] {n_name} -> {matched_at}")
+                self.db.log_task(project_id, "SPECTRE-Agent2", "nuclei", "COMPLETED", f"nuclei ({len(svcs)} targets)", "Completed active template verification")
+            except Exception:
+                pass
+
+    def run_assessment(self, project_id: int, log_fn, enable_cli: bool = True):
         bundle = self.db.get_project_bundle(project_id)
         proj = bundle.get("project", {})
         if not proj:
             log_fn("[ERR] Loyiha topilmadi.")
             return
+        self.http_engine.reset()
         self.db.update_project_status(project_id, "RUNNING_VULN_AUDIT")
-        log_fn(f"═══ 🔍 2-SUPERAGENT: VULNERABILITY ASSESSMENT & SAST BOSHLANDI ({proj['name']}) ═══")
+        log_fn(f"═══ 2-SUPERAGENT: ENTERPRISE VULN, BOLA MATRIX & SAST AUDIT ({proj['name']}) ═══")
         self._audit_http_services(project_id, bundle.get("http_services", []), log_fn)
+        self._audit_http_methods_and_overrides(project_id, bundle.get("http_services", []), log_fn)
         self._audit_open_ports(project_id, bundle.get("ports", []), log_fn)
         self._audit_endpoints_and_js(project_id, bundle.get("endpoints", []), bundle.get("js_assets", []), log_fn)
+        self._audit_multi_role_access_control(project_id, bundle.get("endpoints", []), log_fn)
+        self._audit_safe_differential_verifiers(project_id, bundle.get("endpoints", []), log_fn)
+        self._run_cli_vuln_scanners(project_id, bundle, log_fn, enable_cli=enable_cli)
         if proj.get("source_code_path"):
             self._run_sast_scan(project_id, proj["source_code_path"], log_fn)
         smap_dir = Path(__file__).resolve().parent.parent / "workspaces" / "sourcemaps" / f"project_{project_id}"
         if smap_dir.is_dir() and any(smap_dir.rglob("*")):
-            log_fn(f"  [🧬 SOURCEMAP->SAST] 1-SuperAgent tiklagan asl manba kodlari ({smap_dir.name}) White-Box SAST orqali tekshirilmoqda...")
+            log_fn(f"  [SOURCEMAP->SAST] 1-SuperAgent tiklagan asl manba kodlari ({smap_dir.name}) White-Box SAST orqali tekshirilmoqda...")
             self._run_sast_scan(project_id, str(smap_dir), log_fn)
         self.db.update_project_status(project_id, "VULN_AUDIT_COMPLETED")
-        log_fn("═══ ✅ 2-SUPERAGENT: ZAIFLIKLAR TAHLILI YAKUNLANDI ═══")
+        log_fn("═══ 2-SUPERAGENT: ZAIFLIKLAR VA AVTORIZATSIYA TAHLILI YAKUNLANDI ═══")
 
 
 

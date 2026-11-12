@@ -256,7 +256,7 @@ class ApexNativeWindow(Gtk.Window):
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
         hb.props.title = "SPECTRE  —  Kiber-Razvedka va Hujum Yuzasi Platformasi"
-        hb.props.subtitle = "●  v12.13 Obsidian Emerald  •  Avtonom Razvedka, Zaiflik Auditi va Bug Chaining"
+        hb.props.subtitle = "●  v13.0 Obsidian Emerald  •  Multi-Role BOLA Matrix, Asset-Bound Graph Chaining & Recon"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -349,16 +349,21 @@ class ApexNativeWindow(Gtk.Window):
         cmd_bar.pack_end(self._make_btn("1-Razvedka", "act-btn", lambda _: self.on_run_agent("recon")), False, False, 0)
         root_vbox.pack_start(cmd_bar, False, False, 0)
 
-        # Row 2: Auth, Proxy & Emerald Status Banner
+        # Row 2: Multi-Role Auth (Role-A & Role-B), Proxy & Emerald Status Banner
         sub_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.auth_entry = Gtk.Entry()
-        self.auth_entry.set_placeholder_text("Grey-box Auth (Cookie: ... / Authorization: Bearer ...)")
-        self.auth_entry.set_width_chars(28)
+        self.auth_entry.set_placeholder_text("Role-A Auth (Cookie: ... / Bearer ...)")
+        self.auth_entry.set_width_chars(22)
         sub_bar.pack_start(self.auth_entry, False, False, 0)
+
+        self.auth_b_entry = Gtk.Entry()
+        self.auth_b_entry.set_placeholder_text("Role-B Auth (BOLA/IDOR uchun 2-akkaunt)")
+        self.auth_b_entry.set_width_chars(22)
+        sub_bar.pack_start(self.auth_b_entry, False, False, 0)
 
         self.proxy_entry = Gtk.Entry()
         self.proxy_entry.set_placeholder_text("Proksi (http://127.0.0.1:8080)")
-        self.proxy_entry.set_width_chars(22)
+        self.proxy_entry.set_width_chars(19)
         sub_bar.pack_start(self.proxy_entry, False, False, 0)
 
         self.progress_bar = Gtk.ProgressBar()
@@ -1091,6 +1096,7 @@ class ApexNativeWindow(Gtk.Window):
         self.recon_agent.session.proxies.clear()
 
         auth = self.auth_entry.get_text().strip()
+        auth_b = self.auth_b_entry.get_text().strip() if hasattr(self, "auth_b_entry") else ""
         if auth:
             if ":" in auth:
                 k, v = auth.split(":", 1)
@@ -1101,7 +1107,8 @@ class ApexNativeWindow(Gtk.Window):
         proxy_val = self.proxy_entry.get_text().strip() if hasattr(self, "proxy_entry") else ""
         if proxy_val:
             self.recon_agent.session.proxies.update({"http": proxy_val, "https": proxy_val})
-            self.log_msg(f"[PROXY] 🌐 Outbound Proxy ulandi: {proxy_val}")
+            self.log_msg(f"[PROXY] Outbound Proxy ulandi: {proxy_val}")
+        self.vuln_agent.configure_context(primary_auth=auth, secondary_auth=auth_b, proxy_url=proxy_val)
 
 
         rec_mode = self.mode_combo.get_active_id() if hasattr(self, "mode_combo") else "full"

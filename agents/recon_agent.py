@@ -1303,6 +1303,8 @@ class ReconSuperAgent:
             self._host_fail_counts.clear()
             self._dead_hosts.clear()
             self._host_to_ip.clear()
+        if hasattr(self, "_ran_apex_suites"):
+            self._ran_apex_suites.pop(project_id, None)
         shutil.rmtree(f"/tmp/spectre_js_cache_{project_id}", ignore_errors=True)
         before_snap = spectre_deep_modules.take_recon_snapshot(self.db, project_id)
         collected_html: list[str] = []
@@ -1494,15 +1496,13 @@ class ReconSuperAgent:
                         self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn, phase="fuzz_only"
                     )
 
-            _prog(0.90, "Stage 6/6: Adaptive Brain, Auto-Validator, SPA Manifests, Secrets v2 & Mobile/OIDC...")
+            _prog(0.90, "Stage 6/6: Adaptive Brain, SPA Manifests, Secrets v2, OSINT & DOM Clustering...")
             spectre_ultra_modules.run_adaptive_brain_strategy(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
             spectre_ultra_modules.deconstruct_spa_manifests_and_ssr_state(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
             spectre_ultra_modules.hunt_deep_secrets_and_uz_ecosystem(self.db, self.session, project_id, log_fn)
             spectre_ultra_modules.mine_well_known_and_mobile_links(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
             spectre_ultra_modules.trace_redirect_chains_and_oauth_flows(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-            spectre_ultra_modules.run_safe_auto_validator(self.db, self.session, project_id, log_fn)
             spectre_ultra_modules.extract_document_metadata_osint(self.db, self.session, project_id, apex_domain, log_fn)
-            spectre_deep_modules.hunt_cloud_and_storage_buckets(self.db, self.session, project_id, apex_domain, log_fn)
             spectre_deep_modules.probe_api_versions_and_ghost_endpoints(self.db, project_id, log_fn)
             spectre_deep_modules.classify_auth_portals_and_schema(self.db, project_id, log_fn)
             spectre_deep_modules.analyze_badsecrets_and_cookies(self.db, project_id, apex_domain, log_fn)

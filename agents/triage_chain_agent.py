@@ -1,4 +1,6 @@
 import json
+import re
+import urllib.parse
 from pathlib import Path
 
 from core.database import DatabaseManager
@@ -6,9 +8,8 @@ from core.database import DatabaseManager
 
 class TriageAndChainSuperAgent:
     """
-    3-SuperAgent: Triage, False-Positive Filtering, Bug Chaining & Report Generator.
-    Topilgan zaifliklarni saralaydi, zanjirlaydi (Bug Chaining) va professional
-    Markdown / HTML hisobot tayyorlaydi.
+    3-SuperAgent (v13.0): Asset-Bound Attack Graph Correlation, Triage & Report Studio.
+    Correlates findings, cookies, ports, JS sinks, and API routes per exact host/origin.
     """
 
     def __init__(self, db: DatabaseManager, reports_dir: str = "/home/amaqi/projects/apex-pentest-gui/reports"):
@@ -16,158 +17,215 @@ class TriageAndChainSuperAgent:
         self.reports_dir = Path(reports_dir)
         self.reports_dir.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _extract_asset_host(asset_str: str, known_hosts: set[str], ip_to_host: dict[str, str]) -> str:
+        s = (asset_str or "").strip()
+        if not s:
+            return ""
+        if s.startswith(("http://", "https://")):
+            h = (urllib.parse.urlparse(s).hostname or "").lower()
+            return ip_to_host.get(h, h)
+        first = s.split()[0].split(":")[0].strip("()").lower()
+        if first in ip_to_host:
+            return ip_to_host[first]
+        if first in known_hosts:
+            return first
+        for kh in known_hosts:
+            if kh in s.lower():
+                return kh
+        return ""
+
     def run_triage_and_chaining(self, project_id: int, log_fn):
         bundle = self.db.get_project_bundle(project_id)
         proj = bundle.get("project", {})
         if not proj:
             log_fn("[ERR] Loyiha topilmadi.")
             return
-        findings = bundle.get("findings", [])
-        endpoints = bundle.get("endpoints", [])
+        domains = bundle.get("domains", [])
+        ports = bundle.get("ports", [])
         http_svcs = bundle.get("http_services", [])
+        endpoints = bundle.get("endpoints", [])
+        js_assets = bundle.get("js_assets", [])
+        findings = [f for f in bundle.get("findings", []) if f.get("triage_status") != "False-Positive"]
 
-        log_fn(f"═══ 🔗 3-SUPERAGENT: TRIAGE & BUG CHAINING TAHLILI BOSHLANDI ({proj.get('name', '')}) ═══")
+        log_fn(f"═══ 3-SUPERAGENT: ASSET-BOUND GRAPH CORRELATION & CHAINING ({proj.get('name', '')}) ═══")
 
-        # 1. False-Positive Triage
         verified_count = 0
         manual_count = 0
         for f in findings:
-            if f.get("confidence") == "Manual-Review":
+            if "[CONFIRMED]" in str(f.get("title", "")) or f.get("confidence") == "Confirmed-PoC":
+                if f.get("triage_status") != "Verified":
+                    self.db.update_finding_triage(int(f["id"]), "Verified")
+                verified_count += 1
+            elif f.get("confidence") == "Manual-Review":
                 manual_count += 1
             else:
                 verified_count += 1
-        log_fn(f"  [+] Triage: {verified_count} ta avtomatik tasdiqlangan, {manual_count} ta Manual-Review nuqtasi saralandi.")
+        log_fn(f"  [+] Triage: {verified_count} ta Verified, {manual_count} ta Manual-Review topilma saralandi.")
 
-        # 2. Bug Chaining Correlation Engine
-        titles = [f["title"].lower() for f in findings]
-        categories = [f["category"].lower() for f in findings]
+        known_hosts = {d["domain"].lower() for d in domains if d.get("domain")}
+        ip_to_host = {d["ip"]: d["domain"].lower() for d in domains if d.get("ip") and d.get("domain")}
 
-        has_cors = any("cors" in t for t in titles)
-        has_cookie_weak = any("cookie" in t for t in titles)
-        has_dom_sink = any("dom xss" in t for t in titles)
-        has_idor = any("idor" in t for t in titles)
-        has_ssrf_redir = any("ssrf" in t or "redirect" in t for t in titles)
-        has_sast_inj = any("sql injection" in t or "command injection" in t for t in titles)
-        has_api_eps = any(ep.get("category") in ("api_endpoint", "high_value_endpoint") for ep in endpoints)
+        def _node() -> dict:
+            return {
+                "cors": [], "weak_cookies": [], "xss_sinks": [], "bola_authz": [],
+                "redirects": [], "cves": [], "open_ports": [], "api_routes": [],
+                "state_routes": [],
+            }
 
-        if has_dom_sink and has_cookie_weak:
-            self.db.upsert_bug_chain(
-                project_id,
-                "Chain #1: DOM XSS Sink + Missing HttpOnly Cookie -> Session Hijacking Risk",
-                "High",
-                8.2,
-                ["JavaScript DOM XSS Sink (innerHTML/eval)", "Session Cookie without HttpOnly Flag", "Authenticated User Session"],
-                "JS fayldagi tozalanmagan DOM sink orqali XSS yuzaga kelsa, HttpOnly bayrog'i yo'qligi sababli document.cookie o'qilishi va sessiya egallanishi mumkin.",
-                "Account Takeover (ATO) va foydalanuvchi sessiyasining to'liq o'g'irlanishi.",
-                "1) Barcha session cookie'larga HttpOnly va Secure qo'shing. 2) DOM sinklarni DOMPurify bilan himoyalang va qat'iy CSP o'rnating.",
-            )
-            log_fn("  [⚡ CHAIN] DOM XSS Sink + Insecure Cookie -> Session Hijacking zanjiri tuzildi!")
+        graph: dict[str, dict] = {}
+        sast_sinks: list[dict] = []
 
-        if has_cors and (has_api_eps or has_idor):
-            self.db.upsert_bug_chain(
-                project_id,
-                "Chain #2: Permissive CORS + API/IDOR Endpoint -> Cross-Origin Sensitive Data Exposure",
-                "High",
-                8.5,
-                ["Permissive CORS Policy", "API Endpoint with Object ID Parameter", "Cross-Origin Read Access"],
-                "Keng ruxsat berilgan CORS siyosati va obyektni ID orqali qaytaruvchi API endpoint birgalikda tashqi domendan foydalanuvchi ma'lumotlarini o'qish xavfini yaratadi.",
-                "Maxfiy API javoblarining ruxsatsiz uchinchi tomon originlari tomonidan o'qilishi.",
-                "CORS Allow-Origin ro'yxatini cheklang va API endpointlarda obyekt darajasidagi avtorizatsiyani (BOLA) tekshiring.",
-            )
-            log_fn("  [⚡ CHAIN] Permissive CORS + API/IDOR -> Cross-Origin Data Exposure zanjiri tuzildi!")
+        for svc in http_svcs:
+            h = self._extract_asset_host(svc.get("url", ""), known_hosts, ip_to_host)
+            if not h:
+                continue
+            g = graph.setdefault(h, _node())
+            for ck in json.loads(svc.get("cookies_json") or "[]"):
+                if not ck.get("httponly"):
+                    g["weak_cookies"].append(ck.get("name", "session"))
 
-        if has_ssrf_redir and has_api_eps:
-            self.db.upsert_bug_chain(
-                project_id,
-                "Chain #3: Open Redirect / SSRF Parameter + API/Auth Flow -> Token Leak or Internal Probe",
-                "High",
-                7.8,
-                ["URL/Redirect Parameter in Endpoint", "API / Auth Callback Route", "Internal Network / OAuth Token Context"],
-                "Yo'naltirish (redirect/url) parametri OAuth/Auth oqimida token sizib chiqishiga yoki server tomonidan ichki servislarga so'rov yuborilishiga (SSRF) sabab bo'lishi mumkin.",
-                "OAuth token o'g'irlanishi yoki ichki infratuzilma port/servislarining oshkor bo'lishi.",
-                "Redirect va callback parametrlarini faqat ruxsat berilgan domen/yo'llar oq ro'yxati bilan tekshiring.",
-            )
-            log_fn("  [⚡ CHAIN] Redirect/SSRF Parameter + API Flow zanjiri tuzildi!")
+        for pt in ports:
+            h = (pt.get("host") or ip_to_host.get(pt.get("ip", ""), "")).lower()
+            if h:
+                graph.setdefault(h, _node())["open_ports"].append(f"{pt['port']}/{pt['protocol']} ({pt.get('service', '')})")
 
-        # Dynamic Chain #4: Cloudflare WAF Bypass via Direct Backend/Origin Subdomain IP
-        domains = bundle.get("domains", [])
+        for ep in endpoints:
+            h = self._extract_asset_host(ep.get("url", ""), known_hosts, ip_to_host)
+            if not h:
+                continue
+            g = graph.setdefault(h, _node())
+            tags = json.loads(ep.get("risk_tags_json") or "[]")
+            if ep.get("category") in ("api_endpoint", "high_value_endpoint") or "IDOR_Candidate" in tags:
+                g["api_routes"].append(f"{ep.get('method', 'GET')} {ep['url']}")
+            if ep.get("method") in ("POST", "PUT", "DELETE", "PATCH"):
+                g["state_routes"].append(f"{ep['method']} {ep['url']}")
+
+        for js in js_assets:
+            h = self._extract_asset_host(js.get("js_url", ""), known_hosts, ip_to_host)
+            sinks = json.loads(js.get("sinks_json") or "[]")
+            if h and sinks:
+                graph.setdefault(h, _node())["xss_sinks"].append(f"{js['js_url'].split('/')[-1]} ({', '.join(sinks[:3])})")
+
+        for f in findings:
+            tl = f.get("title", "").lower()
+            cat_l = f.get("category", "").lower()
+            if "sast" in cat_l or (":" in str(f.get("asset", "")) and "/" in str(f.get("asset", "")) and not str(f.get("asset", "")).startswith("http")):
+                if any(k in tl for k in ("sql injection", "command injection", "deserialization", "ssti", "ssrf", "traversal")):
+                    sast_sinks.append(f)
+            h = self._extract_asset_host(f.get("asset", ""), known_hosts, ip_to_host)
+            if not h:
+                continue
+            g = graph.setdefault(h, _node())
+            if "cors" in tl:
+                g["cors"].append(f)
+            if "cookie" in tl and not g["weak_cookies"]:
+                g["weak_cookies"].append(f["title"])
+            if "dom xss" in tl or "reflection" in tl or "xss" in tl:
+                g["xss_sinks"].append(f["title"])
+            if "bola" in tl or "idor" in tl or "unauthenticated access" in tl:
+                g["bola_authz"].append(f)
+            if "redirect" in tl or "oauth" in tl or "ssrf" in tl:
+                g["redirects"].append(f)
+            if "cve" in tl or "nuclei:" in tl:
+                g["cves"].append(f)
+
+        # Per-Host Asset-Bound Graph Correlation Rules
+        for host, g in graph.items():
+            if g["xss_sinks"] and g["weak_cookies"]:
+                self.db.upsert_bug_chain(
+                    project_id,
+                    f"[{host}] Client-Side Execution + Non-HttpOnly Cookie -> Session Hijacking",
+                    "High", 8.4,
+                    [f"Host: {host}", f"Sink/Reflection: {g['xss_sinks'][0]}", f"Exposed Cookie: {g['weak_cookies'][0]}"],
+                    f"'{host}' xostida aniqlangan XSS/DOM sink va HttpOnly bayrog'isiz '{g['weak_cookies'][0]}' cookie birgalikda sessiyani egallash zanjirini hosil qiladi.",
+                    "Account Takeover (ATO) — foydalanuvchi sessiyasining o'g'irlanishi.",
+                    "Cookie'ga HttpOnly; Secure o'rnating va barcha chiqish nuqtalarini kontekstli kodlang.",
+                )
+                log_fn(f"  [CHAIN] {host}: XSS/DOM Sink + Cookie '{g['weak_cookies'][0]}' -> ATO zanjiri tuzildi!")
+
+            if g["cors"] and (g["api_routes"] or g["bola_authz"]):
+                sample_rt = (g["api_routes"] or [g["bola_authz"][0]["asset"]])[0]
+                max_c = max([float(x.get("cvss_score") or 5.3) for x in g["cors"]] + [8.5])
+                self.db.upsert_bug_chain(
+                    project_id,
+                    f"[{host}] CORS Trust Misconfiguration + API Route -> Cross-Origin Data Exfiltration",
+                    "Critical" if max_c >= 9.0 else "High", round(min(9.4, max_c), 1),
+                    [f"Host: {host}", g["cors"][0]["title"], f"API Target: {sample_rt}"],
+                    f"'{host}' xostidagi noto'g'ri CORS siyosati va '{sample_rt}' API endpointi tashqi domendan shaxsiy JSON ma'lumotlarni o'qish imkonini beradi.",
+                    "Avtorizatsiyalangan foydalanuvchi ma'lumotlarining uchinchi tomon saytidan o'qilishi.",
+                    "Access-Control-Allow-Origin qiymatini qat'iy oq ro'yxat bilan cheklang.",
+                )
+                log_fn(f"  [CHAIN] {host}: CORS + API ({sample_rt}) zanjiri tuzildi!")
+
+            if g["bola_authz"] and (g["state_routes"] or len(g["api_routes"]) >= 1):
+                bf = g["bola_authz"][0]
+                is_conf = "[CONFIRMED]" in bf.get("title", "")
+                rt_lbl = (g["state_routes"] or g["api_routes"])[0]
+                self.db.upsert_bug_chain(
+                    project_id,
+                    f"[{host}] {'Verified ' if is_conf else ''}Access Control / BOLA Weakness + API Surface -> Account Data Compromise",
+                    "Critical" if is_conf else "High", 9.1 if is_conf else 8.3,
+                    [f"Host: {host}", bf["title"], f"Route: {rt_lbl}"],
+                    f"'{host}' xostida obyekt darajasidagi avtorizatsiya (BOLA/RBAC) zaifligi va '{rt_lbl}' yo'li orqali begona yozuvlarni o'qish yoki o'zgartirish xavfi mavjud.",
+                    "Gorizontal yoki vertikal imtiyozlarni oshirish va ma'lumotlar sizib chiqishi.",
+                    "Har bir obyekt so'rovida joriy foydalanuvchi egaligini (ownership check) tekshiring.",
+                )
+                log_fn(f"  [CHAIN] {host}: BOLA/Authz + API ({rt_lbl}) zanjiri tuzildi!")
+
+            if g["redirects"] and g["api_routes"]:
+                rf = g["redirects"][0]
+                self.db.upsert_bug_chain(
+                    project_id,
+                    f"[{host}] Redirect / OAuth Flow Weakness + Active API -> Token Leakage Path",
+                    "High", 7.9,
+                    [f"Host: {host}", rf["title"], f"API Context: {g['api_routes'][0]}"],
+                    f"'{host}' dagi tekshirilmagan yo'naltirish / OAuth parametri aktiv API sessiya kontekstida token o'g'irlanishiga olib kelishi mumkin.",
+                    "OAuth code/token sizib chiqishi yoki fishing zanjiri.",
+                    "Redirect URI parametrlarini aniq domen va yo'l bo'yicha tasdiqlang.",
+                )
+
+            if g["cves"] and g["open_ports"]:
+                cf = g["cves"][0]
+                self.db.upsert_bug_chain(
+                    project_id,
+                    f"[{host}] Exposed Network Ports + Known Service CVEs -> Initial Access Vector",
+                    "High", 8.9,
+                    [f"Host: {host}", f"Open Ports: {', '.join(g['open_ports'][:4])}", cf["title"]],
+                    f"'{host}' xostida ochiq qoldirilgan tarmoq portlari va eskirgan servis CVE zaifliklari to'g'ridan-to'g'ri dastlabki kirish xavfini tug'diradi.",
+                    "Tashqi tarmoqdan serverga ruxsatsiz kirish.",
+                    "Ma'muriy portlarni Firewall orqali yoping va servis versiyalarini yangilang.",
+                )
+
         pt_host = proj.get("primary_target", "").lower()
         cf_hosts = [d["domain"] for d in domains if "cloudflare" in str(d.get("cdn_waf", "")).lower()]
         direct_hosts = [f"{d['domain']} ({d['ip']})" for d in domains if d.get("ip") and "cloudflare" not in str(d.get("cdn_waf", "")).lower()]
         if cf_hosts and direct_hosts and any(pt_host in ch or ch in pt_host for ch in cf_hosts):
             self.db.upsert_bug_chain(
                 project_id,
-                "Chain #4: Cloudflare WAF Protected Frontend + Exposed Direct Backend/Origin Server IPs -> Full WAF Bypass",
-                "High",
-                8.8,
-                [f"Cloudflare Protected ({cf_hosts[0]})", f"Direct Non-CDN Subdomains ({', '.join(direct_hosts[:3])})", "Direct Origin HTTP/Port Access"],
-                "Asosiy sayt Cloudflare WAF ortida himoyalangan bo'lsa-da, yordamchi va backend subdomenlar to'g'ridan-to'g'ri (Direct IP) serverlarda ochiq qoldirilgan — Host header orqali WAF ni chetlab o'tish xavfi mavjud.",
-                "Cloudflare WAF qoidalarining to'liq chetlab o'tilishi va backend serverga to'g'ridan-to'g'ri murojaat.",
-                "Origin serverlarda faqat Cloudflare IP diapazonlaridan (https://www.cloudflare.com/ips/) keluvchi 80/443 ulanishlarga ruxsat bering (Authenticated Origin Pulls).",
+                f"[{cf_hosts[0]}] Cloudflare WAF Frontend + Exposed Direct Origin IP -> WAF Bypass",
+                "High", 8.8,
+                [f"WAF Host: {cf_hosts[0]}", f"Direct Origin: {', '.join(direct_hosts[:3])}", "Origin Direct HTTP Access"],
+                "Asosiy domen Cloudflare ortida bo'lsa-da, yordamchi subdomenlar orqali to'g'ridan-to'g'ri Origin IP manzil ochiq qolgan.",
+                "WAF qoidalarini Host sarlavhasi orqali to'g'ridan-to'g'ri Origin IP ga so'rov yuborib aylanib o'tish.",
+                "Origin serverda faqat Cloudflare IP diapazonlaridan keluvchi 80/443 ulanishlarga ruxsat bering.",
             )
-            log_fn("  [⚡ CHAIN] Cloudflare WAF + Direct Origin Server IP -> WAF Bypass zanjiri tuzildi!")
 
-        # Dynamic Chain #5: Shodan Known CVEs + Open Network Services (SSH/SMB/FTP/Custom Ports)
-        has_shodan_cve = any("known cves on host ip" in t for t in titles)
-        has_net_port = any("port" in t or "ssh" in t or "smb" in t for t in titles)
-        if has_shodan_cve and has_net_port:
+        all_api_eps = [e["url"] for e in endpoints if e.get("category") in ("api_endpoint", "high_value_endpoint")]
+        if sast_sinks and all_api_eps:
+            sf = sast_sinks[0]
             self.db.upsert_bug_chain(
                 project_id,
-                "Chain #5: Exposed Network Services (SSH/SMB/FTP/Custom Web) + Unpatched Host CVEs -> Initial Access Risk",
-                "High",
-                8.9,
-                ["Publicly Exposed Network Ports", "Outdated Service CPEs (Nginx/OpenSSH/ProFTPD)", "Known Public CVEs on Host IP"],
-                "Tashqi internetga ochiq qoldirilgan tarmoq portlarida ma'lum CVE zaifliklariga ega eskirgan servis versiyalari ishlamoqda.",
-                "Serverga ruxsatsiz dastlabki kirish (Initial Access) yoki DoS/RCE xavfi.",
-                "Barcha ma'muriy va tarmoq portlarini Firewall orqali yoping hamda OS/servis paketlarini yangilang.",
-            )
-            log_fn("  [⚡ CHAIN] Exposed Network Ports + Known Host CVEs zanjiri tuzildi!")
-
-        # Dynamic Chain #6: Reconstructed Mass-Assignment Keys + State-Changing (POST/DELETE/PUT) API Routes
-        has_schema_keys = any("mass-assignment" in t or "privileged" in t for t in titles)
-        state_changing_eps = [f"{e['method']} {e['url']}" for e in endpoints if e.get("method") in ("POST", "PUT", "DELETE", "PATCH")]
-        if (has_schema_keys or has_idor) and state_changing_eps:
-            self.db.upsert_bug_chain(
-                project_id,
-                "Chain #6: State-Changing API Routes (POST/DELETE/PUT) + Object ID / Schema Parameters -> BOLA & Mass Assignment",
-                "High",
-                8.4,
-                ["JS Bundle Deconstruction", f"State-Changing Routes ({', '.join(state_changing_eps[:3])})", "Object ID / Privileged Property Manipulation"],
-                "JS fayllardan ajratib olingan POST/DELETE/PUT API endpointlari obyekt identifikatori yoki imtiyozli JSON kalitlarni qabul qiladi — BOLA/IDOR va Mass-Assignment xavfi.",
-                "Boshqa foydalanuvchi ma'lumotlarini o'zgartirish/o'chirish (Account/Session manipulation).",
-                "Har bir POST/PUT/DELETE endpointda obyekt egaligini (ownership) va ruxsat etilgan DTO maydonlar oq ro'yxatini tekshiring.",
-            )
-            log_fn("  [⚡ CHAIN] State-Changing API Routes + BOLA/Mass-Assignment zanjiri tuzildi!")
-
-
-        confirmed_refl = [f for f in findings if "[confirmed]" in f.get("title", "").lower() and ("reflection" in f.get("title", "").lower() or "xss" in f.get("title", "").lower())]
-        if confirmed_refl:
-            self.db.upsert_bug_chain(
-                project_id,
-                "Chain #7: Verified Unfiltered Input Reflection (XSS) + Session/Token Context -> Client-Side Account Takeover",
-                "High",
-                8.6,
-                [confirmed_refl[0]["asset"], confirmed_refl[0]["title"], "Reflected/DOM XSS Execution -> Session Theft"],
-                "Safe Auto-Validator yoki Dalfox tomonidan tasdiqlangan filtrsiz parametr refleksiyasi foydalanuvchi brauzerida zararli JS kod ishga tushirish va sessiyani egallash imkonini beradi.",
-                "Foydalanuvchi sessiyasining o'g'irlanishi (ATO) yoki foydalanuvchi nomidan amallar bajarilishi.",
-                "Parametrlarni HTML/JS kontekstida chiqarishda qat'iy kontekstli encoding va Content-Security-Policy (CSP) qo'llang.",
-            )
-            log_fn("  [⚡ CHAIN] Verified Input Reflection + Session Context -> Account Takeover zanjiri tuzildi!")
-
-        if has_sast_inj:
-            self.db.upsert_bug_chain(
-                project_id,
-                "Chain #8: White-Box SAST Injection Sink + Exposed Endpoint -> High-Risk Exploitation Path",
-                "High",
-                8.8,
-                ["Source Code Injection Sink (SAST)", "Reachable Web/API Endpoint", "Backend Command/SQL Execution"],
-                "Manba kodida (yoki tiklangan SourceMap'da) aniqlangan Injection nuqtasi ochiq API endpoint bilan birgalikda to'g'ridan-to'g'ri ekspluatatsiya zanjirini hosil qiladi.",
-                "Ma'lumotlar bazasi yoki server ustidan nazoratni qo'lga kiritish.",
-                "Parametrlangan so'rovlar (Prepared Statements) ishlating va xavfli eval/exec chaqiruvlarini olib tashlang.",
+                f"[SAST->DAST] {sf['title']} + Reachable API Surface -> High-Impact Code Path",
+                "Critical" if sf.get("severity") == "Critical" else "High", 9.0,
+                [f"Code Sink: {sf['asset']}", sf["title"], f"Reachable Route: {all_api_eps[0]}"],
+                "Manba kodida (yoki tiklangan SourceMap ichida) topilgan xavfli funksiya hamda ochiq API endpoint birgalikda real ekspluatatsiya yo'lini ko'rsatmoqda.",
+                "Backend server yoki ma'lumotlar bazasi ustidan ruxsatsiz amallar bajarilishi.",
+                sf.get("remediation", "Parametrlangan so'rovlar va xavfsiz API chaqiruvlaridan foydalaning."),
             )
 
         self.db.update_project_status(project_id, "AUDIT_READY_FOR_REPORT")
-        log_fn("═══ ✅ 3-SUPERAGENT: TRIAGE VA BUG CHAINING YAKUNLANDI ═══")
+        log_fn("═══ 3-SUPERAGENT: ASSET-BOUND GRAPH CHAINING YAKUNLANDI ═══")
 
     def generate_reports(self, project_id: int) -> dict:
         bundle = self.db.get_project_bundle(project_id)
@@ -255,16 +313,16 @@ class TriageAndChainSuperAgent:
             for ch in chains
         )
         html_content = f"""<!DOCTYPE html>
-<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v12.2 Titan Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
+<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v13.0 Obsidian Emerald Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
 <style>
-body {{ font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; padding: 32px; }}
-h1, h2 {{ color: #38bdf8; border-bottom: 1px solid #334155; padding-bottom: 8px; }}
-table {{ width: 100%; border-collapse: collapse; margin-top: 16px; background: #1e293b; }}
-th, td {{ border: 1px solid #334155; padding: 10px; text-align: left; font-size: 13px; }}
-th {{ background: #0284c7; color: #fff; }}
-code {{ color: #f472b6; background: #0f172a; padding: 2px 5px; border-radius: 4px; }}
+body {{ font-family: "Inter", system-ui, sans-serif; background: #090c0a; color: #e2e8f0; padding: 32px; }}
+h1, h2 {{ color: #4ade80; border-bottom: 1px solid #1b2a21; padding-bottom: 8px; }}
+table {{ width: 100%; border-collapse: collapse; margin-top: 16px; background: #0f1512; border-radius: 8px; overflow: hidden; }}
+th, td {{ border: 1px solid #1b2a21; padding: 10px 12px; text-align: left; font-size: 13px; }}
+th {{ background: #13281c; color: #4ade80; font-weight: 700; }}
+code {{ color: #86efac; background: #080b09; padding: 2px 6px; border-radius: 4px; }}
 </style></head><body>
-<h1>👻 SPECTRE v12.2 Titan — Autonomous Cyber-Recon &amp; Security Audit Report: {_html.escape(str(proj.get('name', '')))}</h1>
+<h1>SPECTRE v13.0 Obsidian Emerald — Security &amp; Attack Surface Audit Report: {_html.escape(str(proj.get('name', '')))}</h1>
 <p><b>Primary Target:</b> <code>{_html.escape(str(proj.get('primary_target', '')))}</code> | <b>In-Scope:</b> <code>{_html.escape(str(proj.get('in_scope', '')))}</code></p>
 <h2>🔗 Zaifliklar Zanjiri (Bug Chaining Scenarios — {len(chains)})</h2>
 <table><thead><tr><th>Severity / CVSS</th><th>Zanjir Nomi va Bosqichlari</th><th>Hujum Ssenariysi</th><th>Remediation</th></tr></thead>
