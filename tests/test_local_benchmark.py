@@ -137,6 +137,10 @@ def run_benchmark() -> None:
             base_url = f"http://127.0.0.1:{port}"
             pid = db.create_project("Benchmark-v14", f"127.0.0.1:{port}", "127.0.0.1", "", str(sast_dir))
             db.upsert_domain(pid, "127.0.0.1", ip="127.0.0.1", source="primary_target")
+            db.upsert_domain(pid, "vhost1.invalid", ip="198.51.100.10", source="subfinder")
+            db.upsert_domain(pid, "vhost2.invalid", ip="198.51.100.10", source="subfinder")
+            db.upsert_http_service(pid, "https://vhost1.invalid", 200, "App1", "Apache/2.4.50", ["Apache/2.4.50"], 120, {}, {}, [], {})
+            db.upsert_http_service(pid, "https://vhost2.invalid", 200, "App2", "Apache/2.4.50", ["Apache/2.4.50"], 120, {}, {}, [], {})
             db.upsert_port(pid, "127.0.0.1", 22, "tcp", ip="127.0.0.1", service="ssh", version="OpenSSH 8.9p1", banner="SSH-2.0-OpenSSH_8.9p1 ssh-dss")
             db.upsert_port(pid, "127.0.0.1", 6379, "tcp", ip="127.0.0.1", service="redis", version="6.0.5", banner="Redis 6.0.5")
 
@@ -178,6 +182,8 @@ def run_benchmark() -> None:
             assert any("Verified Open Redirect" in t for t in titles), f"Redirect verifier missed flaw: {titles}"
             assert any("SQL Injection" in t for t in titles), f"SAST engine missed flaw: {titles}"
             assert any("CVE-2021-23017" in t for t in titles), f"Semantic CVE engine missed nginx 1.18.0: {titles}"
+            apache_cves = [f for f in bundle["findings"] if "CVE-2021-41773" in f["title"]]
+            assert len(apache_cves) == 1 and "Shared Origin VHosts (2)" in apache_cves[0]["evidence"] and "cpe:2.3:a:apache:http_server:2.4.50" in apache_cves[0]["evidence"], f"Shared VHost dedup or CPE 2.3 failed: {apache_cves}"
             assert any("CVE-2024-6387" in t for t in titles), f"Semantic CVE engine missed OpenSSH 8.9p1: {titles}"
             assert any("Exposed Backend Data Store Port" in t for t in titles), f"Port posture missed Redis: {titles}"
             agent2_confs = [f["confidence"] for f in bundle["findings"] if str(f.get("agent", "")).startswith("Agent-2")]

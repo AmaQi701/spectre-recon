@@ -22,6 +22,15 @@ class ScanPhase:
     ACT_VERIFY = "ACT_VERIFY"
     ACT_END = "ACT_END"
 
+    ORDER: dict[str, int] = {
+        ACT_INIT: 10,
+        ACT_SCANNER: 20,
+        ACT_SETTINGS: 30,
+        ACT_GATHER_INFO: 40,
+        ACT_VERIFY: 50,
+        ACT_END: 60,
+    }
+
 
 class QoD:
     """Quality of Detection (%) labels stored in `findings.confidence`."""
@@ -118,13 +127,25 @@ class ScanContextKB:
             self.set_value("Auth/role_b", True)
 
     def check_gate(
-        self, require_keys: Iterable[str] | None = None, require_ports: Iterable[int] | None = None
+        self,
+        require_keys: Iterable[str] | None = None,
+        require_ports: Iterable[int] | None = None,
+        require_any_keys: Iterable[str] | None = None,
+        exclude_keys: Iterable[str] | None = None,
     ) -> tuple[bool, str]:
         with self._lock:
+            if exclude_keys:
+                for ek in exclude_keys:
+                    if self.has_fact(ek):
+                        return False, f"excluded_kb_key:{ek}"
             if require_keys:
                 for rk in require_keys:
                     if not self.has_fact(rk):
                         return False, f"missing_kb_key:{rk}"
+            if require_any_keys:
+                any_list = list(require_any_keys)
+                if any_list and not any(self.has_fact(rk) for rk in any_list):
+                    return False, f"missing_any_kb_key:{any_list}"
             if require_ports:
                 open_all = self._facts.get("Ports/tcp", set()) | self._facts.get("Ports/udp", set())
                 if not any(int(rp) in open_all for rp in require_ports):
@@ -142,15 +163,22 @@ def run_plugin_safely(
     kb: ScanContextKB | None = None,
     require_keys: Iterable[str] | None = None,
     require_ports: Iterable[int] | None = None,
+    require_any_keys: Iterable[str] | None = None,
+    exclude_keys: Iterable[str] | None = None,
     phase: str = ScanPhase.ACT_GATHER_INFO,
     **kwargs: Any,
 ) -> Any:
     """
     Executes a reconnaissance or audit plugin inside an isolated fault boundary.
-    Enforces optional KB gating (`require_keys` / `require_ports`) before invocation.
+    Enforces optional KB gating (`require_keys`, `require_any_keys`, `exclude_keys`, `require_ports`).
     """
-    if kb is not None and (require_keys or require_ports):
-        ok, _ = kb.check_gate(require_keys=require_keys, require_ports=require_ports)
+    if kb is not None and (require_keys or require_ports or require_any_keys or exclude_keys):
+        ok, _ = kb.check_gate(
+            require_keys=require_keys,
+            require_ports=require_ports,
+            require_any_keys=require_any_keys,
+            exclude_keys=exclude_keys,
+        )
         if not ok:
             with kb._lock:
                 kb.skipped_plugins += 1
@@ -191,3 +219,65 @@ def run_plugin_safely(
         if log_fn:
             log_fn(f"  [⚠️ PLUGIN ISOLATED ERROR] {plugin_name}: {ex}")
         return None
+
+
+class PhaseOrchestrator:
+    """
+    Deterministic NASL/NVT-style scheduler.
+    Executes registered plugins strictly in `ScanPhase.ORDER` (`ACT_INIT` -> ... -> `ACT_END`)
+    and evaluates `ScanContextKB` gates dynamically at execution time so facts gathered in
+    `ACT_GATHER_INFO` unlock or skip downstream `ACT_VERIFY` / `ACT_END` plugins.
+    """
+
+    def __init__(
+        self,
+        db: Any,
+        project_id: int,
+        kb: ScanContextKB,
+        log_fn: Callable[[str], None] | None = None,
+    ) -> None:
+        self.db = db
+        self.project_id = project_id
+        self.kb = kb
+        self.log_fn = log_fn
+        self._tasks: list[tuple[int, int, str, str, Callable[..., Any], tuple[Any, ...], dict[str, Any], dict[str, Any]]] = []
+        self._seq = 0
+
+    def register(
+        self,
+        plugin_name: str,
+        phase: str,
+        fn: Callable[..., Any],
+        *args: Any,
+        require_keys: Iterable[str] | None = None,
+        require_any_keys: Iterable[str] | None = None,
+        exclude_keys: Iterable[str] | None = None,
+        require_ports: Iterable[int] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        p_ord = ScanPhase.ORDER.get(phase, 40)
+        gate_cfg = {
+            "require_keys": require_keys,
+            "require_any_keys": require_any_keys,
+            "exclude_keys": exclude_keys,
+            "require_ports": require_ports,
+        }
+        self._tasks.append((p_ord, self._seq, plugin_name, phase, fn, args, kwargs, gate_cfg))
+        self._seq += 1
+
+    def execute_all(self) -> dict[str, Any]:
+        results: dict[str, Any] = {}
+        for _, _, p_name, phase, fn, args, kwargs, gate_cfg in sorted(self._tasks, key=lambda x: (x[0], x[1])):
+            results[p_name] = run_plugin_safely(
+                self.db,
+                self.project_id,
+                p_name,
+                fn,
+                *args,
+                log_fn=self.log_fn,
+                kb=self.kb,
+                phase=phase,
+                **gate_cfg,
+                **kwargs,
+            )
+        return results

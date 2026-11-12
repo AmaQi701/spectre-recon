@@ -103,15 +103,56 @@ def run_integrity_gate() -> list[str]:
                         errors.append(f"[BLOCKING WITH-EXECUTOR] {pf.name}:{node.lineno} -> Use explicit wait(timeout=...) + shutdown(wait=False, cancel_futures=True)")
 
     # 5. Runtime Smoke Check of DB, ScopeGuard, KB Gate, Advisory Catalog, and 49/49 Tools
-    from core.advisory_kb import match_version_advisories
-    from core.plugin_runner import ScanContextKB
+    from core.advisory_kb import CURATED_CVE_ADVISORIES, extract_cpe_inventory, match_version_advisories, version_in_range
+    from core.plugin_runner import PhaseOrchestrator, ScanContextKB, ScanPhase
 
     kb_smoke = ScanContextKB(1, "target.local")
     kb_smoke.add_fact("Ports/tcp", 6379)
     if not kb_smoke.check_gate(require_ports=[6379])[0] or kb_smoke.check_gate(require_ports=[27017])[0]:
         errors.append("[KB GATE BROKEN] ScanContextKB.check_gate port gating failed")
+    if kb_smoke.check_gate(exclude_keys=["Ports/tcp"])[0] or not kb_smoke.check_gate(require_any_keys=["Missing/k", "Ports/tcp"])[0]:
+        errors.append("[KB GATE BROKEN] exclude_keys or require_any_keys failed")
+
+    order_trace: list[str] = []
+    orch_smoke = PhaseOrchestrator(None, 1, kb_smoke)
+    orch_smoke.register("step_verify", ScanPhase.ACT_VERIFY, lambda: order_trace.append("verify"), require_keys=["Gathered/ok"])
+    orch_smoke.register("step_gather", ScanPhase.ACT_GATHER_INFO, lambda: (kb_smoke.add_fact("Gathered/ok", 1), order_trace.append("gather")))
+    orch_smoke.execute_all()
+    if order_trace != ["gather", "verify"]:
+        errors.append(f"[ORCHESTRATOR BROKEN] Expected ['gather', 'verify'], got {order_trace}")
+
+    if not all(version_in_range(a["min"], a["min"], a["max"]) and not version_in_range(a["max"], a["min"], a["max"]) for a in CURATED_CVE_ADVISORIES):
+        errors.append("[ADVISORY KB BROKEN] Invalid min/max boundary in CURATED_CVE_ADVISORIES")
+    if (match_version_advisories("Server: nginx/1.26.2 (Ubuntu)\nX-Powered-By: PHP/8.2.10") or [{}])[0].get("distro_backport_likely") is not False:
+        errors.append("[ADVISORY KB BROKEN] Cross-header distro marker bleed onto PHP/8.2.10")
+    if extract_cpe_inventory("nginx/1.26.2") != ["cpe:2.3:a:f5:nginx:1.26.2:*:*:*:*:*:*:*"]:
+        errors.append("[ADVISORY KB BROKEN] NIST CPE 2.3 inventory builder failed")
+    if not match_version_advisories("Elasticsearch/7.10.2") or not match_version_advisories("Node.js v18.19.0"):
+        errors.append("[ADVISORY KB BROKEN] New enterprise stack advisories failed")
     if not match_version_advisories("Nginx:1.18.0") or match_version_advisories("OpenSSH_9.8p1"):
         errors.append("[ADVISORY KB BROKEN] match_version_advisories failed smoke check")
+    if match_version_advisories("mysql 5.5.5-10.11.8-MariaDB") or not match_version_advisories("mysql 5.5.5-10.3.29-MariaDB"):
+        errors.append("[ADVISORY KB BROKEN] MariaDB 5.5.5 protocol-prefix disambiguation failed")
+    if not match_version_advisories("220 mail ESMTP Postfix (3.6.12)") or match_version_advisories("Postfix/3.6.13"):
+        errors.append("[ADVISORY KB BROKEN] Postfix branch boundary check failed")
+    if match_version_advisories("SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.20") or not match_version_advisories("SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6"):
+        errors.append("[ADVISORY KB BROKEN] Ubuntu OpenSSH backport disambiguation failed")
+    if not match_version_advisories("cpe:/a:apache:http_server:2.4.50") or not match_version_advisories("jQuery:2.2.4"):
+        errors.append("[ADVISORY KB BROKEN] CPE underscore or jQuery matching failed")
+    if match_version_advisories("nginx 1.26.2 [http-title: Fixing Apache 2.4.49 and PHP 7.4]"):
+        errors.append("[ADVISORY KB BROKEN] Untrusted [http-title] triggered false CVE")
+    if "CVE-2021-3711" not in (match_version_advisories("OpenSSL/1.1.1k-fips") or [{}])[0].get("cve", ""):
+        errors.append("[ADVISORY KB BROKEN] OpenSSL letter sub-patch comparison failed")
+    if match_version_advisories("Via: 1.1 nginx (1.18.0.1)") or match_version_advisories("redis (2.18.0.1)"):
+        errors.append("[ADVISORY KB BROKEN] 4-octet IPv4 address falsely parsed as software version")
+    if not (match_version_advisories("PHP/8.1.2-1ubuntu2.18") or [{}])[0].get("distro_backport_likely"):
+        errors.append("[ADVISORY KB BROKEN] Ubuntu -1ubuntu package revision distro marker missed")
+    if "EOL-OPENSSL-1.0" in (match_version_advisories("OpenSSL/1.0.2u Via: OpenSSL/3.0.5") or [{}])[0].get("cve", ""):
+        errors.append("[ADVISORY KB BROKEN] Cross-version CVE contamination occurred")
+    if match_version_advisories("SSH-2.0-OpenSSH_9.8") or match_version_advisories("SSH-2.0-OpenSSH_9.8p1"):
+        errors.append("[ADVISORY KB BROKEN] OpenSSH 9.8 / 9.8p1 falsely flagged as vulnerable")
+    if (match_version_advisories("php7.4-fpm (Ubuntu)") or [{}])[0].get("distro_backport_likely") is not False:
+        errors.append("[ADVISORY KB BROKEN] EOL branch wrongly marked as distro_backport_likely")
 
     with tempfile.TemporaryDirectory() as tmpd:
         db = DatabaseManager(str(pathlib.Path(tmpd) / "gate.db"))

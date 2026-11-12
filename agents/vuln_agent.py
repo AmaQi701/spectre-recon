@@ -9,10 +9,10 @@ import urllib.parse
 from pathlib import Path
 import requests
 
-from core.advisory_kb import match_version_advisories
+from core.advisory_kb import extract_cpe_inventory, match_version_advisories
 from core.database import DatabaseManager
 from core.http_engine import RateLimitedHttpEngine
-from core.plugin_runner import QoD, ScanContextKB, ScanPhase, run_plugin_safely
+from core.plugin_runner import PhaseOrchestrator, QoD, ScanContextKB, ScanPhase
 
 
 class VulnAssessmentSuperAgent:
@@ -209,11 +209,13 @@ class VulnAssessmentSuperAgent:
                     confidence=QoD.HEADER_CONFIG,
                 )
 
-            # Active Dynamic Origin Reflection Probe (single non-duplicated check with host timeout guard)
+            # Active Dynamic Origin Reflection Probe (routed via RateLimitedHttpEngine circuit-breaker)
             host_only = re.sub(r"^https?://", "", url).split("/")[0].split(":")[0].lower()
-            if host_only not in cors_dead_hosts:
+            if host_only not in cors_dead_hosts and not self.http_engine.is_host_dead(url):
                 try:
-                    r_cors = self.session.get(url, headers={"Origin": "https://cors-check.example.org"}, timeout=3.5, verify=False, allow_redirects=False)
+                    r_cors = self.http_engine.request(
+                        "GET", url, headers={"Origin": "https://cors-check.example.org"}, timeout=(2.5, 3.5), allow_redirects=False
+                    )
                     ref_acao = r_cors.headers.get("Access-Control-Allow-Origin", "")
                     ref_acac = r_cors.headers.get("Access-Control-Allow-Credentials", "").lower()
                     if ref_acao == "https://cors-check.example.org":
@@ -262,9 +264,10 @@ class VulnAssessmentSuperAgent:
                         confidence=QoD.HEADER_CONFIG,
                     )
 
-            # Server Version Disclosure
+            # Server Version Disclosure (deduplicated per server string)
             srv = svc.get("server", "")
-            if srv and re.search(r"\d+\.\d+", srv):
+            if srv and re.search(r"\d+\.\d+", srv) and ("srv_disc", srv) not in seen_header_sigs:
+                seen_header_sigs.add(("srv_disc", srv))
                 self.db.upsert_finding(
                     project_id, "Agent-2 (VulnAudit)", f"Web Server Version Information Disclosure ({srv})",
                     "Information Disclosure", "Low", 3.1, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
@@ -342,51 +345,89 @@ class VulnAssessmentSuperAgent:
                     confidence=QoD.HEADER_CONFIG,
                 )
 
-    def _audit_version_cve_advisories(self, project_id: int, http_services: list[dict], ports: list[dict], log_fn):
-        seen_adv: set[tuple[str, str]] = set()
-        hits = 0
+    def _audit_version_cve_advisories(
+        self,
+        project_id: int,
+        http_services: list[dict],
+        ports: list[dict],
+        log_fn,
+        domains: list[dict] | None = None,
+        kb: ScanContextKB | None = None,
+    ):
+        non_cdn_dom_ip: dict[str, str] = {}
+        ip_to_primary_dom: dict[str, str] = {}
+        for d in (domains or []):
+            dom = str(d.get("domain") or "").strip().lower()
+            dip = str(d.get("ip") or "").strip()
+            if dom and dip:
+                ip_to_primary_dom.setdefault(dip, dom)
+                if not d.get("cdn_waf"):
+                    non_cdn_dom_ip[dom] = dip
+
+        grouped: dict[tuple[str, str], dict] = {}
+
         for svc in http_services:
             url = svc.get("url", "")
-            host_k = (urllib.parse.urlparse(url).hostname or url).lower()
-            hdrs = json.loads(svc.get("headers_json") or "{}")
-            techs = " ".join(json.loads(svc.get("tech_stack") or "[]"))
-            combined = f"{svc.get('server', '')} {hdrs.get('X-Powered-By', '')} {hdrs.get('x-powered-by', '')} {techs}"
+            raw_h = (urllib.parse.urlparse(url).hostname or url).lower()
+            origin_ip = non_cdn_dom_ip.get(raw_h, "")
+            dedup_host = origin_ip or ip_to_primary_dom.get(raw_h, raw_h)
+            hdrs_l = {str(k).lower(): str(v) for k, v in json.loads(svc.get("headers_json") or "{}").items()}
+            segments = [
+                str(svc.get("server") or ""),
+                hdrs_l.get("x-powered-by", ""),
+                hdrs_l.get("x-generator", ""),
+                hdrs_l.get("x-aspnet-version", ""),
+                hdrs_l.get("via", ""),
+                *[str(t) for t in json.loads(svc.get("tech_stack") or "[]")],
+            ]
+            combined = "\n".join(x for x in segments if x)
+            if kb is not None:
+                for cpe_item in extract_cpe_inventory(combined):
+                    kb.add_fact("CPE/inventory", cpe_item)
             for adv in match_version_advisories(combined):
-                sig = (host_k, adv["cve"])
-                if sig in seen_adv:
-                    continue
-                seen_adv.add(sig)
-                hits += 1
-                self.db.upsert_finding(
-                    project_id, "Agent-2 (CVE-Engine)", f"{adv['title']} [{adv['cve']}]",
-                    "Vulnerable & Outdated Components", adv["severity"], adv["cvss"], adv["vector"],
-                    adv["cwe"], adv["owasp"], url,
-                    f"Detected: {adv['product']} {adv['detected_version']} (Range: >= {adv['min']}, < {adv['max']}) | Banner: {combined.strip()[:120]}",
-                    f"HTTP servis bannerida eskirgan '{adv['product']} {adv['detected_version']}' versiyasi aniqlandi ({adv['cve']}).",
-                    adv["remediation"],
-                    confidence=QoD.BANNER_CVE,
-                )
+                sig = (dedup_host, adv["cve"])
+                if sig not in grouped:
+                    grouped[sig] = {"adv": adv, "primary_asset": url, "vhosts": [raw_h], "banner": combined.replace("\n", " | ")[:120], "is_port": False}
+                elif raw_h not in grouped[sig]["vhosts"]:
+                    grouped[sig]["vhosts"].append(raw_h)
+
         for pt in ports:
-            host_k = str(pt.get("host") or pt.get("ip") or "").lower()
+            raw_h = str(pt.get("host") or pt.get("ip") or "").lower()
+            pt_ip = str(pt.get("ip") or "").strip()
+            dedup_host = non_cdn_dom_ip.get(raw_h, "") or pt_ip or ip_to_primary_dom.get(raw_h, raw_h)
+            disp_host = ip_to_primary_dom.get(raw_h, raw_h)
             pnum = int(pt.get("port") or 0)
-            combined = f"{pt.get('service', '')} {pt.get('version', '')} {pt.get('banner', '')}".strip()
+            combined = "\n".join(x for x in (str(pt.get("service") or ""), str(pt.get("version") or ""), str(pt.get("banner") or "")) if x)
+            if kb is not None:
+                for cpe_item in extract_cpe_inventory(combined):
+                    kb.add_fact("CPE/inventory", cpe_item)
             for adv in match_version_advisories(combined):
-                sig = (host_k, adv["cve"])
-                if sig in seen_adv:
-                    continue
-                seen_adv.add(sig)
-                hits += 1
-                self.db.upsert_finding(
-                    project_id, "Agent-2 (CVE-Engine)", f"{adv['title']} [{adv['cve']}]",
-                    "Vulnerable & Outdated Components", adv["severity"], adv["cvss"], adv["vector"],
-                    adv["cwe"], adv["owasp"], f"{host_k}:{pnum}",
-                    f"Detected: {adv['product']} {adv['detected_version']} on {host_k}:{pnum} | Banner: {combined[:120]}",
-                    f"Tarmoq porti bannerida eskirgan '{adv['product']} {adv['detected_version']}' versiyasi aniqlandi ({adv['cve']}).",
-                    adv["remediation"],
-                    confidence=QoD.BANNER_CVE,
-                )
-        if hits:
-            log_fn(f"  [CVE-ENGINE] Semantic Version tahlili orqali {hits} ta eskirgan komponent / CVE tavsiyasi aniqlandi.")
+                sig = (dedup_host, adv["cve"])
+                if sig not in grouped:
+                    grouped[sig] = {"adv": adv, "primary_asset": f"{disp_host}:{pnum}", "vhosts": [disp_host], "banner": combined.replace("\n", " | ")[:120], "is_port": True}
+                elif disp_host not in grouped[sig]["vhosts"]:
+                    grouped[sig]["vhosts"].append(disp_host)
+
+        for (_, _), item in grouped.items():
+            adv = item["adv"]
+            vhosts = item["vhosts"]
+            if kb is not None:
+                kb.add_fact("CVE/detected", adv["cve"])
+            bp_note = " [OS Distro Backport Possible — verify dpkg/rpm patch level]" if adv.get("distro_backport_likely") else ""
+            vh_note = f" | Shared Origin VHosts ({len(vhosts)}): {', '.join(vhosts[:6])}" if len(vhosts) > 1 else ""
+            conf_qod = QoD.HEURISTIC if adv.get("distro_backport_likely") else QoD.BANNER_CVE
+            src_lbl = "Tarmoq porti" if item["is_port"] else "HTTP servis"
+            self.db.upsert_finding(
+                project_id, "Agent-2 (CVE-Engine)", f"{adv['title']} [{adv['cve']}]",
+                "Vulnerable & Outdated Components", adv["severity"], adv["cvss"], adv["vector"],
+                adv["cwe"], adv["owasp"], item["primary_asset"],
+                f"CPE: {adv.get('cpe23', '')} | Detected: {adv['product']} {adv['detected_version']} (>= {adv['min']}, < {adv['max']}){bp_note}{vh_note} | Banner: {item['banner']}",
+                f"{src_lbl} bannerida eskirgan '{adv['product']} {adv['detected_version']}' versiyasi aniqlandi ({adv['cve']}).{bp_note}",
+                adv["remediation"],
+                confidence=conf_qod,
+            )
+        if grouped:
+            log_fn(f"  [CVE-ENGINE] Semantic Version & CPE 2.3 tahlili: {len(grouped)} ta unikal komponent / CVE tavsiyasi aniqlandi.")
 
     def _audit_tls_and_cache_posture(self, project_id: int, http_services: list[dict], log_fn):
         seen_tls: set[str] = set()
@@ -729,24 +770,40 @@ class VulnAssessmentSuperAgent:
         eps = bundle.get("endpoints", [])
         js_list = bundle.get("js_assets", [])
 
-        run_plugin_safely(self.db, project_id, "nvt_http_headers_cors", self._audit_http_services, project_id, http_svcs, log_fn, log_fn=log_fn, kb=kb, require_keys=["Services/www"], phase=ScanPhase.ACT_GATHER_INFO)
-        run_plugin_safely(self.db, project_id, "nvt_tls_cache_posture", self._audit_tls_and_cache_posture, project_id, http_svcs, log_fn, log_fn=log_fn, kb=kb, require_keys=["Services/www"], phase=ScanPhase.ACT_GATHER_INFO)
-        run_plugin_safely(self.db, project_id, "nvt_http_methods", self._audit_http_methods_and_overrides, project_id, http_svcs, log_fn, log_fn=log_fn, kb=kb, require_keys=["Services/www"], phase=ScanPhase.ACT_VERIFY)
-        run_plugin_safely(self.db, project_id, "nvt_network_ports", self._audit_open_ports, project_id, ports, log_fn, log_fn=log_fn, kb=kb, require_keys=["Ports/tcp"], phase=ScanPhase.ACT_GATHER_INFO)
-        run_plugin_safely(self.db, project_id, "nvt_semantic_cve_engine", self._audit_version_cve_advisories, project_id, http_svcs, ports, log_fn, log_fn=log_fn, kb=kb, phase=ScanPhase.ACT_GATHER_INFO)
-        run_plugin_safely(self.db, project_id, "nvt_endpoints_js_sinks", self._audit_endpoints_and_js, project_id, eps, js_list, log_fn, log_fn=log_fn, kb=kb, phase=ScanPhase.ACT_GATHER_INFO)
-        run_plugin_safely(self.db, project_id, "nvt_multi_role_bola", self._audit_multi_role_access_control, project_id, eps, log_fn, log_fn=log_fn, kb=kb, require_keys=["Auth/role_a", "Endpoints/api"], phase=ScanPhase.ACT_VERIFY)
-        run_plugin_safely(self.db, project_id, "nvt_differential_verifier", self._audit_safe_differential_verifiers, project_id, eps, log_fn, log_fn=log_fn, kb=kb, require_keys=["Endpoints/parameterized"], phase=ScanPhase.ACT_VERIFY)
-        run_plugin_safely(self.db, project_id, "nvt_cli_scanners", self._run_cli_vuln_scanners, project_id, bundle, log_fn, enable_cli=enable_cli, log_fn=log_fn, kb=kb, phase=ScanPhase.ACT_VERIFY)
-
+        orch = PhaseOrchestrator(self.db, project_id, kb, log_fn=log_fn)
+        orch.register("nvt_http_headers_cors", ScanPhase.ACT_GATHER_INFO, self._audit_http_services, project_id, http_svcs, log_fn, require_keys=["Services/www"])
+        orch.register("nvt_tls_cache_posture", ScanPhase.ACT_GATHER_INFO, self._audit_tls_and_cache_posture, project_id, http_svcs, log_fn, require_keys=["Services/www"])
+        orch.register("nvt_network_ports", ScanPhase.ACT_GATHER_INFO, self._audit_open_ports, project_id, ports, log_fn, require_keys=["Ports/tcp"])
+        orch.register(
+            "nvt_semantic_cve_engine",
+            ScanPhase.ACT_GATHER_INFO,
+            self._audit_version_cve_advisories,
+            project_id,
+            http_svcs,
+            ports,
+            log_fn,
+            bundle.get("domains", []),
+            kb,
+            require_any_keys=["Services/www", "Ports/tcp", "Ports/udp", "Tech/detected"],
+        )
+        orch.register("nvt_endpoints_js_sinks", ScanPhase.ACT_GATHER_INFO, self._audit_endpoints_and_js, project_id, eps, js_list, log_fn, require_any_keys=["Endpoints/all", "JS/assets"])
         if proj.get("source_code_path"):
-            run_plugin_safely(self.db, project_id, "nvt_whitebox_sast", self._run_sast_scan, project_id, proj["source_code_path"], log_fn, log_fn=log_fn, kb=kb, require_keys=["Source/local_path"], phase=ScanPhase.ACT_GATHER_INFO)
+            orch.register("nvt_whitebox_sast", ScanPhase.ACT_GATHER_INFO, self._run_sast_scan, project_id, proj["source_code_path"], log_fn, require_keys=["Source/local_path"])
+
+        # Phase ACT_VERIFY runs strictly AFTER all ACT_GATHER_INFO plugins finish populating KB!
+        orch.register("nvt_http_methods", ScanPhase.ACT_VERIFY, self._audit_http_methods_and_overrides, project_id, http_svcs, log_fn, require_keys=["Services/www"])
+        orch.register("nvt_multi_role_bola", ScanPhase.ACT_VERIFY, self._audit_multi_role_access_control, project_id, eps, log_fn, require_keys=["Auth/role_a", "Endpoints/api"])
+        orch.register("nvt_differential_verifier", ScanPhase.ACT_VERIFY, self._audit_safe_differential_verifiers, project_id, eps, log_fn, require_keys=["Endpoints/parameterized"])
+        orch.register("nvt_cli_scanners", ScanPhase.ACT_VERIFY, self._run_cli_vuln_scanners, project_id, bundle, log_fn, enable_cli=enable_cli, require_keys=["Services/www"])
+        orch.execute_all()
+
         smap_dir = Path(__file__).resolve().parent.parent / "workspaces" / "sourcemaps" / f"project_{project_id}"
         if smap_dir.is_dir() and any(smap_dir.rglob("*")):
             log_fn(f"  [SOURCEMAP->SAST] 1-SuperAgent tiklagan asl manba kodlari ({smap_dir.name}) White-Box SAST orqali tekshirilmoqda...")
             self._run_sast_scan(project_id, str(smap_dir), log_fn)
 
-        log_fn(f"  [KB-GATEKEEPER] Executed Plugins: {kb.executed_plugins} | Skipped by KB Gate (0 ms): {kb.skipped_plugins}")
+        cpe_cnt = len(kb.get_facts("CPE/inventory"))
+        log_fn(f"  [KB-GATEKEEPER] Executed: {kb.executed_plugins} | Skipped (0 ms): {kb.skipped_plugins} | CPE 2.3 Inventory: {cpe_cnt}")
         self.db.update_project_status(project_id, "VULN_AUDIT_COMPLETED")
         log_fn("═══ 2-SUPERAGENT: ZAIFLIKLAR VA AVTORIZATSIYA TAHLILI YAKUNLANDI ═══")
 

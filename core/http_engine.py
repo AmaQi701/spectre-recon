@@ -76,10 +76,12 @@ class RateLimitedHttpEngine:
                 with self._lock:
                     self._fail_counts[host] = 0
             return resp
-        except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
+        except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as exc:
             if host:
+                err_s = str(exc)
+                dns_dead = any(k in err_s for k in ("NameResolutionError", "Failed to resolve", "Errno -2", "Errno -3", "Errno -5"))
                 with self._lock:
-                    cnt = self._fail_counts.get(host, 0) + 1
+                    cnt = self.fail_threshold if dns_dead else (self._fail_counts.get(host, 0) + 1)
                     self._fail_counts[host] = cnt
                     if cnt >= self.fail_threshold:
                         self._dead_hosts.add(host)
