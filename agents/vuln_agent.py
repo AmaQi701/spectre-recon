@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import os
 import re
@@ -706,8 +707,9 @@ class VulnAssessmentSuperAgent:
                 pass
 
     def _audit_safe_differential_verifiers(self, project_id: int, endpoints: list[dict], log_fn):
-        redir_params = {"url", "redirect", "redirect_uri", "next", "return", "returnurl", "return_to", "goto", "dest", "destination"}
-        canary = "spectrecheck9182"
+        redir_params = {"url", "redirect", "redirect_uri", "next", "return", "returnurl", "return_to", "goto", "dest", "destination", "continue"}
+        seen_auth_cache_hosts: set[str] = set()
+
         for ep in endpoints[:35]:
             u = ep["url"]
             if self.http_engine.is_host_dead(u):
@@ -716,21 +718,50 @@ class VulnAssessmentSuperAgent:
             if not params:
                 continue
             p_parsed = urllib.parse.urlparse(u)
-            for p_name in params[:2]:
+            host_k = (p_parsed.hostname or "").lower()
+
+            base_text = ""
+            base_loc = ""
+            try:
+                r_base = self.http_engine.request("GET", u, headers=self.role_a_headers or None, allow_redirects=False)
+                if r_base.status_code >= 500:
+                    continue
+                base_text = r_base.text or ""
+                base_loc = r_base.headers.get("Location", "")
+                base_ctype = r_base.headers.get("Content-Type", "").lower()
+                if self.role_a_headers and r_base.status_code == 200 and "application/json" in base_ctype and host_k not in seen_auth_cache_hosts:
+                    cc_hdr = r_base.headers.get("Cache-Control", "").lower()
+                    if "no-store" not in cc_hdr and "private" not in cc_hdr and len(base_text) > 25:
+                        seen_auth_cache_hosts.add(host_k)
+                        self.db.upsert_finding(
+                            project_id, "Agent-2 (Cache-Audit)", f"Authenticated API Response Missing 'Cache-Control: no-store' ({host_k})",
+                            "Cache Control Misconfiguration", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:N/A:N",
+                            "CWE-524", "A05:2021 - Security Misconfiguration", u,
+                            f"Authenticated JSON 200 OK | Cache-Control: {r_base.headers.get('Cache-Control') or '(missing)'}",
+                            "Avtorizatsiyalangan JSON API javobida 'Cache-Control: no-store' ko'rsatilmagan.",
+                            "Maxfiy API javoblariga 'Cache-Control: no-store, private' sarlavhasini qo'shing.",
+                            confidence=QoD.HEADER_CONFIG,
+                        )
+            except Exception:
+                continue
+
+            for p_name in params[:3]:
                 qs = urllib.parse.parse_qs(p_parsed.query, keep_blank_values=True)
                 if p_name.lower() in redir_params:
+                    if (urllib.parse.urlparse(base_loc).hostname or "").lower() == "example.org":
+                        continue
                     qs[p_name] = ["https://example.org/spectre_check"]
                     test_u = urllib.parse.urlunparse(p_parsed._replace(query=urllib.parse.urlencode(qs, doseq=True)))
                     try:
                         r = self.http_engine.request("GET", test_u, headers=self.role_a_headers or None, allow_redirects=False)
                         loc = r.headers.get("Location", "")
-                        if r.status_code in (301, 302, 303, 307, 308) and urllib.parse.urlparse(loc).hostname == "example.org":
+                        if r.status_code in (301, 302, 303, 307, 308) and (urllib.parse.urlparse(loc).hostname or "").lower() == "example.org":
                             self.db.upsert_finding(
                                 project_id, "Agent-2 (Differential-Verifier)", f"[CONFIRMED] Verified Open Redirect via '{p_name}' Parameter",
                                 "Open Redirect (Validated PoC)", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
                                 "CWE-601", "A01:2021 - Broken Access Control", u,
-                                f"Parameter: {p_name} -> HTTP {r.status_code} Location: {loc}",
-                                f"'{p_name}' parametri tashqi domenga tekshiruvsiz yo'naltirishi tasdiqlandi.",
+                                f"Parameter: {p_name} -> HTTP {r.status_code} Location: {loc} (Baseline status: {r_base.status_code})",
+                                f"'{p_name}' parametri tashqi domenga tekshiruvsiz yo'naltirishi kalibratsiya bilan tasdiqlandi.",
                                 "Yo'naltirish parametrlarini qat'iy ichki yo'llar oq ro'yxati bilan cheklang.",
                                 confidence=QoD.ACTIVE_VERIFIED,
                             )
@@ -738,22 +769,49 @@ class VulnAssessmentSuperAgent:
                     except Exception:
                         pass
                 else:
-                    qs[p_name] = [canary]
-                    test_u = urllib.parse.urlunparse(p_parsed._replace(query=urllib.parse.urlencode(qs, doseq=True)))
-                    try:
-                        r = self.http_engine.request("GET", test_u, headers=self.role_a_headers or None, allow_redirects=False)
-                        if r.status_code == 200 and "text/html" in r.headers.get("Content-Type", "").lower() and canary in r.text:
-                            self.db.upsert_finding(
-                                project_id, "Agent-2 (Differential-Verifier)", f"Unfiltered HTML Parameter Reflection ('{p_name}')",
-                                "Input Reflection / XSS Candidate", "Medium", 5.4, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
-                                "CWE-79", "A03:2021 - Injection", u,
-                                f"Alphanumeric canary '{canary}' reflected verbatim in text/html response via '{p_name}'.",
-                                "Foydalanuvchi parametri HTML sahifa tanasida aks etmoqda — kontekstli encoding tekshiruvi zarur.",
-                                "HTML/JS kontekstida chiqish ma'lumotlarini kontekstli kodlang va CSP o'rnating.",
-                                confidence=QoD.HEADER_CONFIG,
-                            )
-                    except Exception:
-                        pass
+                    self._verify_param_output_encoding(project_id, u, p_parsed, qs, p_name, base_text, log_fn)
+
+    def _verify_param_output_encoding(self, project_id: int, u: str, p_parsed, qs: dict, p_name: str, base_text: str, log_fn):
+        canary = "spectrecheck9182"
+        diag_marker = 'sp7x"<>'
+        if canary in base_text:
+            return
+        qs_c = dict(qs)
+        qs_c[p_name] = [canary]
+        test_u = urllib.parse.urlunparse(p_parsed._replace(query=urllib.parse.urlencode(qs_c, doseq=True)))
+        try:
+            r = self.http_engine.request("GET", test_u, headers=self.role_a_headers or None, allow_redirects=False)
+            if r.status_code != 200 or "text/html" not in r.headers.get("Content-Type", "").lower() or canary not in r.text:
+                return
+            in_script_ctx = bool(re.search(r"(?is)<script[^>]*>[^<]*" + re.escape(canary), r.text))
+            qs_d = dict(qs)
+            qs_d[p_name] = [diag_marker]
+            test_diag_u = urllib.parse.urlunparse(p_parsed._replace(query=urllib.parse.urlencode(qs_d, doseq=True)))
+            r_diag = self.http_engine.request("GET", test_diag_u, headers=self.role_a_headers or None, allow_redirects=False)
+            if r_diag.status_code == 200 and diag_marker in r_diag.text and diag_marker not in base_text:
+                ctx_lbl = "inline <script> context" if in_script_ctx else "text/html body"
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (Differential-Verifier)", f"[CONFIRMED] Unencoded HTML Output Reflection via '{p_name}' Parameter",
+                    "Output Encoding / XSS Verification", "High", 7.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                    "CWE-79", "A03:2021 - Injection", u,
+                    f"Diagnostic marker '{diag_marker}' reflected unencoded in {ctx_lbl} via '{p_name}'.",
+                    f"'{p_name}' parametriga berilgan HTML ajratuvchi belgilar entity-encoding qilinmasdan ({ctx_lbl}) qaytarilmoqda.",
+                    "Barcha chiqish nuqtalarida kontekstli HTML/JS encoding qo'llang va qat'iy CSP o'rnating.",
+                    confidence=QoD.ACTIVE_VERIFIED,
+                )
+                log_fn(f"  [CONFIRMED UNENCODED REFLECTION] {u} ({p_name}) in {ctx_lbl}")
+            elif in_script_ctx:
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (Differential-Verifier)", f"[CONFIRMED] Parameter Reflection Inside Inline <script> Block ('{p_name}')",
+                    "Script Context Reflection", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                    "CWE-79", "A03:2021 - Injection", u,
+                    f"Canary '{canary}' reflected inside inline <script> block via '{p_name}' (HTML encoding alone does not neutralize JS string context).",
+                    f"'{p_name}' parametri to'g'ridan-to'g'ri <script> tegi ichida aks etmoqda.",
+                    "Foydalanuvchi ma'lumotlarini inline <script> ichiga joylashtirmang; `JSON.stringify` yoki `data-*` atributlaridan foydalaning.",
+                    confidence=QoD.PROTOCOL_VERIFIED,
+                )
+        except Exception:
+            pass
 
     def _audit_multi_role_access_control(self, project_id: int, endpoints: list[dict], log_fn):
         if not self.role_a_headers:

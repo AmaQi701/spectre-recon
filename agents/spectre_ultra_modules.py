@@ -619,7 +619,7 @@ def run_safe_auto_validator(db, session: requests.Session, project_id: int, log_
                         f"PoC URL: {test_u}\nResponse: HTTP {r.status_code} | Location: {loc}",
                         f"'{rp_name}' parametri tashqi domenga (https://example.org) tekshiruvsiz yo'naltirishi amalda tasdiqlandi.",
                         "Yo'naltirish manzillarini faqat ruxsat etilgan ichki yo'llar (allowlist) bilan cheklang.",
-                        confidence="Confirmed-PoC",
+                        confidence="Confirmed-PoC (QoD: 99%)",
                     )
             except Exception:
                 pass
@@ -627,20 +627,20 @@ def run_safe_auto_validator(db, session: requests.Session, project_id: int, log_
         for p_name in params[:2]:
             if p_name.lower() in redir_params:
                 continue
-            canary = 'spectre7x9q"<>'
+            canary = 'sp7x"<>'
             test_u = _set_url_param(u, p_name, canary)
             try:
                 r = session.get(test_u, timeout=4.0, verify=False)
                 if r.status_code == 200 and canary in r.text and "text/html" in r.headers.get("Content-Type", "").lower():
                     log_fn(f"  [🔎 REFLECTION CONFIRMED] Parameter '{p_name}' reflects unencoded HTML chars in body: {u}")
                     db.upsert_finding(
-                        project_id, "SPECTRE-Agent1 (Auto-Validator)", f"[CONFIRMED] Unfiltered HTML Character Reflection on Parameter '{p_name}'",
-                        "Input Reflection / XSS Candidate (Validated)", "High", 7.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                        project_id, "SPECTRE-Agent1 (Auto-Validator)", f"[CONFIRMED] Unencoded HTML Output Reflection via '{p_name}' Parameter",
+                        "Output Encoding / XSS Verification", "High", 7.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
                         "CWE-79", "A03:2021 - Injection", u,
                         f"Probe URL: {test_u} -> Unencoded HTML chars '{canary}' reflected directly in text/html response.",
-                        f"'{p_name}' parametriga yuborilgan maxsus HTML belgilar (\"<>) kodlanmasdan sahifada aks etishi tasdiqlandi.",
+                        f"'{p_name}' parametriga yuborilgan maxsus HTML belgilar kodlanmasdan sahifada aks etishi tasdiqlandi.",
                         "Foydalanuvchi kiritgan barcha parametrlarni HTML kontekstida chiqarishdan oldin kontekstli encoding qiling.",
-                        confidence="Confirmed-PoC",
+                        confidence="Confirmed-PoC (QoD: 99%)",
                     )
             except Exception:
                 pass

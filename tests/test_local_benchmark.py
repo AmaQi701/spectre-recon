@@ -4,6 +4,7 @@ SPECTRE v13.0 — Local 5-Second End-to-End Integration Benchmark
 
 from __future__ import annotations
 
+import html as _html
 import http.server
 import json
 import pathlib
@@ -44,6 +45,7 @@ class _BenchmarkHandler(http.server.BaseHTTPRequestHandler):
                 "<html><head><title>Benchmark Portal</title></head>"
                 "<body><a href='/go?next=/home'>Go</a>"
                 "<a href='/search?q=item'>Search</a>"
+                "<a href='/safe_search?safe_q=item'>SafeSearch</a>"
                 "<script src='/static/app.js'></script></body></html>"
             ).encode()
             self.send_response(200)
@@ -106,6 +108,12 @@ class _BenchmarkHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html")
             self.end_headers()
             self.wfile.write(f"<html><body>Results for {q_val}</body></html>".encode())
+        elif parsed.path == "/safe_search":
+            sq_val = _html.escape((qs.get("safe_q") or [""])[0], quote=True)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(f"<html><body>Safe results for {sq_val}</body></html>".encode())
         else:
             self.send_response(404)
             self.end_headers()
@@ -189,6 +197,8 @@ def run_benchmark() -> None:
             assert any("Unauthenticated Access" in t for t in titles), f"Authz Matrix missed flaw: {titles}"
             assert any("Arbitrary CORS Origin Reflection" in t for t in titles), f"CORS audit missed flaw: {titles}"
             assert any("Verified Open Redirect" in t for t in titles), f"Redirect verifier missed flaw: {titles}"
+            assert any("Unencoded HTML Output Reflection via 'q'" in t for t in titles), f"Encoding verifier missed unencoded q: {titles}"
+            assert not any("safe_q" in t for t in titles), f"False positive on properly HTML-escaped safe_q: {titles}"
             assert any("SQL Injection" in t for t in titles), f"SAST engine missed flaw: {titles}"
             assert any("CVE-2021-23017" in t for t in titles), f"Semantic CVE engine missed nginx 1.18.0: {titles}"
             apache_cves = [f for f in bundle["findings"] if "CVE-2021-41773" in f["title"]]
