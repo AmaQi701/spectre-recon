@@ -1,4 +1,5 @@
 import contextlib
+import ipaddress
 import json
 import sqlite3
 import threading
@@ -160,6 +161,8 @@ class DatabaseManager:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA synchronous=NORMAL;")
+        self._conn.execute("PRAGMA busy_timeout=30000;")
+        self._conn.execute("PRAGMA temp_store=MEMORY;")
         with self._lock:
             self._conn.executescript(SCHEMA_SQL)
             self._conn.commit()
@@ -225,14 +228,36 @@ class DatabaseManager:
 
 
     def upsert_domain(self, project_id: int, domain: str, ip: str = "", cname: str = "", records: dict | None = None, cdn_waf: str = "", source: str = "recon"):
-        domain = domain.strip().lower().rstrip(".")
+        domain = (domain or "").strip().lower().rstrip(".")
         if not domain:
             return
         ip = (ip or "").strip()
-        if ip.startswith("127.") or ip in ("0.0.0.0", "::1"):
-            cname = cname or f"loopback:{ip}"
-            ip = ""
+        if ip:
+            try:
+                ip_obj = ipaddress.ip_address(ip)
+                mapped_v4 = getattr(ip_obj, "ipv4_mapped", None)
+                check_obj = mapped_v4 or ip_obj
+                if check_obj.is_loopback or check_obj.is_unspecified or check_obj.is_link_local:
+                    cname = cname or f"loopback:{ip}"
+                    ip = ""
+            except ValueError:
+                ip = ""
+        merged_recs = dict(records or {})
         with self._lock, self._get_conn() as conn:
+            if merged_recs:
+                ex_dom = conn.execute(
+                    "SELECT records_json FROM domains WHERE project_id = ? AND domain = ?",
+                    (project_id, domain),
+                ).fetchone()
+                if ex_dom:
+                    try:
+                        old_recs = json.loads(ex_dom["records_json"] or "{}")
+                    except Exception:
+                        old_recs = {}
+                    if isinstance(old_recs, dict):
+                        combined_r = dict(old_recs)
+                        combined_r.update(merged_recs)
+                        merged_recs = combined_r
             conn.execute(
                 """INSERT INTO domains (project_id, domain, ip, cname, records_json, cdn_waf, source, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -241,7 +266,7 @@ class DatabaseManager:
                 cname = CASE WHEN excluded.cname != '' THEN excluded.cname ELSE domains.cname END,
                 records_json = CASE WHEN excluded.records_json != '{}' THEN excluded.records_json ELSE domains.records_json END,
                 cdn_waf = CASE WHEN excluded.cdn_waf != '' THEN excluded.cdn_waf ELSE domains.cdn_waf END""",
-                (project_id, domain, ip, cname, json.dumps(records or {}), cdn_waf, source, self.now()),
+                (project_id, domain, ip, cname or "", json.dumps(merged_recs), cdn_waf or "", source or "recon", self.now()),
             )
 
     def upsert_port(self, project_id: int, host: str, port: int, protocol: str = "tcp", ip: str = "", service: str = "", version: str = "", banner: str = "", source: str = "nmap"):

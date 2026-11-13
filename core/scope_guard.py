@@ -41,13 +41,17 @@ class ScopeGuard:
                 items.append(cleaned)
         return items
 
-    _VALID_HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9\-_]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-_]*[a-z0-9])?)+$")
+    _VALID_HOST_RE = re.compile(
+        r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9\-_]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9\-]{2,59})$"
+    )
 
     @staticmethod
     def extract_host(target: str) -> str:
         target = (target or "").strip().lower()
         if not target:
             return ""
+        if target.startswith("//"):
+            target = "http:" + target
         if "://" not in target and "@" in target:
             return ""
         if "://" in target:
@@ -61,9 +65,17 @@ class ScopeGuard:
                 host = path_stripped
             else:
                 host = path_stripped.split(":")[0]
+        if "%" in host:
+            host = host.split("%", 1)[0]
         if host.startswith("*."):
             host = host[2:]
-        return host.strip(".")
+        host = host.strip(".")
+        if host and not host.isascii():
+            try:
+                host = host.encode("idna").decode("ascii")
+            except Exception:
+                return ""
+        return host
 
     SECOND_LEVEL_TLDS = {
         "co.uk", "org.uk", "ac.uk", "gov.uk",
@@ -89,7 +101,7 @@ class ScopeGuard:
 
     def _matches_rule(self, host: str, rule: str, allow_apex_expansion: bool = True) -> bool:
         raw_rule = (rule or "").strip().lower()
-        is_wildcard = raw_rule.startswith("*.")
+        is_wildcard = raw_rule.startswith("*.") or "://*." in raw_rule or raw_rule.startswith("//*.")
         rule_host = self.extract_host(raw_rule)
         if not rule_host or rule_host in self.SECOND_LEVEL_TLDS:
             return False

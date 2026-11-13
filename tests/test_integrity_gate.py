@@ -164,6 +164,11 @@ def run_integrity_gate() -> list[str]:
         errors.append("[SCOPE GUARD BROKEN] IPv6 CIDR / bracket literal scope check failed")
     if ScopeGuard("gov.uz", "").is_in_scope("portal.gov.uz")[0]:
         errors.append("[SCOPE GUARD BROKEN] Bare 2nd-level TLD gov.uz must not act as wildcard scope")
+    if any(sg_roe.is_in_scope(bad)[0] for bad in ("1.18.0", "192.168.1", "10.0.0.999")) or not sg_roe.is_in_scope("//cdn.example.com/app.js")[0]:
+        errors.append("[SCOPE GUARD BROKEN] Numeric TLD accepted or protocol-relative // URL rejected")
+    sg_wc = ScopeGuard("https://*.dev.example.com", "")
+    if not sg_wc.is_in_scope("a.dev.example.com")[0] or sg_wc.is_in_scope("prod.example.com")[0]:
+        errors.append("[SCOPE GUARD BROKEN] Scheme-prefixed wildcard https://*.sub rule failed")
 
     with tempfile.TemporaryDirectory() as tmpd:
         db = DatabaseManager(str(pathlib.Path(tmpd) / "gate.db"))
@@ -198,6 +203,15 @@ def run_integrity_gate() -> list[str]:
         svc_row = db.get_project_bundle(pid)["http_services"][0]
         if '"nginx/1.24.0"' not in svc_row["tech_stack"] or '"React"' not in svc_row["tech_stack"]:
             errors.append(f"[DB HTTP TECH MERGE BROKEN] {svc_row}")
+
+        db.upsert_domain(pid, "sub.example.org", ip="93.184.216.34", records={"TXT": ["v=spf1"]})
+        db.upsert_domain(pid, "sub.example.org", records={"asn_intel": {"asn": "AS15133"}})
+        db.upsert_domain(pid, "rebind.example.org", ip="169.254.169.254")
+        dom_map = {d["domain"]: d for d in db.get_project_bundle(pid)["domains"]}
+        if '"TXT"' not in dom_map["sub.example.org"]["records_json"] or '"asn_intel"' not in dom_map["sub.example.org"]["records_json"]:
+            errors.append(f"[DB DOMAIN RECORDS MERGE BROKEN] {dom_map['sub.example.org']}")
+        if dom_map["rebind.example.org"]["ip"] != "":
+            errors.append(f"[DB LINK-LOCAL REBIND GUARD BROKEN] {dom_map['rebind.example.org']}")
 
         ra = ReconSuperAgent(db, str(ROOT_DIR / "config" / "tools_registry.yaml"))
         tools = ra.get_tools_status()
