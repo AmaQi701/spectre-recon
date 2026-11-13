@@ -130,32 +130,46 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
 
 
 # ================= #3 DOMAIN-AWARE BACKUP & ARCHIVE EXPOSURE AUDITOR =================
-def audit_domain_backup_exposure(db, project_id: int, apex_domain: str, log_fn):
+def audit_domain_backup_exposure(db, project_id: int, apex_domain: str, log_fn, session: requests.Session | None = None):
     base_word = apex_domain.split(".")[0]
     candidates = [
         f"/{base_word}.zip", f"/{base_word}.tar.gz", f"/{base_word}.sql",
         "/backup.zip", "/backup.tar.gz", "/db.sql", "/www.zip",
     ]
     base_url = f"https://www.{apex_domain}"
+    http_client = session or requests
+    probe_hdrs = {
+        "Range": "bytes=0-63",
+        "Accept-Encoding": "identity",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    }
     log_fn(f"[SPECTRE v5 Backup Auditor] Domen nomiga mos arxiv/backup fayllar ({base_word}.zip/.sql) tekshirilmoqda...")
 
     def check_archive(path: str):
         url = urllib.parse.urljoin(base_url, path)
         try:
-            r = requests.get(url, headers={"User-Agent": "SPECTRE-Recon/5.0"}, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True)
-            magic = next(r.iter_content(chunk_size=64), b"")
-            r.close()
-            ctype = r.headers.get("Content-Type", "").lower()
-            is_zip_or_gzip = magic.startswith(b"PK\x03\x04") or magic.startswith(b"\x1f\x8b")
-            is_sql = b"CREATE TABLE" in magic or b"-- MySQL dump" in magic or "application/sql" in ctype
-            if r.status_code == 200 and (is_zip_or_gzip or is_sql):
+            with http_client.get(url, headers=probe_hdrs, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True) as r:
+                magic = next(r.iter_content(chunk_size=64), b"")
+                ctype = r.headers.get("Content-Type", "").lower()
+                cenc = r.headers.get("Content-Encoding", "").lower()
+                code = r.status_code
+            if code not in (200, 206) or len(magic) < 8 or cenc == "gzip":
+                return
+            if "text/html" in ctype or "application/json" in ctype:
+                return
+            if magic.lstrip()[:15].lower().startswith((b"<!doctype", b"<html", b"<head", b"<body", b"<script", b"{")):
+                return
+            is_zip_or_gzip = magic.startswith(b"PK\x03\x04") or magic.startswith(b"\x1f\x8b\x08")
+            is_sql = b"CREATE TABLE" in magic or b"-- MySQL dump" in magic or b"-- PostgreSQL" in magic
+            if is_zip_or_gzip or is_sql:
                 db.upsert_finding(
-                    project_id, "SPECTRE-v5 (BackupAudit)", f"Exposed Backup / Database Archive ({url})",
+                    project_id, "SPECTRE-v5 (BackupAudit)", f"[CONFIRMED] Exposed Backup / Database Archive ({url})",
                     "Critical Backup Exposure", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
                     "CWE-530", "A05:2021 - Security Misconfiguration", url,
-                    f"HTTP 200 | Content-Type: {ctype} | Magic Bytes Verified",
+                    f"HTTP {code} | Content-Type: {ctype} | Magic Bytes Verified ({magic[:12]!r})",
                     "Veb-server ildiz katalogida ochiq arxiv yoki ma'lumotlar bazasi nusxasi qolib ketgan.",
                     "Arxiv va .sql fayllarni veb-server katalogidan darhol o'chiring.",
+                    confidence="Confirmed-PoC (QoD: 99%)",
                 )
                 log_fn(f"  [🚨 BACKUP LEAK] Tasdiqlangan arxiv topildi: {url}")
         except Exception:

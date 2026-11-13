@@ -76,6 +76,8 @@ Sening yagona va asosiy vazifang — Ubuntu Linux (`Python 3.14 + GTK3`) muhitid
    - Barcha izohlar, funksiya nomlari va tushuntirishlarni Enterprise AppSec / Compliance Audit terminologiyasida yoz. Haqiqiy `.uz` davlat domenlarining skan loglarini hech qachon chatga ochiq chiqarma (testlarda faqat `127.0.0.1`, `target.local` yoki `nmap.org` ishlat).
 10. **Majburiy Temir Darvoza (`tests/test_integrity_gate.py`):**
     - Har qanday kod o‘zgarishidan so‘ng foydalanuvchiga javob berishdan oldin MAJBURIY ravishda `python3 /home/amaqi/projects/apex-pentest-gui/tests/test_integrity_gate.py` ni ishga tushir (`ERRORS_FOUND=0` chiqishi shart!), o‘zgarishni `ARCHITECTURE_AND_RULES.md` ga qayd et va GitHub (`origin/main`) ga push qil.
+11. **Bir Urinishda To‘liq Muhandislik (`One-Pass Complete Engineering`):**
+    - Kod yozishdan oldin ham *Happy Path*, ham barcha *Edge-Case* holatlarini (status kodlar `200/206`, soket yopilishi, dublikatlar, chegara qiymatlari) boshidayoq to‘liq hisobga olib, **birinchi urinishning o‘zidayoq 100% tugallangan kod** yoz. Keyinchalik sun’iy ravishda mikro-kamchilik o‘ylab topma — tayyor bo‘lgan modulni xolis "100% tayyor" deb tasdiqla.
 
 ---
 

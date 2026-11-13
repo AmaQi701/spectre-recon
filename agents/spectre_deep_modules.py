@@ -505,7 +505,7 @@ def build_target_dossier(db, project_id: int, selected_domain: str = "") -> str:
 
 
 # ================= #3 API VERSION SHADOW TWINS & WAYBACK GHOST PROBER =================
-def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn):
+def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn, session: requests.Session | None = None):
     bundle = db.get_project_bundle(project_id)
     endpoints = bundle.get("endpoints", [])
 
@@ -514,7 +514,7 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn):
     for u in versioned_eps:
         for repl in ("/v0/", "/v1/", "/v2/", "/v3/", "/internal/", "/admin/"):
             mut_u = re.sub(r"/v[1-3]/", repl, u, count=1).replace("{param}", "1")
-            if mut_u != u and mut_u not in shadow_candidates:
+            if mut_u != u and (mut_u, u) not in shadow_candidates:
                 shadow_candidates.append((mut_u, u))
 
     wayback_eps = [e["url"] for e in endpoints if e.get("source") == "wayback" and not e["url"].endswith(".js")][:15]
@@ -522,14 +522,20 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn):
         return
     log_fn(f"[SPECTRE API Shadow & Ghost Prober] {len(shadow_candidates)} ta API versiya egizaklari va {len(wayback_eps)} ta tarixiy URL tekshirilmoqda...")
 
-    # Calibrate each origin against a nonexistent /v999 path to filter out catch-all 401/403/200 API gateways
+    http_client = session or requests
+    req_hdrs = None if session is not None else {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    }
+
+    # Calibrate each origin against a nonexistent path to filter out catch-all 401/403/200 API gateways & SPA fallbacks
     host_cal: dict[str, tuple[int, int]] = {}
-    for mut_u, _ in shadow_candidates:
-        p_u = urllib.parse.urlparse(mut_u)
+    all_probe_urls = [mut_u for mut_u, _ in shadow_candidates] + list(wayback_eps)
+    for probe_u in all_probe_urls:
+        p_u = urllib.parse.urlparse(probe_u)
         origin = f"{p_u.scheme}://{p_u.netloc}"
-        if origin and origin not in host_cal:
+        if origin and p_u.netloc and origin not in host_cal:
             try:
-                rc = requests.get(f"{origin}/v999_nonexistent_spectre/check", headers={"User-Agent": "SPECTRE-Recon/11.2"}, timeout=3.0, verify=False, allow_redirects=False)
+                rc = http_client.get(f"{origin}/spectre-nonexistent-99182", headers=req_hdrs, timeout=3.0, verify=False, allow_redirects=False)
                 host_cal[origin] = (rc.status_code, len(rc.content))
             except Exception:
                 host_cal[origin] = (-1, -1)
@@ -540,35 +546,43 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn):
         origin = f"{p_u.scheme}://{p_u.netloc}"
         cal_stat, cal_len = host_cal.get(origin, (-1, -1))
         try:
-            r = requests.get(mut_url, headers={"User-Agent": "SPECTRE-Recon/11.2"}, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True)
-            chunk = next(r.iter_content(chunk_size=8192), b"").decode("utf-8", errors="ignore")
-            r.close()
-            if r.status_code == cal_stat and abs(len(chunk) - cal_len) < 40:
+            with http_client.get(mut_url, headers=req_hdrs, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True) as r:
+                chunk_b = next(r.iter_content(chunk_size=8192), b"")
+                ctype = r.headers.get("Content-Type", "").lower()
+                code = r.status_code
+            chunk = chunk_b.decode("utf-8", errors="ignore")
+            if code == cal_stat and abs(len(chunk_b) - cal_len) < 60:
                 return
-            if r.status_code == 200 and len(chunk) > 20 and "text/html" not in r.headers.get("Content-Type", "").lower():
+            if code == 200 and len(chunk) > 20 and "text/html" not in ctype:
                 low_c = chunk.lower()
                 if '"not found"' in low_c or '"status":404' in low_c or '"status":401' in low_c:
                     return
-                db.upsert_endpoint(project_id, mut_url, method="GET", category="api_endpoint", risk_tags=["API_Shadow_Twin"], status_code=r.status_code, source="shadow_twin")
+                db.upsert_endpoint(project_id, mut_url, method="GET", category="api_endpoint", risk_tags=["API_Shadow_Twin"], status_code=code, source="shadow_twin")
                 db.upsert_finding(
                     project_id, "SPECTRE-Agent1 (ShadowAPI)", f"Active Shadow / Alternate API Version ({mut_url})",
                     "API Version Exposure", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
                     "CWE-200", "A09:2021 - Security Logging and Monitoring Failures", mut_url,
-                    f"HTTP {r.status_code} on alternate version of {orig_url} | Sample: {chunk[:100]}",
+                    f"HTTP {code} on alternate version of {orig_url} | Sample: {chunk[:100]}",
                     "API endpointning boshqa versiyasi (v0/v2/v3/internal) serverda faol holatda javob qaytarmoqda.",
                     "Eskirgan yoki test API versiyalarini production gateway darajasida o'chiring.",
                 )
-                log_fn(f"  [🧬 SHADOW API] {mut_url} -> HTTP {r.status_code}")
+                log_fn(f"  [🧬 SHADOW API] {mut_url} -> HTTP {code}")
         except Exception:
             pass
 
     def check_ghost(wb_url: str):
+        p_u = urllib.parse.urlparse(wb_url)
+        origin = f"{p_u.scheme}://{p_u.netloc}"
+        cal_stat, cal_len = host_cal.get(origin, (-1, -1))
         try:
-            r = requests.get(wb_url, headers={"User-Agent": "SPECTRE-Recon/4.0"}, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True)
-            r.close()
-            if r.status_code in (200, 401, 403, 405):
-                db.upsert_endpoint(project_id, wb_url, method="GET", category="high_value_endpoint", risk_tags=["Zombie_Ghost_Endpoint"], status_code=r.status_code, source="wayback_verified")
-                log_fn(f"  [👻 GHOST ENDPOINT] Tarixiy URL hali ham tirik ({r.status_code}): {wb_url}")
+            with http_client.get(wb_url, headers=req_hdrs, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True) as r:
+                chunk_b = next(r.iter_content(chunk_size=8192), b"")
+                code = r.status_code
+            if code == cal_stat and abs(len(chunk_b) - cal_len) < 60:
+                return
+            if code in (200, 401, 403, 405):
+                db.upsert_endpoint(project_id, wb_url, method="GET", category="high_value_endpoint", risk_tags=["Zombie_Ghost_Endpoint"], status_code=code, source="wayback_verified")
+                log_fn(f"  [👻 GHOST ENDPOINT] Tarixiy URL hali ham tirik ({code}): {wb_url}")
         except Exception:
             pass
 

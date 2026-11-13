@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT_DIR))
 from core.database import DatabaseManager
 from core.plugin_runner import ScanContextKB
 from core.scope_guard import ScopeGuard
+from agents import spectre_deep_modules
 from agents.recon_agent import ReconSuperAgent
 from agents.vuln_agent import VulnAssessmentSuperAgent
 from agents.triage_chain_agent import TriageAndChainSuperAgent
@@ -153,6 +154,9 @@ def run_benchmark() -> None:
             js_urls = recon._stage4_html_and_wayback(pid, base_url, html, "127.0.0.1", scope, logs.append)
             recon._stage5_openapi_discovery(pid, base_url, scope, logs.append)
             recon._stage6_js_analyzer(pid, js_urls, base_url, scope, logs.append)
+            spectre_deep_modules.probe_api_versions_and_ghost_endpoints(db, pid, logs.append, recon.session)
+            r_404 = recon.session.get(f"{base_url}/nonexistent-404-cache-check")
+            assert r_404.status_code == 404 and (f"{base_url}/nonexistent-404-cache-check", True) in recon._http_get_cache, "404 GET cache failed"
 
             kb_check = ScanContextKB(pid, "127.0.0.1")
             kb_check.hydrate_from_bundle(db.get_project_bundle(pid), has_auth_a=True)

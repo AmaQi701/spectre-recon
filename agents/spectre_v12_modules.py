@@ -12,6 +12,7 @@ import pathlib
 import re
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import urllib.parse
@@ -37,10 +38,37 @@ def headless_chrome_dom_and_route_renderer(db, session, project_id: int, base_ur
         f"--ignore-certificate-errors --disable-dev-shm-usage --virtual-time-budget=4000 "
         f"--dump-dom {shlex.quote(base_url)}"
     )
+    proc = None
+    rendered_html = ""
     try:
-        p = subprocess.run(cmd, shell=True, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=12)
-        rendered_html = p.stdout or ""
+        proc = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            start_new_session=True,
+        )
+        out_s, _ = proc.communicate(timeout=12)
+        rendered_html = out_s or ""
+    except subprocess.TimeoutExpired:
+        if proc is not None and proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                proc.wait(timeout=2)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        return 0
     except Exception:
+        if proc is not None and proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except Exception:
+                pass
         return 0
 
     if len(rendered_html) < 50:

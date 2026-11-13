@@ -132,9 +132,9 @@ class ReconSuperAgent:
                 resp = _guard_call(_orig_get, url, **kwargs)
                 if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
                     resp.encoding = "utf-8"
-                if resp.status_code == 200 and len(resp.content) < 600000:
+                if (resp.status_code == 200 and len(resp.content) < 600000) or (resp.status_code == 404 and len(resp.content) < 65536):
                     with self._cache_lock:
-                        if len(self._http_get_cache) > 200:
+                        if len(self._http_get_cache) > 250:
                             self._http_get_cache.clear()
                         self._http_get_cache[ckey] = resp
                 return resp
@@ -1527,7 +1527,7 @@ class ReconSuperAgent:
             spectre_ultra_modules.mine_well_known_and_mobile_links(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
             spectre_ultra_modules.trace_redirect_chains_and_oauth_flows(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
             spectre_ultra_modules.extract_document_metadata_osint(self.db, self.session, project_id, apex_domain, log_fn)
-            spectre_deep_modules.probe_api_versions_and_ghost_endpoints(self.db, project_id, log_fn)
+            spectre_deep_modules.probe_api_versions_and_ghost_endpoints(self.db, project_id, log_fn, self.session)
             spectre_deep_modules.classify_auth_portals_and_schema(self.db, project_id, log_fn)
             spectre_deep_modules.analyze_badsecrets_and_cookies(self.db, project_id, apex_domain, log_fn)
             spectre_v5_modules.audit_ssl_certificates_deep(self.db, project_id, log_fn)
