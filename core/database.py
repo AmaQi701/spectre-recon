@@ -260,7 +260,10 @@ class DatabaseManager:
                     WHEN ports.service IN ('', 'tcp-open', 'shodan-port') AND excluded.service != '' THEN excluded.service
                     ELSE ports.service
                 END,
-                version = CASE WHEN excluded.version != '' THEN excluded.version ELSE ports.version END,
+                version = CASE
+                    WHEN excluded.version != '' AND (ports.version = '' OR excluded.version NOT IN ('TLSv1', 'TLSv1.0', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3')) THEN excluded.version
+                    ELSE ports.version
+                END,
                 banner = CASE WHEN excluded.banner != '' THEN excluded.banner ELSE ports.banner END,
                 source = CASE WHEN excluded.service NOT IN ('', 'tcp-open', 'shodan-port') THEN excluded.source ELSE ports.source END""",
                 (project_id, host, ip, int(port), protocol, service, version, banner, source, self.now()),
@@ -299,7 +302,26 @@ class DatabaseManager:
                 conn.execute("UPDATE http_services SET tech_stack = ? WHERE project_id = ? AND url = ?", (json.dumps(merged), project_id, url))
 
     def upsert_endpoint(self, project_id: int, url: str, method: str = "GET", params: list | None = None, category: str = "general", risk_tags: list | None = None, status_code: int = 0, source: str = "crawler"):
+        m_up = method.upper()
+        merged_params = [str(x) for x in (params or []) if x]
+        merged_tags = [str(x) for x in (risk_tags or []) if x]
         with self._lock, self._get_conn() as conn:
+            if merged_params or merged_tags:
+                existing = conn.execute(
+                    "SELECT params_json, risk_tags_json FROM endpoints WHERE project_id = ? AND url = ? AND method = ?",
+                    (project_id, url, m_up),
+                ).fetchone()
+                if existing:
+                    try:
+                        old_p = json.loads(existing["params_json"] or "[]")
+                    except Exception:
+                        old_p = []
+                    try:
+                        old_t = json.loads(existing["risk_tags_json"] or "[]")
+                    except Exception:
+                        old_t = []
+                    merged_params = list(dict.fromkeys([str(x) for x in (old_p + merged_params) if x]))
+                    merged_tags = list(dict.fromkeys([str(x) for x in (old_t + merged_tags) if x]))
             conn.execute(
                 """INSERT INTO endpoints (project_id, url, method, params_json, category, risk_tags_json, status_code, source, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -308,7 +330,7 @@ class DatabaseManager:
                 category = CASE WHEN excluded.category NOT IN ('general', 'web_page') THEN excluded.category ELSE endpoints.category END,
                 risk_tags_json = CASE WHEN excluded.risk_tags_json != '[]' THEN excluded.risk_tags_json ELSE endpoints.risk_tags_json END,
                 status_code = CASE WHEN excluded.status_code > 0 THEN excluded.status_code ELSE endpoints.status_code END""",
-                (project_id, url, method.upper(), json.dumps(params or []), category, json.dumps(risk_tags or []), int(status_code), source, self.now()),
+                (project_id, url, m_up, json.dumps(merged_params), category, json.dumps(merged_tags), int(status_code), source, self.now()),
             )
 
     def upsert_js_asset(self, project_id: int, js_url: str, endpoints: list | None = None, params: list | None = None, sinks: list | None = None, secrets_hints: list | None = None):
@@ -333,7 +355,11 @@ class DatabaseManager:
                 severity = excluded.severity,
                 cvss_score = excluded.cvss_score,
                 evidence = excluded.evidence,
-                triage_status = excluded.triage_status""",
+                confidence = excluded.confidence,
+                triage_status = CASE
+                    WHEN findings.triage_status = 'False-Positive' THEN 'False-Positive'
+                    ELSE excluded.triage_status
+                END""",
                 (project_id, agent, title, category, severity, float(cvss_score), cvss_vector, cwe, owasp, asset, evidence, root_cause, remediation, confidence, triage_status, self.now()),
             )
 

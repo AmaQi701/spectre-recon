@@ -154,8 +154,31 @@ def run_integrity_gate() -> list[str]:
     if (match_version_advisories("php7.4-fpm (Ubuntu)") or [{}])[0].get("distro_backport_likely") is not False:
         errors.append("[ADVISORY KB BROKEN] EOL branch wrongly marked as distro_backport_likely")
 
+    if ScopeGuard.extract_apex_domain("portal.academy.mil.uz") != "academy.mil.uz":
+        errors.append("[SCOPE GUARD BROKEN] 2nd-level TLD .mil.uz apex extraction failed")
+
     with tempfile.TemporaryDirectory() as tmpd:
         db = DatabaseManager(str(pathlib.Path(tmpd) / "gate.db"))
+        pid = db.create_project("GateTest", "example.org", "example.org")
+        db.upsert_finding(pid, "A2", "SampleTitle", "Cat", "Medium", 5.0, "", "CWE-200", "A05", "https://example.org", "ev1", "rc", "rem", confidence="High", triage_status="Verified")
+        f_id = db.get_project_bundle(pid)["findings"][0]["id"]
+        db.update_finding_triage(f_id, "False-Positive")
+        db.upsert_finding(pid, "A2", "SampleTitle", "Cat", "High", 7.5, "", "CWE-200", "A05", "https://example.org", "ev2", "rc", "rem", confidence="Confirmed-PoC (QoD: 99%)", triage_status="Verified")
+        f_after = db.get_project_bundle(pid)["findings"][0]
+        if f_after["confidence"] != "Confirmed-PoC (QoD: 99%)" or f_after["triage_status"] != "False-Positive":
+            errors.append(f"[DB FINDING UPSERT BROKEN] {f_after}")
+
+        db.upsert_port(pid, "example.org", 443, "tcp", service="https", version="nginx 1.24.0")
+        db.upsert_port(pid, "example.org", 443, "tcp", service="https", version="TLSv1.3")
+        if db.get_project_bundle(pid)["ports"][0]["version"] != "nginx 1.24.0":
+            errors.append("[DB PORT UPSERT BROKEN] TLSv1.3 overwrote server version")
+
+        db.upsert_endpoint(pid, "https://example.org/api/items", "GET", params=["id"], risk_tags=["IDOR_Candidate"])
+        db.upsert_endpoint(pid, "https://example.org/api/items", "GET", params=["role", "debug"], risk_tags=["hidden_params"])
+        ep_row = db.get_project_bundle(pid)["endpoints"][0]
+        if '"id"' not in ep_row["params_json"] or '"role"' not in ep_row["params_json"] or '"IDOR_Candidate"' not in ep_row["risk_tags_json"] or '"hidden_params"' not in ep_row["risk_tags_json"]:
+            errors.append(f"[DB ENDPOINT MERGE BROKEN] {ep_row}")
+
         ra = ReconSuperAgent(db, str(ROOT_DIR / "config" / "tools_registry.yaml"))
         tools = ra.get_tools_status()
         ready = [t for t in tools if t.get("installed") and t.get("enabled")]

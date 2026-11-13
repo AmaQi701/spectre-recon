@@ -59,7 +59,11 @@ class ScopeGuard:
             host = host[2:]
         return host.strip(".")
 
-    SECOND_LEVEL_TLDS = {"co.uk", "org.uk", "ac.uk", "com.uz", "org.uz", "gov.uz", "edu.uz", "net.uz", "com.tr", "com.ru"}
+    SECOND_LEVEL_TLDS = {
+        "co.uk", "org.uk", "ac.uk", "gov.uk",
+        "com.uz", "org.uz", "gov.uz", "edu.uz", "net.uz", "mil.uz", "ac.uz",
+        "com.tr", "gov.tr", "com.ru", "pp.ua", "co.jp", "com.br", "com.au", "co.za",
+    }
 
     @classmethod
     def extract_apex_domain(cls, target: str) -> str:
