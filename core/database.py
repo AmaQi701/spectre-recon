@@ -270,7 +270,16 @@ class DatabaseManager:
             )
 
     def upsert_http_service(self, project_id: int, url: str, status_code: int, title: str = "", server: str = "", tech_stack: list | None = None, content_length: int = 0, headers: dict | None = None, security_headers: dict | None = None, cookies: list | None = None, tls_info: dict | None = None, waf: str = "", priority_score: int = 0, source: str = "http_probe"):
+        merged_tech = [str(x) for x in (tech_stack or []) if x]
         with self._lock, self._get_conn() as conn:
+            if merged_tech:
+                ex_row = conn.execute("SELECT tech_stack FROM http_services WHERE project_id = ? AND url = ?", (project_id, url)).fetchone()
+                if ex_row:
+                    try:
+                        old_tech = json.loads(ex_row["tech_stack"] or "[]")
+                    except Exception:
+                        old_tech = []
+                    merged_tech = list(dict.fromkeys([str(x) for x in (old_tech + merged_tech) if x]))
             conn.execute(
                 """INSERT INTO http_services (project_id, url, status_code, title, server, tech_stack, content_length, headers_json, security_headers_json, cookies_json, tls_json, waf, priority_score, source, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -285,7 +294,7 @@ class DatabaseManager:
                 tls_json = CASE WHEN excluded.tls_json != '{}' THEN excluded.tls_json ELSE http_services.tls_json END,
                 waf = CASE WHEN excluded.waf != '' THEN excluded.waf ELSE http_services.waf END,
                 priority_score = MAX(http_services.priority_score, excluded.priority_score)""",
-                (project_id, url, int(status_code), title, server, json.dumps(tech_stack or []), int(content_length), json.dumps(headers or {}), json.dumps(security_headers or {}), json.dumps(cookies or []), json.dumps(tls_info or {}), waf, int(priority_score), source, self.now()),
+                (project_id, url, int(status_code or 0), title or "", server or "", json.dumps(merged_tech), int(content_length or 0), json.dumps(headers or {}), json.dumps(security_headers or {}), json.dumps(cookies or []), json.dumps(tls_info or {}), waf or "", int(priority_score or 0), source or "http_probe", self.now()),
             )
 
     def merge_http_tech_stack(self, project_id: int, url: str, new_techs: list[str]):
@@ -334,16 +343,32 @@ class DatabaseManager:
             )
 
     def upsert_js_asset(self, project_id: int, js_url: str, endpoints: list | None = None, params: list | None = None, sinks: list | None = None, secrets_hints: list | None = None):
+        m_eps = [str(x) for x in (endpoints or []) if x]
+        m_prm = [str(x) for x in (params or []) if x]
+        m_snk = [str(x) for x in (sinks or []) if x]
+        m_sec = [str(x) for x in (secrets_hints or []) if x]
         with self._lock, self._get_conn() as conn:
+            ex = conn.execute(
+                "SELECT endpoints_json, params_json, sinks_json, secrets_hints_json FROM js_assets WHERE project_id = ? AND js_url = ?",
+                (project_id, js_url),
+            ).fetchone()
+            if ex:
+                for cur_list, col_name in ((m_eps, "endpoints_json"), (m_prm, "params_json"), (m_snk, "sinks_json"), (m_sec, "secrets_hints_json")):
+                    try:
+                        old_l = json.loads(ex[col_name] or "[]")
+                    except Exception:
+                        old_l = []
+                    merged_l = list(dict.fromkeys([str(x) for x in (old_l + cur_list) if x]))
+                    cur_list[:] = merged_l
             conn.execute(
                 """INSERT INTO js_assets (project_id, js_url, endpoints_json, params_json, sinks_json, secrets_hints_json, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(project_id, js_url) DO UPDATE SET
-                endpoints_json = excluded.endpoints_json,
-                params_json = excluded.params_json,
-                sinks_json = excluded.sinks_json,
-                secrets_hints_json = excluded.secrets_hints_json""",
-                (project_id, js_url, json.dumps(endpoints or []), json.dumps(params or []), json.dumps(sinks or []), json.dumps(secrets_hints or []), self.now()),
+                endpoints_json = CASE WHEN excluded.endpoints_json != '[]' THEN excluded.endpoints_json ELSE js_assets.endpoints_json END,
+                params_json = CASE WHEN excluded.params_json != '[]' THEN excluded.params_json ELSE js_assets.params_json END,
+                sinks_json = CASE WHEN excluded.sinks_json != '[]' THEN excluded.sinks_json ELSE js_assets.sinks_json END,
+                secrets_hints_json = CASE WHEN excluded.secrets_hints_json != '[]' THEN excluded.secrets_hints_json ELSE js_assets.secrets_hints_json END""",
+                (project_id, js_url, json.dumps(m_eps), json.dumps(m_prm), json.dumps(m_snk), json.dumps(m_sec), self.now()),
             )
 
     def upsert_finding(self, project_id: int, agent: str, title: str, category: str, severity: str, cvss_score: float, cvss_vector: str, cwe: str, owasp: str, asset: str, evidence: str, root_cause: str, remediation: str, confidence: str = "High", triage_status: str = "Verified"):
@@ -352,15 +377,22 @@ class DatabaseManager:
                 """INSERT INTO findings (project_id, agent, title, category, severity, cvss_score, cvss_vector, cwe, owasp, asset, evidence, root_cause, remediation, confidence, triage_status, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(project_id, title, asset) DO UPDATE SET
+                agent = excluded.agent,
+                category = excluded.category,
                 severity = excluded.severity,
                 cvss_score = excluded.cvss_score,
+                cvss_vector = CASE WHEN excluded.cvss_vector != '' THEN excluded.cvss_vector ELSE findings.cvss_vector END,
+                cwe = CASE WHEN excluded.cwe != '' THEN excluded.cwe ELSE findings.cwe END,
+                owasp = CASE WHEN excluded.owasp != '' THEN excluded.owasp ELSE findings.owasp END,
                 evidence = excluded.evidence,
+                root_cause = CASE WHEN excluded.root_cause != '' THEN excluded.root_cause ELSE findings.root_cause END,
+                remediation = CASE WHEN excluded.remediation != '' THEN excluded.remediation ELSE findings.remediation END,
                 confidence = excluded.confidence,
                 triage_status = CASE
                     WHEN findings.triage_status = 'False-Positive' THEN 'False-Positive'
                     ELSE excluded.triage_status
                 END""",
-                (project_id, agent, title, category, severity, float(cvss_score), cvss_vector, cwe, owasp, asset, evidence, root_cause, remediation, confidence, triage_status, self.now()),
+                (project_id, agent, title, category, severity, float(cvss_score or 0.0), cvss_vector or "", cwe or "", owasp or "", asset, evidence or "", root_cause or "", remediation or "", confidence or "High", triage_status or "Verified", self.now()),
             )
 
     def upsert_bug_chain(self, project_id: int, chain_title: str, severity: str, cvss_score: float, nodes: list, attack_scenario: str, impact: str, remediation: str):
@@ -372,8 +404,10 @@ class DatabaseManager:
                 severity = excluded.severity,
                 cvss_score = excluded.cvss_score,
                 nodes_json = excluded.nodes_json,
-                attack_scenario = excluded.attack_scenario""",
-                (project_id, chain_title, severity, float(cvss_score), json.dumps(nodes), attack_scenario, impact, remediation, self.now()),
+                attack_scenario = excluded.attack_scenario,
+                impact = CASE WHEN excluded.impact != '' THEN excluded.impact ELSE bug_chains.impact END,
+                remediation = CASE WHEN excluded.remediation != '' THEN excluded.remediation ELSE bug_chains.remediation END""",
+                (project_id, chain_title, severity, float(cvss_score or 0.0), json.dumps(nodes or []), attack_scenario or "", impact or "", remediation or "", self.now()),
             )
 
     def log_task(self, project_id: int, agent: str, tool: str, status: str, command: str = "", summary: str = ""):

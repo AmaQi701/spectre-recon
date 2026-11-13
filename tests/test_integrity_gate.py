@@ -156,6 +156,14 @@ def run_integrity_gate() -> list[str]:
 
     if ScopeGuard.extract_apex_domain("portal.academy.mil.uz") != "academy.mil.uz":
         errors.append("[SCOPE GUARD BROKEN] 2nd-level TLD .mil.uz apex extraction failed")
+    sg_roe = ScopeGuard("example.com", "billing.example.com")
+    if not sg_roe.is_in_scope("dev.example.com")[0] or sg_roe.is_in_scope("billing.example.com")[0] or sg_roe.is_in_scope("pay.billing.example.com")[0]:
+        errors.append("[SCOPE GUARD BROKEN] Out-of-Scope rule over-blocked apex or failed sub-tree block")
+    sg_v6 = ScopeGuard("2001:db8::/32", "2001:db8::99")
+    if not sg_v6.is_in_scope("[2001:db8::1]:8443/api")[0] or sg_v6.is_in_scope("2001:db8::99")[0]:
+        errors.append("[SCOPE GUARD BROKEN] IPv6 CIDR / bracket literal scope check failed")
+    if ScopeGuard("gov.uz", "").is_in_scope("portal.gov.uz")[0]:
+        errors.append("[SCOPE GUARD BROKEN] Bare 2nd-level TLD gov.uz must not act as wildcard scope")
 
     with tempfile.TemporaryDirectory() as tmpd:
         db = DatabaseManager(str(pathlib.Path(tmpd) / "gate.db"))
@@ -178,6 +186,18 @@ def run_integrity_gate() -> list[str]:
         ep_row = db.get_project_bundle(pid)["endpoints"][0]
         if '"id"' not in ep_row["params_json"] or '"role"' not in ep_row["params_json"] or '"IDOR_Candidate"' not in ep_row["risk_tags_json"] or '"hidden_params"' not in ep_row["risk_tags_json"]:
             errors.append(f"[DB ENDPOINT MERGE BROKEN] {ep_row}")
+
+        db.upsert_js_asset(pid, "https://example.org/app.js", endpoints=["/api/v1"], sinks=["innerHTML"])
+        db.upsert_js_asset(pid, "https://example.org/app.js", endpoints=["/api/v2"], sinks=None)
+        js_row = db.get_project_bundle(pid)["js_assets"][0]
+        if '"innerHTML"' not in js_row["sinks_json"] or '"/api/v1"' not in js_row["endpoints_json"] or '"/api/v2"' not in js_row["endpoints_json"]:
+            errors.append(f"[DB JS MERGE BROKEN] {js_row}")
+
+        db.upsert_http_service(pid, "https://example.org", 200, "Home", "nginx", ["nginx/1.24.0"])
+        db.upsert_http_service(pid, "https://example.org", 200, "", "", ["React"])
+        svc_row = db.get_project_bundle(pid)["http_services"][0]
+        if '"nginx/1.24.0"' not in svc_row["tech_stack"] or '"React"' not in svc_row["tech_stack"]:
+            errors.append(f"[DB HTTP TECH MERGE BROKEN] {svc_row}")
 
         ra = ReconSuperAgent(db, str(ROOT_DIR / "config" / "tools_registry.yaml"))
         tools = ra.get_tools_status()

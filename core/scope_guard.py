@@ -45,7 +45,7 @@ class ScopeGuard:
 
     @staticmethod
     def extract_host(target: str) -> str:
-        target = target.strip().lower()
+        target = (target or "").strip().lower()
         if not target:
             return ""
         if "://" not in target and "@" in target:
@@ -54,7 +54,13 @@ class ScopeGuard:
             parsed = urlparse(target)
             host = parsed.hostname or ""
         else:
-            host = target.split("/")[0].split("?")[0].split("#")[0].split(":")[0]
+            path_stripped = target.split("/")[0].split("?")[0].split("#")[0]
+            if path_stripped.startswith("[") and "]" in path_stripped:
+                host = path_stripped[1 : path_stripped.index("]")]
+            elif path_stripped.count(":") >= 2:
+                host = path_stripped
+            else:
+                host = path_stripped.split(":")[0]
         if host.startswith("*."):
             host = host[2:]
         return host.strip(".")
@@ -76,36 +82,36 @@ class ScopeGuard:
         parts = host.split(".")
         if len(parts) >= 3:
             last_two = f"{parts[-2]}.{parts[-1]}"
-            if last_two in cls.SECOND_LEVEL_TLDS and len(parts) >= 3:
+            if last_two in cls.SECOND_LEVEL_TLDS:
                 return ".".join(parts[-3:])
             return ".".join(parts[-2:])
         return host
 
-
-    def _matches_rule(self, host: str, rule: str) -> bool:
-        rule_host = self.extract_host(rule)
-        if not rule_host:
+    def _matches_rule(self, host: str, rule: str, allow_apex_expansion: bool = True) -> bool:
+        raw_rule = (rule or "").strip().lower()
+        is_wildcard = raw_rule.startswith("*.")
+        rule_host = self.extract_host(raw_rule)
+        if not rule_host or rule_host in self.SECOND_LEVEL_TLDS:
             return False
 
-        # CIDR yoki IP tekshiruvi
+        # CIDR yoki IP (IPv4 / IPv6) tekshiruvi
         try:
-            if "/" in rule:
-                net = ipaddress.ip_network(rule, strict=False)
+            if "/" in raw_rule and "://" not in raw_rule:
+                net = ipaddress.ip_network(raw_rule, strict=False)
                 ip_obj = ipaddress.ip_address(host)
                 return ip_obj in net
-            else:
-                ip_rule = ipaddress.ip_address(rule_host)
-                ip_host = ipaddress.ip_address(host)
-                return ip_rule == ip_host
+            ip_rule = ipaddress.ip_address(rule_host)
+            ip_host = ipaddress.ip_address(host)
+            return ip_rule == ip_host
         except ValueError:
             pass
 
-        # Wildcard domen (*.example.com) yoki www.example.com -> example.com o'zak domeni
-        if rule_host.startswith("*."):
-            base_domain = rule_host[2:]
-            return host == base_domain or host.endswith("." + base_domain)
+        if is_wildcard or not allow_apex_expansion:
+            return host == rule_host or host.endswith("." + rule_host)
 
         apex = self.extract_apex_domain(rule_host)
+        if apex in self.SECOND_LEVEL_TLDS:
+            return host == rule_host or host.endswith("." + rule_host)
         return host == rule_host or host.endswith("." + rule_host) or host == apex or host.endswith("." + apex)
 
 
@@ -126,9 +132,9 @@ class ScopeGuard:
             if (host == cdn_l or host.endswith("." + cdn_l)) and not any(cdn_l in r for r in self.in_scope):
                 return False, f"Uchinchi tomon CDN/Analitika domeni ({cdn_l})"
 
-        # Out-of-Scope tekshiruvi birinchi ustuvorlikda
+        # Out-of-Scope tekshiruvi birinchi ustuvorlikda (faqat aniq host/sub-tree bloklanadi, apex emas!)
         for out_rule in self.out_of_scope:
-            if self._matches_rule(host, out_rule):
+            if self._matches_rule(host, out_rule, allow_apex_expansion=False):
                 return False, f"Out-of-Scope qoidasiga tushdi: {out_rule}"
 
         # Agar in_scope bo'sh bo'lsa, ruxsat berilmaydi
@@ -136,7 +142,7 @@ class ScopeGuard:
             return False, "In-Scope ro'yxati kiritilmagan"
 
         for in_rule in self.in_scope:
-            if self._matches_rule(host, in_rule):
+            if self._matches_rule(host, in_rule, allow_apex_expansion=True):
                 return True, f"In-Scope ({in_rule})"
 
         return False, f"'{host}' In-Scope ro'yxatiga mos kelmadi"
