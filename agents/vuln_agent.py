@@ -4,6 +4,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import urllib.parse
 from pathlib import Path
@@ -279,70 +280,178 @@ class VulnAssessmentSuperAgent:
                 )
         log_fn(f"  [+] {len(http_services)} ta HTTP servis, Server versiyalari va Active CORS Reflection tekshirildi.")
 
-    def _audit_open_ports(self, project_id: int, ports: list[dict], log_fn):
-        data_store_ports = {
-            3306: "MySQL", 5432: "PostgreSQL", 6379: "Redis",
-            11211: "Memcached", 27017: "MongoDB", 9200: "Elasticsearch",
-        }
-        legacy_cleartext_ports = {21: "FTP", 23: "Telnet", 873: "Rsync"}
+    def _audit_open_ports(self, project_id: int, ports: list[dict], log_fn, domains: list[dict] | None = None):
+        non_cdn_dom_ip: dict[str, str] = {}
+        ip_to_primary_dom: dict[str, str] = {}
+        for d in (domains or []):
+            dom = str(d.get("domain") or "").strip().lower()
+            dip = str(d.get("ip") or "").strip()
+            if dom and dip:
+                ip_to_primary_dom.setdefault(dip, dom)
+                if not d.get("cdn_waf"):
+                    non_cdn_dom_ip[dom] = dip
+
+        data_store_ports = {3306: "MySQL", 5432: "PostgreSQL", 6379: "Redis", 11211: "Memcached", 27017: "MongoDB", 9200: "Elasticsearch"}
+        seen_port_checks: set[tuple[str, str, int, str]] = set()
+
+        def _mark(target_k: str, proto_s: str, p_num: int, check_id: str) -> bool:
+            key = (target_k, proto_s, p_num, check_id)
+            if key in seen_port_checks:
+                return False
+            seen_port_checks.add(key)
+            return True
+
         for pt in ports:
-            pnum = int(pt.get("port", 0))
-            host = pt.get("host", "")
-            svc = pt.get("service", "")
-            ver = pt.get("version", "")
-            banner = pt.get("banner", "")
-            b_low = f"{svc} {ver} {banner}".lower()
-            if pnum == 22:
-                self.db.upsert_finding(
-                    project_id, "Agent-2 (NetworkAudit)", f"Publicly Exposed SSH Service ({host}:22)",
-                    "Network Exposure", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
-                    "CWE-284", "A05:2021 - Security Misconfiguration", f"{host}:22",
-                    f"Port 22/tcp open | Service: {svc} {ver} {banner}".strip(),
-                    "SSH boshqaruv porti tashqi internet uchun ochiq qoldirilgan.",
-                    "SSH portini faqat VPN yoki ma'muriy IP manzillar (Firewall allowlist) uchun oching va PasswordAuthentication ni o'chiring.",
-                    confidence=QoD.HEADER_CONFIG,
-                )
-                if any(wk in b_low for wk in ("ssh-1.99", "ssh-1.5", "arcfour", "diffie-hellman-group1-sha1", "ssh-dss", "3des-cbc")):
+            pnum = int(pt.get("port") or 0)
+            proto = str(pt.get("protocol") or "tcp").lower()
+            raw_h = str(pt.get("host") or pt.get("ip") or "").strip().lower()
+            pt_ip = str(pt.get("ip") or "").strip()
+            if not raw_h or pnum <= 0:
+                continue
+            dedup_k = non_cdn_dom_ip.get(raw_h, "") or pt_ip or ip_to_primary_dom.get(raw_h, raw_h)
+            disp_host = ip_to_primary_dom.get(raw_h, raw_h)
+            b_full = " ".join(x for x in (str(pt.get("service") or ""), str(pt.get("version") or ""), str(pt.get("banner") or "")) if x).strip()
+            b_low = b_full.lower()
+
+            if proto == "udp" and pnum == 161:
+                if _mark(dedup_k, proto, pnum, "udp_snmp"):
                     self.db.upsert_finding(
-                        project_id, "Agent-2 (ProtocolAudit)", f"[CONFIRMED] Weak / Legacy SSH Protocol or Algorithm ({host}:22)",
+                        project_id, "Agent-2 (ProtocolAudit)", f"Exposed UDP SNMP Management Service ({disp_host}:161/udp)",
+                        "Network Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                        "CWE-284", "A05:2021 - Security Misconfiguration", f"{disp_host}:161/udp",
+                        f"Port 161/udp open | Info: {b_full[:160]}",
+                        "UDP 161 (SNMP) monitoring xizmati tashqi tarmoq uchun ochiq qoldirilgan.",
+                        "SNMP portini tashqi interfeysdan Firewall orqali yoping va SNMPv3 autentifikatsiyasiga o'ting.",
+                        confidence=QoD.PROTOCOL_VERIFIED,
+                    )
+            elif pnum in (22, 1022):
+                if _mark(dedup_k, proto, pnum, "ssh_exposed"):
+                    self.db.upsert_finding(
+                        project_id, "Agent-2 (NetworkAudit)", f"Publicly Exposed SSH Service ({disp_host}:{pnum})",
+                        "Network Exposure", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                        "CWE-284", "A05:2021 - Security Misconfiguration", f"{disp_host}:{pnum}",
+                        f"Port {pnum}/{proto} open | Service: {b_full[:160]}",
+                        "SSH boshqaruv porti tashqi internet uchun ochiq qoldirilgan.",
+                        "SSH portini faqat VPN yoki Firewall allowlist uchun oching va PasswordAuthentication ni o'chiring.",
+                        confidence=QoD.HEADER_CONFIG,
+                    )
+                weak_ssh = ("ssh-1.99", "ssh-1.5", "arcfour", "diffie-hellman-group1-sha1", "diffie-hellman-group14-sha1", "ssh-dss", "3des-cbc", "hmac-md5")
+                if any(wk in b_low for wk in weak_ssh) and _mark(dedup_k, proto, pnum, "ssh_weak_algo"):
+                    self.db.upsert_finding(
+                        project_id, "Agent-2 (ProtocolAudit)", f"[CONFIRMED] Weak / Legacy SSH Protocol or Algorithm ({disp_host}:{pnum})",
                         "Cryptographic Failure", "Medium", 5.9, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
-                        "CWE-327", "A02:2021 - Cryptographic Failures", f"{host}:22",
-                        f"SSH Banner / Negotiated Info: {svc} {ver} {banner}".strip(),
+                        "CWE-327", "A02:2021 - Cryptographic Failures", f"{disp_host}:{pnum}",
+                        f"SSH Banner / Negotiated Info: {b_full[:160]}",
                         "SSH xizmatida eskirgan protokol yoki zaif shifrlash algoritmi yoqilgan.",
                         "sshd_config ichida zamonaviy Curve25519 KEX va ChaCha20-Poly1305 / AES-GCM shifrlarini qoldiring.",
                         confidence=QoD.PROTOCOL_VERIFIED,
                     )
             elif pnum in data_store_ports:
-                ds_name = data_store_ports[pnum]
+                self._audit_data_store_port(project_id, data_store_ports[pnum], pnum, proto, dedup_k, disp_host, b_full, b_low, _mark)
+            else:
+                self._audit_legacy_and_infra_port(project_id, pnum, proto, dedup_k, disp_host, b_full, b_low, _mark)
+
+    def _audit_data_store_port(self, project_id: int, ds_name: str, pnum: int, proto: str, dedup_k: str, disp_host: str, b_full: str, b_low: str, _mark):
+        unauth_markers = ("redis_version:", '"cluster_name"', "stat pid", "mongodb server information", "authentication: disabled")
+        if any(um in b_low for um in unauth_markers):
+            if _mark(dedup_k, proto, pnum, "ds_unauth"):
                 self.db.upsert_finding(
-                    project_id, "Agent-2 (ProtocolAudit)", f"Exposed Backend Data Store Port ({ds_name} on {host}:{pnum})",
-                    "Database / Cache Exposure", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
-                    "CWE-284", "A05:2021 - Security Misconfiguration", f"{host}:{pnum}",
-                    f"Port {pnum}/tcp ({ds_name}) open | Banner: {svc} {ver} {banner}".strip(),
-                    f"{ds_name} ma'lumotlar ombori porti tashqi tarmoq interfeysida ochiq qoldirilgan.",
-                    f"{ds_name} xizmatini `127.0.0.1` / ichki VPC ga bog'lang, kuchli autentifikatsiya va TLS yoqing.",
-                    confidence=QoD.PROTOCOL_VERIFIED,
+                    project_id, "Agent-2 (ProtocolAudit)", f"[CONFIRMED] Unauthenticated Backend Data Store Access ({ds_name} on {disp_host}:{pnum})",
+                    "Database / Cache Exposure", "Critical", 9.4, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                    "CWE-306", "A05:2021 - Security Misconfiguration", f"{disp_host}:{pnum}",
+                    f"Port {pnum}/{proto} ({ds_name}) unauthenticated metadata: {b_full[:160]}",
+                    f"{ds_name} ma'lumotlar ombori autentifikatsiyasiz tizim ma'lumotlarini qaytarmoqda.",
+                    f"{ds_name} xizmatida kuchli parol/ACL yoqing va portni faqat `127.0.0.1` / ichki VPC ga bog'lang.",
+                    confidence=QoD.ACTIVE_VERIFIED,
                 )
-            elif pnum in legacy_cleartext_ports:
-                pr_name = legacy_cleartext_ports[pnum]
+        elif _mark(dedup_k, proto, pnum, "ds_exposed"):
+            self.db.upsert_finding(
+                project_id, "Agent-2 (ProtocolAudit)", f"Exposed Backend Data Store Port ({ds_name} on {disp_host}:{pnum})",
+                "Database / Cache Exposure", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                "CWE-284", "A05:2021 - Security Misconfiguration", f"{disp_host}:{pnum}",
+                f"Port {pnum}/{proto} ({ds_name}) open | Banner: {b_full[:160]}",
+                f"{ds_name} ma'lumotlar ombori porti tashqi tarmoq interfeysida ochiq qoldirilgan.",
+                f"{ds_name} xizmatini `127.0.0.1` / ichki VPC ga bog'lang, kuchli autentifikatsiya va TLS yoqing.",
+                confidence=QoD.PROTOCOL_VERIFIED,
+            )
+
+
+    def _audit_legacy_and_infra_port(self, project_id: int, pnum: int, proto: str, dedup_k: str, disp_host: str, b_full: str, b_low: str, _mark):
+        legacy_cleartext_ports = {21: "FTP", 23: "Telnet", 873: "Rsync"}
+        if pnum in legacy_cleartext_ports:
+            pr_name = legacy_cleartext_ports[pnum]
+            if pnum == 21 and ("anonymous ftp login allowed" in b_low or ("ftp-anon" in b_low and "allowed" in b_low) or "230 anonymous" in b_low):
+                if _mark(dedup_k, proto, pnum, "ftp_anon"):
+                    self.db.upsert_finding(
+                        project_id, "Agent-2 (ProtocolAudit)", f"[CONFIRMED] Anonymous FTP Access Enabled ({disp_host}:21)",
+                        "Authentication Bypass", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                        "CWE-287", "A07:2021 - Identification and Authentication Failures", f"{disp_host}:21",
+                        f"FTP Banner / NSE: {b_full[:160]}",
+                        "FTP serverda parolsiz anonim kirish (Anonymous Login) yoqib qo'yilgan.",
+                        "FTP konfiguratsiyasida `anonymous_enable=NO` o'rnating va SFTP ga o'ting.",
+                        confidence=QoD.ACTIVE_VERIFIED,
+                    )
+            if _mark(dedup_k, proto, pnum, "cleartext_legacy"):
                 self.db.upsert_finding(
-                    project_id, "Agent-2 (ProtocolAudit)", f"Cleartext Legacy Service Exposed ({pr_name} on {host}:{pnum})",
+                    project_id, "Agent-2 (ProtocolAudit)", f"Cleartext Legacy Service Exposed ({pr_name} on {disp_host}:{pnum})",
                     "Cleartext Transmission / Network Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
-                    "CWE-319", "A02:2021 - Cryptographic Failures", f"{host}:{pnum}",
-                    f"Port {pnum}/tcp ({pr_name}) open | Banner: {svc} {ver} {banner}".strip(),
+                    "CWE-319", "A02:2021 - Cryptographic Failures", f"{disp_host}:{pnum}",
+                    f"Port {pnum}/{proto} ({pr_name}) open | Banner: {b_full[:160]}",
                     f"Shifrlanmagan {pr_name} protokoli tashqi tarmoq uchun ochiq qoldirilgan.",
                     f"{pr_name} o'rniga SFTP/SSH ishlating va portni tashqi interfeysdan Firewall orqali yoping.",
                     confidence=QoD.PROTOCOL_VERIFIED,
                 )
-            elif pnum in (137, 139, 445, 3389, 5900):
+        elif pnum in (25, 465, 587):
+            if pnum in (25, 587) and ("open relay" in b_low or ("vrfy" in b_low and "250 " in b_low)) and _mark(dedup_k, proto, pnum, "smtp_relay_vrfy"):
                 self.db.upsert_finding(
-                    project_id, "Agent-2 (NetworkAudit)", f"Exposed Critical Management / SMB Port ({host}:{pnum})",
+                    project_id, "Agent-2 (ProtocolAudit)", f"[CONFIRMED] Permissive SMTP VRFY / Relay Configuration ({disp_host}:{pnum})",
+                    "SMTP Misconfiguration", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:N",
+                    "CWE-200", "A05:2021 - Security Misconfiguration", f"{disp_host}:{pnum}",
+                    f"SMTP Info: {b_full[:160]}",
+                    "Pochta serverida VRFY foydalanuvchi tekshiruvi yoki ochiq relay konfiguratsiyasi aniqlandi.",
+                    "Postfix/Exim da `disable_vrfy_command = yes` va qat'iy `mynetworks` cheklovini o'rnating.",
+                    confidence=QoD.PROTOCOL_VERIFIED,
+                )
+            if pnum in (25, 587) and ("auth plain" in b_low or "auth login" in b_low) and "starttls" not in b_low and _mark(dedup_k, proto, pnum, "smtp_no_starttls"):
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (ProtocolAudit)", f"[CONFIRMED] SMTP Cleartext Auth Advertised Without STARTTLS ({disp_host}:{pnum})",
+                    "Cleartext Transmission", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                    "CWE-319", "A02:2021 - Cryptographic Failures", f"{disp_host}:{pnum}",
+                    f"SMTP Capabilities: {b_full[:160]}",
+                    "SMTP serveri STARTTLS shifrlashsiz ochiq matnda AUTH PLAIN/LOGIN e'lon qilmoqda.",
+                    "`smtpd_tls_auth_only = yes` sozlamasini yoqing.",
+                    confidence=QoD.PROTOCOL_VERIFIED,
+                )
+        elif pnum == 53 and ("axfr" in b_low or "recursion enabled" in b_low or "open resolver" in b_low) and _mark(dedup_k, proto, pnum, "dns_posture"):
+            self.db.upsert_finding(
+                project_id, "Agent-2 (ProtocolAudit)", f"[CONFIRMED] Permissive DNS Zone Transfer / Open Recursion ({disp_host}:53/{proto})",
+                "DNS Misconfiguration", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                "CWE-200", "A05:2021 - Security Misconfiguration", f"{disp_host}:53/{proto}",
+                f"DNS Service Info: {b_full[:160]}",
+                "DNS xizmatida ochiq rekursiya yoki ruxsatsiz zona uzatish (AXFR) belgisi aniqlandi.",
+                "`allow-recursion` va `allow-transfer` ro'yxatlarini faqat ichki/ikkilamchi serverlar bilan cheklang.",
+                confidence=QoD.PROTOCOL_VERIFIED,
+            )
+        elif pnum in (137, 139, 445, 3389, 5900):
+            if _mark(dedup_k, proto, pnum, "mgmt_smb_exposed"):
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (NetworkAudit)", f"Exposed Critical Management / SMB Port ({disp_host}:{pnum})",
                     "Network Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
-                    "CWE-284", "A05:2021 - Security Misconfiguration", f"{host}:{pnum}",
-                    f"Port {pnum}/tcp open | Service: {svc} {ver}",
+                    "CWE-284", "A05:2021 - Security Misconfiguration", f"{disp_host}:{pnum}",
+                    f"Port {pnum}/{proto} open | Service: {b_full[:160]}",
                     "SMB/RDP/VNC boshqaruv porti tashqi internet uchun ochiq qoldirilgan.",
                     "Ushbu portni tashqi interfeysdan Firewall orqali yoping (faqat VPN orqali ruxsat bering).",
                     confidence=QoD.HEADER_CONFIG,
+                )
+            if pnum in (139, 445) and any(sk in b_low for sk in ("signing:false", "message signing enabled but not required", "smbv1", "nt lm 0.12")) and _mark(dedup_k, proto, pnum, "smb_signing_weak"):
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (ProtocolAudit)", f"[CONFIRMED] SMB Signing Not Required or Legacy SMBv1 ({disp_host}:{pnum})",
+                    "Network Protocol Misconfiguration", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                    "CWE-300", "A05:2021 - Security Misconfiguration", f"{disp_host}:{pnum}",
+                    f"SMB Protocol Info: {b_full[:160]}",
+                    "SMB xizmatida raqamli imzo (Signing) majburiy emas yoki eskirgan SMBv1 yoqilgan.",
+                    "`server signing = mandatory` o'rnating va SMBv1 protokolini o'chiring.",
+                    confidence=QoD.PROTOCOL_VERIFIED,
                 )
 
     def _audit_version_cve_advisories(
@@ -723,12 +832,19 @@ class VulnAssessmentSuperAgent:
             nuc_file = f"/tmp/spectre_v13_nuclei_{project_id}.txt"
             Path(nuc_file).write_text("\n".join(svcs) + "\n", encoding="utf-8")
             log_fn(f"[Agent-2 -> Nuclei Audit] {len(svcs)} ta faol veb-servisda miskonfiguratsiya va CVE shablonlari tekshirilmoqda...")
+            proc = None
             try:
-                proc = subprocess.run(
+                proc = subprocess.Popen(
                     [nuc_bin, "-l", nuc_file, "-tags", "exposure,misconfig,panel,token", "-severity", "low,medium,high,critical", "-silent", "-jsonl", "-timeout", "4", "-c", "20"],
-                    capture_output=True, text=True, timeout=45, env=env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    env=env,
+                    start_new_session=True,
                 )
-                for nl in (proc.stdout or "").splitlines():
+                nuc_out, _ = proc.communicate(timeout=45)
+                for nl in (nuc_out or "").splitlines():
                     if nl.strip().startswith("{"):
                         nobj = json.loads(nl.strip())
                         t_id = nobj.get("template-id", "nuclei-hit")
@@ -749,8 +865,18 @@ class VulnAssessmentSuperAgent:
                             )
                             log_fn(f"  [NUCLEI HIT] [{n_sev}] {n_name} -> {matched_at}")
                 self.db.log_task(project_id, "SPECTRE-Agent2", "nuclei", "COMPLETED", f"nuclei ({len(svcs)} targets)", "Completed active template verification")
+            except subprocess.TimeoutExpired:
+                if proc is not None and proc.poll() is None:
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    except Exception:
+                        pass
             except Exception:
-                pass
+                if proc is not None and proc.poll() is None:
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    except Exception:
+                        pass
 
     def run_assessment(self, project_id: int, log_fn, enable_cli: bool = True):
         bundle = self.db.get_project_bundle(project_id)
@@ -773,7 +899,16 @@ class VulnAssessmentSuperAgent:
         orch = PhaseOrchestrator(self.db, project_id, kb, log_fn=log_fn)
         orch.register("nvt_http_headers_cors", ScanPhase.ACT_GATHER_INFO, self._audit_http_services, project_id, http_svcs, log_fn, require_keys=["Services/www"])
         orch.register("nvt_tls_cache_posture", ScanPhase.ACT_GATHER_INFO, self._audit_tls_and_cache_posture, project_id, http_svcs, log_fn, require_keys=["Services/www"])
-        orch.register("nvt_network_ports", ScanPhase.ACT_GATHER_INFO, self._audit_open_ports, project_id, ports, log_fn, require_keys=["Ports/tcp"])
+        orch.register(
+            "nvt_network_ports",
+            ScanPhase.ACT_GATHER_INFO,
+            self._audit_open_ports,
+            project_id,
+            ports,
+            log_fn,
+            bundle.get("domains", []),
+            require_any_keys=["Ports/tcp", "Ports/udp"],
+        )
         orch.register(
             "nvt_semantic_cve_engine",
             ScanPhase.ACT_GATHER_INFO,

@@ -144,6 +144,11 @@ def run_benchmark() -> None:
             db.upsert_http_service(pid, "https://vhost2.invalid", 200, "App2", "Apache/2.4.50", ["Apache/2.4.50"], 120, {}, {}, [], {})
             db.upsert_port(pid, "127.0.0.1", 22, "tcp", ip="127.0.0.1", service="ssh", version="OpenSSH 8.9p1", banner="SSH-2.0-OpenSSH_8.9p1 ssh-dss")
             db.upsert_port(pid, "127.0.0.1", 6379, "tcp", ip="127.0.0.1", service="redis", version="6.0.5", banner="Redis 6.0.5")
+            db.upsert_port(pid, "vhost1.invalid", 21, "tcp", ip="198.51.100.10", service="ftp", version="vsftpd 3.0.3 [ftp-anon: Anonymous FTP login allowed]", banner="")
+            db.upsert_port(pid, "vhost2.invalid", 21, "tcp", ip="198.51.100.10", service="ftp", version="vsftpd 3.0.3 [ftp-anon: Anonymous FTP login allowed]", banner="")
+            db.upsert_port(pid, "vhost1.invalid", 445, "tcp", ip="198.51.100.10", service="microsoft-ds", version="Windows Server (signing:false)", banner="")
+            db.upsert_port(pid, "vhost1.invalid", 9200, "tcp", ip="198.51.100.10", service="elasticsearch", version="8.12.2", banner='{"cluster_name":"prod-es"}')
+            db.upsert_port(pid, "vhost1.invalid", 161, "udp", ip="198.51.100.10", service="snmp", version="Linux SNMPd", banner="")
 
             logs: list[str] = []
             scope = ScopeGuard("127.0.0.1", "")
@@ -190,6 +195,11 @@ def run_benchmark() -> None:
             assert len(apache_cves) == 1 and "Shared Origin VHosts (2)" in apache_cves[0]["evidence"] and "cpe:2.3:a:apache:http_server:2.4.50" in apache_cves[0]["evidence"], f"Shared VHost dedup or CPE 2.3 failed: {apache_cves}"
             assert any("CVE-2024-6387" in t for t in titles), f"Semantic CVE engine missed OpenSSH 8.9p1: {titles}"
             assert any("Exposed Backend Data Store Port" in t for t in titles), f"Port posture missed Redis: {titles}"
+            assert any("Unauthenticated Backend Data Store Access" in t for t in titles), f"Port posture missed unauth Elastic: {titles}"
+            ftp_anon_hits = [t for t in titles if "Anonymous FTP Access Enabled" in t]
+            assert len(ftp_anon_hits) == 1, f"FTP Anon check or shared-IP dedup failed: {ftp_anon_hits}"
+            assert any("SMB Signing Not Required" in t for t in titles), f"SMB signing check failed: {titles}"
+            assert any("Exposed UDP SNMP" in t for t in titles), f"UDP SNMP check failed: {titles}"
             agent2_confs = [f["confidence"] for f in bundle["findings"] if str(f.get("agent", "")).startswith("Agent-2")]
             assert all("QoD:" in c for c in agent2_confs), f"Missing QoD label in Agent-2 findings: {agent2_confs}"
             assert any("QoD: 99%" in c for c in confs), f"QoD 99% tag missing: {confs}"
