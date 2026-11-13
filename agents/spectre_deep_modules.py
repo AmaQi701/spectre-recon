@@ -527,32 +527,45 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn, session:
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     }
 
-    # Calibrate each origin against a nonexistent path to filter out catch-all 401/403/200 API gateways & SPA fallbacks
-    host_cal: dict[str, tuple[int, int]] = {}
+    def _read_capped(resp, cap: int = 16384) -> tuple[bytes, str]:
+        buf = bytearray()
+        for part in resp.iter_content(chunk_size=4096):
+            if not part:
+                break
+            buf.extend(part)
+            if len(buf) >= cap:
+                break
+        b_out = bytes(buf[:cap])
+        h_sig = hashlib.sha256(b_out[:4096]).hexdigest()[:16] if b_out else ""
+        return b_out, h_sig
+
+    # Calibrate each origin against a nonexistent path (Status + Capped Length + SHA-256 Hash)
+    host_cal: dict[str, tuple[int, int, str]] = {}
     all_probe_urls = [mut_u for mut_u, _ in shadow_candidates] + list(wayback_eps)
     for probe_u in all_probe_urls:
         p_u = urllib.parse.urlparse(probe_u)
         origin = f"{p_u.scheme}://{p_u.netloc}"
         if origin and p_u.netloc and origin not in host_cal:
             try:
-                rc = http_client.get(f"{origin}/spectre-nonexistent-99182", headers=req_hdrs, timeout=3.0, verify=False, allow_redirects=False)
-                host_cal[origin] = (rc.status_code, len(rc.content))
+                with http_client.get(f"{origin}/spectre-nonexistent-99182", headers=req_hdrs, timeout=3.0, verify=False, allow_redirects=False, stream=True) as rc:
+                    cal_b, cal_h = _read_capped(rc)
+                    host_cal[origin] = (rc.status_code, len(cal_b), cal_h)
             except Exception:
-                host_cal[origin] = (-1, -1)
+                host_cal[origin] = (-1, -1, "")
 
     def check_shadow(item):
         mut_url, orig_url = item
         p_u = urllib.parse.urlparse(mut_url)
         origin = f"{p_u.scheme}://{p_u.netloc}"
-        cal_stat, cal_len = host_cal.get(origin, (-1, -1))
+        cal_stat, cal_len, cal_hash = host_cal.get(origin, (-1, -1, ""))
         try:
             with http_client.get(mut_url, headers=req_hdrs, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True) as r:
-                chunk_b = next(r.iter_content(chunk_size=8192), b"")
+                chunk_b, chunk_h = _read_capped(r)
                 ctype = r.headers.get("Content-Type", "").lower()
                 code = r.status_code
-            chunk = chunk_b.decode("utf-8", errors="ignore")
-            if code == cal_stat and abs(len(chunk_b) - cal_len) < 60:
+            if code == cal_stat and ((cal_hash and chunk_h == cal_hash) or abs(len(chunk_b) - cal_len) < 80):
                 return
+            chunk = chunk_b.decode("utf-8", errors="ignore")
             if code == 200 and len(chunk) > 20 and "text/html" not in ctype:
                 low_c = chunk.lower()
                 if '"not found"' in low_c or '"status":404' in low_c or '"status":401' in low_c:
@@ -573,12 +586,12 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn, session:
     def check_ghost(wb_url: str):
         p_u = urllib.parse.urlparse(wb_url)
         origin = f"{p_u.scheme}://{p_u.netloc}"
-        cal_stat, cal_len = host_cal.get(origin, (-1, -1))
+        cal_stat, cal_len, cal_hash = host_cal.get(origin, (-1, -1, ""))
         try:
             with http_client.get(wb_url, headers=req_hdrs, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True) as r:
-                chunk_b = next(r.iter_content(chunk_size=8192), b"")
+                chunk_b, chunk_h = _read_capped(r)
                 code = r.status_code
-            if code == cal_stat and abs(len(chunk_b) - cal_len) < 60:
+            if code == cal_stat and ((cal_hash and chunk_h == cal_hash) or abs(len(chunk_b) - cal_len) < 80):
                 return
             if code in (200, 401, 403, 405):
                 db.upsert_endpoint(project_id, wb_url, method="GET", category="high_value_endpoint", risk_tags=["Zombie_Ghost_Endpoint"], status_code=code, source="wayback_verified")
