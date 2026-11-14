@@ -683,11 +683,44 @@ class VulnAssessmentSuperAgent:
                 pass
         log_fn(f"  [+] SAST yakunlandi: {len(files[:150])} ta fayl tekshirildi, {hits} ta xavfli qator topildi.")
 
+    _DEBUG_TRACE_SIGNATURES: tuple[tuple[str, str, str], ...] = (
+        ("Python Stack Trace", "Traceback (most recent call last):", "Medium"),
+        ("Django DEBUG=True Mode", "You're seeing this error because you have <code>DEBUG = True", "High"),
+        ("Laravel Debug / Ignition", "Whoops, looks like something went wrong", "Medium"),
+        ("Spring Boot Whitelabel Error", "<h1>Whitelabel Error Page</h1>", "Low"),
+        ("PHP Uncaught Fatal Error", "Fatal error: Uncaught ", "Medium"),
+        ("Database Driver Error", "SQLSTATE[", "High"),
+    )
+
+    def _inspect_verbose_debug_trace(self, project_id: int, url: str, host_k: str, status_code: int, body_text: str, seen_debug: set[tuple[str, str]], log_fn) -> None:
+        if not body_text:
+            return
+        sample = body_text[:65536]
+        for label, marker, sev in self._DEBUG_TRACE_SIGNATURES:
+            if marker in sample and (host_k, label) not in seen_debug:
+                seen_debug.add((host_k, label))
+                cvss_v = 7.5 if sev == "High" else (5.3 if sev == "Medium" else 3.7)
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (Debug-Audit)", f"[CONFIRMED] Verbose {label} Disclosed ({host_k})",
+                    "Information Disclosure / Debug Mode", sev, cvss_v, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                    "CWE-209", "A05:2021 - Security Misconfiguration", url,
+                    f"HTTP {status_code} matched signature '{marker[:50]}' on {url}",
+                    f"Server javobida ochiq {label} ma'lumotlari foydalanuvchiga qaytarilmoqda.",
+                    "Production muhitida DEBUG rejimini o'chiring va ichki xatoliklarni umumiy xabar bilan yashiring.",
+                    confidence=QoD.PROTOCOL_VERIFIED,
+                )
+                log_fn(f"  [CONFIRMED DEBUG TRACE] {url} -> {label}")
+
     def _audit_http_methods_and_overrides(self, project_id: int, http_services: list[dict], log_fn):
+        seen_xfh_hosts: set[str] = set()
+        xfh_probe = "diag-host.spectre.invalid"
+        xfh_attr_re = re.compile(r'(?i)(?:href|src|action|content)\s*=\s*["\'][^"\']*' + re.escape(xfh_probe))
+
         for svc in http_services[:10]:
             url = svc["url"]
             if self.http_engine.is_host_dead(url):
                 continue
+            host_k = (urllib.parse.urlparse(url).hostname or "").lower()
             try:
                 r_opt = self.http_engine.request("OPTIONS", url, allow_redirects=False)
                 allow_hdr = (r_opt.headers.get("Allow") or r_opt.headers.get("Public") or "").upper()
@@ -706,9 +739,33 @@ class VulnAssessmentSuperAgent:
             except Exception:
                 pass
 
+            if host_k and host_k not in seen_xfh_hosts and not self.http_engine.is_host_dead(url):
+                seen_xfh_hosts.add(host_k)
+                try:
+                    r_xfh = self.http_engine.request("GET", url, headers={"X-Forwarded-Host": xfh_probe}, allow_redirects=False)
+                    loc_h = (urllib.parse.urlparse(r_xfh.headers.get("Location", "")).hostname or "").lower()
+                    ctype_x = r_xfh.headers.get("Content-Type", "").lower()
+                    in_redir = r_xfh.status_code in (301, 302, 303, 307, 308) and loc_h == xfh_probe
+                    in_attr = r_xfh.status_code == 200 and "text/html" in ctype_x and bool(xfh_attr_re.search((r_xfh.text or "")[:65536]))
+                    if in_redir or in_attr:
+                        vec_desc = f"Location: {r_xfh.headers.get('Location', '')}" if in_redir else "HTML link attribute (href/src/action/content)"
+                        self.db.upsert_finding(
+                            project_id, "Agent-2 (Header-Verifier)", f"[CONFIRMED] Unvalidated X-Forwarded-Host Link/Redirect Generation ({host_k})",
+                            "Host Header / Cache Poisoning Risk", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+                            "CWE-346", "A05:2021 - Security Misconfiguration", url,
+                            f"Sent X-Forwarded-Host: {xfh_probe} -> Reflected in {vec_desc} (HTTP {r_xfh.status_code})",
+                            "Ilova tekshirilmagan X-Forwarded-Host sarlavhasidan mutlaq havola yoki yo'naltirish manzili yasashda foydalanmoqda.",
+                            "Reverse-proxy da X-Forwarded-Host sarlavhasini qat'iy asosiy domen bilan qayta yozing va ALLOWED_HOSTS oq ro'yxatini yoqing.",
+                            confidence=QoD.PROTOCOL_VERIFIED,
+                        )
+                        log_fn(f"  [CONFIRMED XFH] {url} -> {vec_desc}")
+                except Exception:
+                    pass
+
     def _audit_safe_differential_verifiers(self, project_id: int, endpoints: list[dict], log_fn):
         redir_params = {"url", "redirect", "redirect_uri", "next", "return", "returnurl", "return_to", "goto", "dest", "destination", "continue"}
         seen_auth_cache_hosts: set[str] = set()
+        seen_debug_hosts: set[tuple[str, str]] = set()
 
         for ep in endpoints[:35]:
             u = ep["url"]
@@ -724,9 +781,10 @@ class VulnAssessmentSuperAgent:
             base_loc = ""
             try:
                 r_base = self.http_engine.request("GET", u, headers=self.role_a_headers or None, allow_redirects=False)
+                base_text = r_base.text or ""
+                self._inspect_verbose_debug_trace(project_id, u, host_k, r_base.status_code, base_text, seen_debug_hosts, log_fn)
                 if r_base.status_code >= 500:
                     continue
-                base_text = r_base.text or ""
                 base_loc = r_base.headers.get("Location", "")
                 base_ctype = r_base.headers.get("Content-Type", "").lower()
                 if self.role_a_headers and r_base.status_code == 200 and "application/json" in base_ctype and host_k not in seen_auth_cache_hosts:
