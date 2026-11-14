@@ -64,14 +64,19 @@ class TriageAndChainSuperAgent:
                 verified_count += 1
         log_fn(f"  [+] Triage: {verified_count} ta Verified, {manual_count} ta Manual-Review topilma saralandi.")
 
+        pt_host = str(proj.get("primary_target") or "").strip().lower()
         known_hosts = {d["domain"].lower() for d in domains if d.get("domain")}
-        ip_to_host = {d["ip"]: d["domain"].lower() for d in domains if d.get("ip") and d.get("domain")}
+        ip_to_host: dict[str, str] = {}
+        for d in sorted(domains, key=lambda x: (0 if str(x.get("domain", "")).lower() == pt_host else 1, len(str(x.get("domain", ""))))):
+            if d.get("ip") and d.get("domain") and not d.get("cdn_waf"):
+                ip_to_host.setdefault(str(d["ip"]).strip(), str(d["domain"]).strip().lower())
 
         def _node() -> dict:
             return {
                 "cors": [], "weak_cookies": [], "xss_sinks": [], "bola_authz": [],
                 "redirects": [], "cves": [], "open_ports": [], "api_routes": [],
-                "state_routes": [], "data_stores": [], "has_web": False,
+                "state_routes": [], "data_stores": [], "xfh_poison": [], "proto_debug": [],
+                "has_web": False,
             }
 
         graph: dict[str, dict] = {}
@@ -88,7 +93,9 @@ class TriageAndChainSuperAgent:
                     g["weak_cookies"].append(ck.get("name", "session"))
 
         for pt in ports:
-            h = (pt.get("host") or ip_to_host.get(pt.get("ip", ""), "")).lower()
+            raw_pt_h = (pt.get("host") or pt.get("ip") or "").strip().lower()
+            pt_ip = str(pt.get("ip") or "").strip()
+            h = ip_to_host.get(raw_pt_h) or ip_to_host.get(pt_ip) or raw_pt_h
             if h:
                 graph.setdefault(h, _node())["open_ports"].append(f"{pt['port']}/{pt['protocol']} ({pt.get('service', '')})")
 
@@ -123,8 +130,12 @@ class TriageAndChainSuperAgent:
                 g["cors"].append(f)
             if "cookie" in tl and not g["weak_cookies"]:
                 g["weak_cookies"].append(f["title"])
-            if "dom xss" in tl or "reflection" in tl or "xss" in tl:
+            if ("dom xss" in tl or "reflection" in tl or "xss" in tl) and "x-forwarded-host" not in tl:
                 g["xss_sinks"].append(f["title"])
+            if "x-forwarded-host" in tl:
+                g["xfh_poison"].append(f)
+            if "anonymous ftp" in tl or "smb signing" in tl or "verbose " in tl:
+                g["proto_debug"].append(f)
             if "bola" in tl or "idor" in tl or "unauthenticated access" in tl:
                 g["bola_authz"].append(f)
             if "redirect" in tl or "oauth" in tl or "ssrf" in tl:
@@ -215,6 +226,32 @@ class TriageAndChainSuperAgent:
                     "Ma'lumotlar ombori portlarini faqat lokal/VPC tarmoqqa bog'lang va tashqi kirishni yoping.",
                 )
                 log_fn(f"  [CHAIN] {host}: Web Surface + Exposed Data Store zanjiri tuzildi!")
+
+            if g["xfh_poison"] and (g["has_web"] or g["api_routes"]):
+                xf = g["xfh_poison"][0]
+                self.db.upsert_bug_chain(
+                    project_id,
+                    f"[{host}] Unvalidated X-Forwarded-Host + Active Web Surface -> Cache / Reset Link Poisoning",
+                    "High", 8.1,
+                    [f"Host: {host}", xf["title"], "Link / Redirect Generation"],
+                    f"'{host}' xostida X-Forwarded-Host tekshirilmasdan havola yasalishi parolni tiklash linklari yoki veb-keshni zaharlash zanjirini hosil qiladi.",
+                    "Foydalanuvchi parolini tiklash tokenining uchinchi tomon xostiga yuborilishi yoki kesh ifloslanishi.",
+                    "Reverse-proxy da X-Forwarded-Host sarlavhasini tozalang va ALLOWED_HOSTS oq ro'yxatini yoqing.",
+                )
+                log_fn(f"  [CHAIN] {host}: X-Forwarded-Host + Web Surface zanjiri tuzildi!")
+
+            if g["proto_debug"] and g["has_web"]:
+                pf = g["proto_debug"][0]
+                self.db.upsert_bug_chain(
+                    project_id,
+                    f"[{host}] Exposed Legacy Protocol / Debug Trace + Web Surface -> Infrastructure Exposure Chain",
+                    "High", 8.2,
+                    [f"Host: {host}", "Public Web Service", pf["title"]],
+                    f"'{host}' xostida ommaviy veb-xizmat bilan birga ochiq tarmoq protokoli yoki batafsil debug ma'lumoti ({pf['title']}) aniqlandi.",
+                    "Tizim ichki yo'llari va tarmoq xizmatlari orqali yonlama harakatlanish xavfi.",
+                    "Production serverda DEBUG rejimini o'chiring va FTP/SMB portlarini tashqi interfeysdan yoping.",
+                )
+                log_fn(f"  [CHAIN] {host}: Protocol/Debug + Web Surface zanjiri tuzildi!")
 
         pt_host = proj.get("primary_target", "").lower()
         cf_hosts = [d["domain"] for d in domains if "cloudflare" in str(d.get("cdn_waf", "")).lower()]

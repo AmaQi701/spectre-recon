@@ -162,7 +162,7 @@ def run_benchmark() -> None:
             db.upsert_port(pid, "127.0.0.1", 6379, "tcp", ip="127.0.0.1", service="redis", version="6.0.5", banner="Redis 6.0.5")
             db.upsert_port(pid, "vhost1.invalid", 21, "tcp", ip="198.51.100.10", service="ftp", version="vsftpd 3.0.3 [ftp-anon: Anonymous FTP login allowed]", banner="")
             db.upsert_port(pid, "vhost2.invalid", 21, "tcp", ip="198.51.100.10", service="ftp", version="vsftpd 3.0.3 [ftp-anon: Anonymous FTP login allowed]", banner="")
-            db.upsert_port(pid, "vhost1.invalid", 445, "tcp", ip="198.51.100.10", service="microsoft-ds", version="Windows Server (signing:false)", banner="")
+            db.upsert_port(pid, "198.51.100.10", 445, "tcp", ip="198.51.100.10", service="microsoft-ds", version="Windows Server (signing:false)", banner="")
             db.upsert_port(pid, "vhost1.invalid", 9200, "tcp", ip="198.51.100.10", service="elasticsearch", version="8.12.2", banner='{"cluster_name":"prod-es"}')
             db.upsert_port(pid, "vhost1.invalid", 161, "udp", ip="198.51.100.10", service="snmp", version="Linux SNMPd", banner="")
 
@@ -224,7 +224,9 @@ def run_benchmark() -> None:
             assert all("QoD:" in c for c in agent2_confs), f"Missing QoD label in Agent-2 findings: {agent2_confs}"
             assert any("QoD: 99%" in c for c in confs), f"QoD 99% tag missing: {confs}"
             assert any("QoD: 75%" in c for c in confs), f"QoD 75% Banner-CVE tag missing: {confs}"
-            assert len(chains) >= 5, f"Asset-Bound Graph Chainer produced too few chains: {chains}"
+            assert any("Cache / Reset Link Poisoning" in c for c in chains), f"XFH chain missing: {chains}"
+            assert any("Infrastructure Exposure Chain" in c for c in chains), f"Protocol/Debug chain missing: {chains}"
+            assert len(chains) >= 10, f"Asset-Bound Graph Chainer produced too few chains: {chains}"
             assert pathlib.Path(rep_paths["html_path"]).is_file(), "HTML report was not generated"
 
             print(
