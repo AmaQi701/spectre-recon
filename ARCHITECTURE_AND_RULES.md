@@ -108,6 +108,7 @@ Bundle keys returned by `db.get_project_bundle(project_id)`:
     - **Package 5 (`agents/vuln_agent.py`):** Added attribute/redirect-scoped `X-Forwarded-Host` link/redirect poisoning verifier (`Location` & `href/src/action/content` only — zero false positives on raw header echo) and multi-token `_inspect_verbose_debug_trace` detector across Python/Django/Laravel/Spring/PHP/DB exceptions (including `HTTP 500` responses).
     - **Package 6 (`agents/triage_chain_agent.py`):** Fixed IP-keyed `ports` -> canonical hostname resolution in `ip_to_host` (preferring `primary_target` and excluding shared CDN IPs) and added `Cache / Reset Link Poisoning` (`X-Forwarded-Host + Web Surface`) and `Infrastructure Exposure Chain` (`Exposed Legacy Protocol / Debug Trace + Web Surface`) correlation rules.
     - **Package 7 (`apex_gtk_app.py`):** Unified Finding Inspector via `_format_finding_detail()` (surfacing `NIST CPE 2.3`, `Confidence / QoD`, and `[DIAGNOSTIC VERIFICATION COMMAND]`), added thread-safe auto-report generation (`GLib.idle_add`) on `1 -> 2 -> 3` completion, enriched Cairo 2D Topology Graph with amber Attack-Chain rings & open port counts, and updated Manual PoC `QoD: 99%` & `v14.3 NASL-Titan` console banner.
+    - **Package 8 (`apex_gtk_app.py`, `agents/spectre_v5_modules.py`):** Enforced exact hostname matching (`ScopeGuard.extract_host` & bracketed `[{host}]`) on 2D Topology Graph vulnerability/chain badges so subdomain issues never bleed onto parent apex nodes, and added `Confidence_QoD` column to CSV artifact exports.
 
 
 

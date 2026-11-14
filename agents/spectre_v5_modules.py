@@ -204,9 +204,9 @@ def export_project_artifacts(db, project_id: int, reports_dir: str = "/home/amaq
     csv_path = out_dir / f"project_{project_id}_findings.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as f_csv:
         writer = csv.writer(f_csv)
-        writer.writerow(["ID", "Severity", "CVSS", "Title", "Category", "CWE", "OWASP", "Asset", "Evidence", "Remediation", "Triage"])
+        writer.writerow(["ID", "Severity", "CVSS", "Confidence_QoD", "Title", "Category", "CWE", "OWASP", "Asset", "Evidence", "Remediation", "Triage"])
         for f in findings:
-            writer.writerow([f["id"], f["severity"], f["cvss_score"], f["title"], f["category"], f["cwe"], f["owasp"], f["asset"], f["evidence"], f["remediation"], f["triage_status"]])
+            writer.writerow([f["id"], f["severity"], f["cvss_score"], f.get("confidence", ""), f["title"], f["category"], f["cwe"], f["owasp"], f["asset"], f["evidence"], f["remediation"], f["triage_status"]])
 
     json_path = out_dir / f"project_{project_id}_full_export.json"
     json_path.write_text(json.dumps(b, indent=2, ensure_ascii=False), encoding="utf-8")

@@ -1038,7 +1038,11 @@ class ApexNativeWindow(Gtk.Window):
                         ports_by_key.setdefault(pk, set()).add(pnum)
 
         ips = list(by_ip.keys())[:12]
-        crit_hosts = {str(f.get("asset", "")).lower() for f in finds if f.get("severity") in ("Critical", "High")}
+        crit_exact_hosts = {
+            ScopeGuard.extract_host(str(f.get("asset", "")))
+            for f in finds
+            if f.get("severity") in ("Critical", "High") and f.get("triage_status") != "False-Positive"
+        }
         chain_titles_l = [str(c.get("chain_title", "")).lower() for c in chains]
 
         for idx, ip in enumerate(ips):
@@ -1061,8 +1065,8 @@ class ApexNativeWindow(Gtk.Window):
                 oy = cy + r_outer * math.sin(sub_ang)
 
                 h_low = h_name.lower()
-                is_vuln = any(h_low in ch for ch in crit_hosts)
-                has_chain = any(f"[{h_low}]" in ct or h_low in ct for ct in chain_titles_l)
+                is_vuln = h_low in crit_exact_hosts
+                has_chain = any(f"[{h_low}]" in ct for ct in chain_titles_l)
                 cr.set_source_rgba(0.97, 0.44, 0.44, 0.65) if (is_vuln or has_chain) else cr.set_source_rgba(0.20, 0.83, 0.60, 0.35)
                 cr.set_line_width(1.6 if has_chain else 1.2)
                 cr.move_to(ix, iy)
