@@ -149,7 +149,7 @@ class ApexNativeWindow(Gtk.Window):
         for line in (content or "").splitlines(True):
             end_it = buf.get_end_iter()
             s_strip = line.strip()
-            if s_strip.startswith(("◈", "FINDING #", "[TECHNICAL", "[ROOT CAUSE", "[REMEDIATION")):
+            if s_strip.startswith(("◈", "FINDING #", "[TECHNICAL", "[DIAGNOSTIC", "[ROOT CAUSE", "[REMEDIATION")):
                 buf.insert_with_tags_by_name(end_it, line, "hdr")
             elif s_strip.startswith(("─", "═")):
                 buf.insert_with_tags_by_name(end_it, line, "div")
@@ -643,7 +643,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v12.11 Enterprise ASM Workstation] 49/49 CLI & Deep Intelligence Engines initialized.\n")
+        self.term_buf.set_text("[SPECTRE v14.3 NASL-Titan Workstation] 49/49 CLI, PhaseOrchestrator & 27-Product CPE Engine initialized.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)
@@ -717,6 +717,53 @@ class ApexNativeWindow(Gtk.Window):
             dossier_txt = spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, dom_name)
             self._set_styled_text(self.dossier_view, dossier_txt)
 
+    @staticmethod
+    def _format_finding_detail(f_obj: dict) -> str:
+        import shlex as _shlex
+        fid = f_obj.get("id", "")
+        ev_str = str(f_obj.get("evidence", "") or "-")
+        asset_s = str(f_obj.get("asset", "") or "").strip()
+        m_cpe = re.search(r"(cpe:2\.3:[^\s|]+)", ev_str)
+        cpe_line = f"NIST CPE 2.3: {m_cpe.group(1)}" if m_cpe else ""
+        if asset_s.startswith(("http://", "https://")):
+            ver_cmd = f"curl -isk --max-time 6 {_shlex.quote(asset_s)} | head -n 25"
+        elif re.match(r"^[a-zA-Z0-9.\-_]+:\d+(/udp|/tcp)?$", asset_s):
+            hp_parts = asset_s.split("/")[0].rsplit(":", 1)
+            u_flag = "-sU " if "/udp" in asset_s else ""
+            ver_cmd = f"nmap -Pn {u_flag}-sV -p {hp_parts[1]} {_shlex.quote(hp_parts[0])}"
+        elif ":" in asset_s and "/" in asset_s:
+            ver_cmd = f"Inspect source line -> {asset_s}"
+        else:
+            ver_cmd = f"Asset scope check -> {asset_s or '-'}"
+
+        detail_lines = [
+            f"FINDING #{fid}  |  {f_obj.get('severity', '').upper()} (CVSS {f_obj.get('cvss_score', '')})  |  STATUS: {f_obj.get('triage_status', '')}",
+            "─" * 88,
+            f"Title       : {f_obj.get('title', '')}",
+            f"Category    : {f_obj.get('category', '')}   |   Agent: {f_obj.get('agent', '')}",
+            f"Confidence  : {f_obj.get('confidence', '')}",
+        ]
+        if cpe_line:
+            detail_lines.append(cpe_line)
+        detail_lines.extend([
+            f"Taxonomy    : {f_obj.get('cwe', '')}   |   {f_obj.get('owasp', '')}",
+            f"CVSS Vector : {f_obj.get('cvss_vector', '')}",
+            f"Target Asset: {asset_s}",
+            "",
+            "[TECHNICAL EVIDENCE / TELEMETRY]",
+            ev_str,
+            "",
+            "[DIAGNOSTIC VERIFICATION COMMAND]",
+            ver_cmd,
+            "",
+            "[ROOT CAUSE ANALYSIS]",
+            str(f_obj.get("root_cause", "") or "-"),
+            "",
+            "[REMEDIATION GUIDANCE]",
+            str(f_obj.get("remediation", "") or "-"),
+        ])
+        return "\n".join(detail_lines)
+
     def on_finding_selected(self, tree):
         if not self.current_project_id:
             return
@@ -727,26 +774,7 @@ class ApexNativeWindow(Gtk.Window):
             finds = self.db.get_project_bundle(self.current_project_id).get("findings", [])
             f_obj = next((f for f in finds if int(f.get("id", 0)) == fid), None)
             if f_obj:
-                detail_lines = [
-                    f"FINDING #{fid}  |  {f_obj.get('severity', '').upper()} (CVSS {f_obj.get('cvss_score', '')})  |  STATUS: {f_obj.get('triage_status', '')}",
-                    "─" * 88,
-                    f"Title       : {f_obj.get('title', '')}",
-                    f"Category    : {f_obj.get('category', '')}   |   Agent: {f_obj.get('agent', '')}",
-                    f"Confidence  : {f_obj.get('confidence', '')}",
-                    f"Taxonomy    : {f_obj.get('cwe', '')}   |   {f_obj.get('owasp', '')}",
-                    f"CVSS Vector : {f_obj.get('cvss_vector', '')}",
-                    f"Target Asset: {f_obj.get('asset', '')}",
-                    "",
-                    "[TECHNICAL EVIDENCE / POC]",
-                    str(f_obj.get("evidence", "") or "-"),
-                    "",
-                    "[ROOT CAUSE ANALYSIS]",
-                    str(f_obj.get("root_cause", "") or "-"),
-                    "",
-                    "[REMEDIATION GUIDANCE]",
-                    str(f_obj.get("remediation", "") or "-"),
-                ]
-                self._set_styled_text(self.finding_detail_view, "\n".join(detail_lines))
+                self._set_styled_text(self.finding_detail_view, self._format_finding_detail(f_obj))
 
     def on_ai_dossier_analysis(self, _btn):
         if not self.current_project_id:
@@ -936,15 +964,7 @@ class ApexNativeWindow(Gtk.Window):
                 spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, primary_dom),
             )
         if sorted_finds and hasattr(self, "finding_detail_view") and not preserve_if_unchanged:
-            f0 = sorted_finds[0]
-            self._set_styled_text(
-                self.finding_detail_view,
-                f"FINDING #{f0['id']}  |  {f0.get('severity', '').upper()} (CVSS {f0.get('cvss_score', '')})  |  STATUS: {f0.get('triage_status', '')}\n"
-                + ("─" * 68)
-                + f"\nTitle       : {f0.get('title', '')}\nTaxonomy    : {f0.get('cwe', '')}   |   {f0.get('owasp', '')}\n"
-                + f"Target Asset: {f0.get('asset', '')}\n\n[TECHNICAL EVIDENCE / POC]\n{f0.get('evidence', '')}\n\n"
-                + f"[ROOT CAUSE ANALYSIS]\n{f0.get('root_cause', '')}\n\n[REMEDIATION GUIDANCE]\n{f0.get('remediation', '')}",
-            )
+            self._set_styled_text(self.finding_detail_view, self._format_finding_detail(sorted_finds[0]))
 
         if hasattr(self, "graph_area"):
             self.graph_area.queue_draw()
@@ -966,6 +986,7 @@ class ApexNativeWindow(Gtk.Window):
         doms = b.get("domains", [])
         ports = b.get("ports", [])
         finds = b.get("findings", [])
+        chains = b.get("bug_chains", [])
 
         cx, cy = w / 2.0, h / 2.0 + 10
         r_inner = min(w, h) * 0.22
@@ -983,13 +1004,14 @@ class ApexNativeWindow(Gtk.Window):
         cr.select_font_face("Sans", 0, 1)
         cr.set_font_size(12.5)
         cr.move_to(18, 26)
-        cr.show_text(f"ATTACK SURFACE TOPOLOGY  —  {target}   ({len(doms)} Hosts  |  {len(ports)} Open Ports  |  {len(finds)} Findings)")
+        cr.show_text(f"ATTACK SURFACE TOPOLOGY  —  {target}   ({len(doms)} Hosts  |  {len(ports)} Open Ports  |  {len(finds)} Findings  |  {len(chains)} Chains)")
 
         legend_items = [
             ((0.18, 0.50, 0.96), "Primary Scope"),
             ((0.64, 0.44, 0.97), "Origin IP Node"),
             ((0.24, 0.72, 0.31), "Active Subdomain"),
             ((0.97, 0.32, 0.29), "High / Critical Asset"),
+            ((0.98, 0.75, 0.14), "Attack-Chain Host"),
         ]
         lx = 18
         for col_rgb, l_txt in legend_items:
@@ -1007,8 +1029,17 @@ class ApexNativeWindow(Gtk.Window):
             ip = d.get("ip") or "Unresolved"
             by_ip.setdefault(ip, []).append(d["domain"])
 
+        ports_by_key: dict[str, set[int]] = {}
+        for pt in ports:
+            pnum = int(pt.get("port") or 0)
+            if pnum > 0:
+                for pk in (str(pt.get("ip") or "").strip(), str(pt.get("host") or "").strip().lower()):
+                    if pk:
+                        ports_by_key.setdefault(pk, set()).add(pnum)
+
         ips = list(by_ip.keys())[:12]
-        crit_hosts = {f.get("asset", "") for f in finds if f.get("severity") in ("Critical", "High")}
+        crit_hosts = {str(f.get("asset", "")).lower() for f in finds if f.get("severity") in ("Critical", "High")}
+        chain_titles_l = [str(c.get("chain_title", "")).lower() for c in chains]
 
         for idx, ip in enumerate(ips):
             ang = (2 * math.pi * idx) / max(1, len(ips))
@@ -1029,12 +1060,20 @@ class ApexNativeWindow(Gtk.Window):
                 ox = cx + r_outer * math.cos(sub_ang)
                 oy = cy + r_outer * math.sin(sub_ang)
 
-                is_vuln = any(h_name in ch for ch in crit_hosts)
-                cr.set_source_rgba(0.97, 0.44, 0.44, 0.55) if is_vuln else cr.set_source_rgba(0.20, 0.83, 0.60, 0.35)
-                cr.set_line_width(1.2)
+                h_low = h_name.lower()
+                is_vuln = any(h_low in ch for ch in crit_hosts)
+                has_chain = any(f"[{h_low}]" in ct or h_low in ct for ct in chain_titles_l)
+                cr.set_source_rgba(0.97, 0.44, 0.44, 0.65) if (is_vuln or has_chain) else cr.set_source_rgba(0.20, 0.83, 0.60, 0.35)
+                cr.set_line_width(1.6 if has_chain else 1.2)
                 cr.move_to(ix, iy)
                 cr.line_to(ox, oy)
                 cr.stroke()
+
+                if has_chain:
+                    cr.arc(ox, oy, 10, 0, 2 * math.pi)
+                    cr.set_source_rgba(0.98, 0.75, 0.14, 0.85)
+                    cr.set_line_width(1.5)
+                    cr.stroke()
 
                 # Outer Host Node
                 cr.arc(ox, oy, 7 if is_vuln else 5, 0, 2 * math.pi)
@@ -1044,19 +1083,23 @@ class ApexNativeWindow(Gtk.Window):
                     cr.set_source_rgb(0.20, 0.83, 0.60)
                 cr.fill()
 
+                h_p_cnt = len(ports_by_key.get(h_low, set()))
+                lbl_s = h_name[:24] + (f" [{h_p_cnt}p]" if h_p_cnt else "") + (" ⚡" if has_chain else "")
                 cr.set_source_rgb(0.88, 0.91, 0.94)
                 cr.set_font_size(10)
-                cr.move_to(ox + 9, oy + 4)
-                cr.show_text(h_name[:26])
+                cr.move_to(ox + 11, oy + 4)
+                cr.show_text(lbl_s)
 
             # IP Node
             cr.arc(ix, iy, 11, 0, 2 * math.pi)
             cr.set_source_rgb(0.65, 0.54, 0.98)
             cr.fill()
+            ip_p_cnt = len(ports_by_key.get(ip, set()))
+            ip_lbl = f"{ip} ({ip_p_cnt}p)" if ip_p_cnt and ip != "Unresolved" else ip
             cr.set_source_rgb(0.95, 0.96, 0.98)
             cr.set_font_size(10.5)
             cr.move_to(ix - 28, iy - 14)
-            cr.show_text(ip)
+            cr.show_text(ip_lbl)
 
         # Center Apex Node
         cr.arc(cx, cy, 22, 0, 2 * math.pi)
@@ -1138,8 +1181,15 @@ class ApexNativeWindow(Gtk.Window):
                     update_prog(0.92, "2-SuperAgent: Vulnerability & SAST Audit...")
                     self.vuln_agent.run_assessment(pid, self.log_msg)
                 if agent_type in ("triage", "all"):
-                    update_prog(0.96, "3-SuperAgent: Triage & Dynamic Bug Chaining...")
+                    update_prog(0.96, "3-SuperAgent: Triage, Dynamic Bug Chaining & Report Generation...")
                     self.triage_agent.run_triage_and_chaining(pid, self.log_msg)
+                    rep_res = self.triage_agent.generate_reports(pid)
+                    rep_txt = (
+                        f"Hisobot fayllari avtomatik saqlandi:\n- {rep_res['markdown_path']}\n- {rep_res['html_path']}\n\n"
+                        f"{rep_res['markdown_preview']}"
+                    )
+                    GLib.idle_add(lambda t=rep_txt: self.rep_view.get_buffer().set_text(t) or False)
+                    self.log_msg(f"[REPORT] Avtomatik hisobot yaratildi: {rep_res['html_path']}")
                 update_prog(1.0, "✅ Barcha tanlangan jarayonlar yakunlandi!")
             finally:
                 self.is_running_job = False
@@ -1252,7 +1302,7 @@ class ApexNativeWindow(Gtk.Window):
         self.db.upsert_finding(
             self.current_project_id, "Agent-5 (Manual PoC)", title, "Manual Pentester PoC",
             sev, cvss, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N", "CWE-284", "A01:2021 - Broken Access Control",
-            asset, evid, "Manual verification by pentester", rem, confidence="Confirmed-PoC", triage_status="Verified"
+            asset, evid, "Manual verification by pentester", rem, confidence="Confirmed-PoC (QoD: 99%)", triage_status="Verified"
         )
         self.load_bundle()
         self.log_msg(f"[MANUAL PoC] Qo'shildi: {title} ({sev})")
