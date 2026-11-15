@@ -182,9 +182,12 @@ class VulnAssessmentSuperAgent:
 
     def _audit_http_services(self, project_id: int, http_services: list[dict], log_fn):
         seen_header_sigs: set[tuple[str, str]] = set()
+        seen_cookie_names: set[str] = set()
+        seen_cors_templates: set[tuple[str, str, int]] = set()
         cors_dead_hosts: set[str] = set()
         for svc in http_services:
             url = svc["url"]
+            scode = int(svc.get("status_code") or 0)
             sec = json.loads(svc.get("security_headers_json") or "{}")
             cookies = json.loads(svc.get("cookies_json") or "[]")
 
@@ -200,7 +203,8 @@ class VulnAssessmentSuperAgent:
                     "Access-Control-Allow-Origin qiymatini faqat ishonchli domenlar oq ro'yxati bilan cheklang.",
                     confidence=QoD.HEADER_CONFIG,
                 )
-            elif acao == "*":
+            elif acao == "*" and ("cors_star", svc.get("server", "")) not in seen_header_sigs:
+                seen_header_sigs.add(("cors_star", svc.get("server", "")))
                 self.db.upsert_finding(
                     project_id, "Agent-2 (VulnAudit)", "Permissive CORS Policy (Access-Control-Allow-Origin: *)",
                     "Security Misconfiguration", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
@@ -211,9 +215,14 @@ class VulnAssessmentSuperAgent:
                     confidence=QoD.HEADER_CONFIG,
                 )
 
-            # Active Dynamic Origin Reflection Probe (routed via RateLimitedHttpEngine circuit-breaker)
+            if scode in (301, 302, 303, 307, 308):
+                continue
+
+            # Active Dynamic Origin Reflection Probe (deduplicated across identical vhost templates)
             host_only = re.sub(r"^https?://", "", url).split("/")[0].split(":")[0].lower()
-            if host_only not in cors_dead_hosts and not self.http_engine.is_host_dead(url):
+            cors_tpl = (str(svc.get("server") or ""), str(svc.get("title") or "")[:50], int(svc.get("content_length") or 0) // 2048)
+            if cors_tpl not in seen_cors_templates and host_only not in cors_dead_hosts and not self.http_engine.is_host_dead(url):
+                seen_cors_templates.add(cors_tpl)
                 try:
                     r_cors = self.http_engine.request(
                         "GET", url, headers={"Origin": "https://cors-check.example.org"}, timeout=(2.5, 3.5), allow_redirects=False
@@ -255,9 +264,11 @@ class VulnAssessmentSuperAgent:
                 )
 
             for ck in cookies:
-                if not ck.get("httponly") or not ck.get("secure"):
+                ck_name = str(ck.get("name") or "session")
+                if (not ck.get("httponly") or not ck.get("secure")) and ck_name not in seen_cookie_names:
+                    seen_cookie_names.add(ck_name)
                     self.db.upsert_finding(
-                        project_id, "Agent-2 (VulnAudit)", f"Insecure Cookie Flags ({ck.get('name', 'session')})",
+                        project_id, "Agent-2 (VulnAudit)", f"Insecure Cookie Flags ({ck_name})",
                         "Session Management", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:N/A:N",
                         "CWE-614", "A07:2021 - Identification and Authentication Failures", url,
                         f"Cookie: {ck.get('raw', '')}",
@@ -624,29 +635,67 @@ class VulnAssessmentSuperAgent:
                 confidence=QoD.HEURISTIC,
             )
 
+        sink_bundles: list[tuple[str, str, list[str]]] = []
+        secret_bundles: list[tuple[str, str, list[str]]] = []
+        seen_js_fnames: set[str] = set()
         for js in js_assets:
+            js_u = str(js.get("js_url") or "")
+            fname = js_u.split("/")[-1].split("?")[0] or js_u
+            if fname in seen_js_fnames:
+                continue
+            seen_js_fnames.add(fname)
             sinks = json.loads(js.get("sinks_json") or "[]")
             secrets = json.loads(js.get("secrets_hints_json") or "[]")
             if sinks:
-                self.db.upsert_finding(
-                    project_id, "Agent-2 (JS-Auditor)", f"DOM XSS Sink in {js['js_url'].split('/')[-1]}",
-                    "Cross-Site Scripting (DOM Review)", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
-                    "CWE-79", "A03:2021 - Injection", js["js_url"],
-                    f"Topilgan xavfli DOM sinklar: {', '.join(sinks)}",
-                    "JavaScript faylda ma'lumotlarni DOM ga xavfsiz tozalashsiz yozishi mumkin bo'lgan metodlar ishlatilgan.",
-                    "innerHTML/document.write o'rniga textContent ishlating yoki DOMPurify orqali sanitizatsiya qiling.",
-                    confidence=QoD.STATIC_SAST,
-                )
+                sink_bundles.append((fname, js_u, sinks))
             if secrets:
-                self.db.upsert_finding(
-                    project_id, "Agent-2 (JS-Auditor)", f"Sensitive Config / API Key Pattern in {js['js_url'].split('/')[-1]}",
-                    "Sensitive Data Exposure in JS", "Medium", 5.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
-                    "CWE-312", "A02:2021 - Cryptographic Failures", js["js_url"],
-                    f"Topilgan kalit/konfiguratsiya satrlari: {', '.join(secrets[:5])}",
-                    "Mijozga yuklanadigan JS bundle ichida API baseURL, token yoki konfiguratsiya kalitlari aniqlandi.",
-                    "JS bundle ichida maxfiy tokenlar yo'qligini tekshiring va ularni backend proksi orqali yashiring.",
-                    confidence=QoD.STATIC_SAST,
-                )
+                secret_bundles.append((fname, js_u, secrets))
+
+        if len(sink_bundles) == 1:
+            fname, js_u, sinks = sink_bundles[0]
+            self.db.upsert_finding(
+                project_id, "Agent-2 (JS-Auditor)", f"DOM XSS Sink in {fname}",
+                "Cross-Site Scripting (DOM Review)", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                "CWE-79", "A03:2021 - Injection", js_u,
+                f"Topilgan xavfli DOM sinklar: {', '.join(sinks)}",
+                "JavaScript faylda ma'lumotlarni DOM ga xavfsiz tozalashsiz yozishi mumkin bo'lgan metodlar ishlatilgan.",
+                "innerHTML/document.write o'rniga textContent ishlating yoki DOMPurify orqali sanitizatsiya qiling.",
+                confidence=QoD.STATIC_SAST,
+            )
+        elif len(sink_bundles) > 1:
+            ev_parts = [f"{fn} ({', '.join(sk[:4])})" for fn, _, sk in sink_bundles[:10]]
+            self.db.upsert_finding(
+                project_id, "Agent-2 (JS-Auditor)", f"DOM XSS Sinks Identified Across {len(sink_bundles)} JS Bundles",
+                "Cross-Site Scripting (DOM Review)", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                "CWE-79", "A03:2021 - Injection", sink_bundles[0][1],
+                f"Topilgan JS paketlar ({len(sink_bundles)}): {' | '.join(ev_parts)}",
+                "Bir nechta JavaScript paketlarda ma'lumotlarni DOM ga xavfsiz tozalashsiz yozishi mumkin bo'lgan metodlar aniqlandi.",
+                "innerHTML/document.write/dangerouslySetInnerHTML o'rniga textContent ishlating yoki DOMPurify orqali sanitizatsiya qiling.",
+                confidence=QoD.STATIC_SAST,
+            )
+
+        if len(secret_bundles) == 1:
+            fname, js_u, secrets = secret_bundles[0]
+            self.db.upsert_finding(
+                project_id, "Agent-2 (JS-Auditor)", f"Sensitive Config / API Key Pattern in {fname}",
+                "Sensitive Data Exposure in JS", "Medium", 5.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+                "CWE-312", "A02:2021 - Cryptographic Failures", js_u,
+                f"Topilgan kalit/konfiguratsiya satrlari: {', '.join(secrets[:5])}",
+                "Mijozga yuklanadigan JS bundle ichida API baseURL, token yoki konfiguratsiya kalitlari aniqlandi.",
+                "JS bundle ichida maxfiy tokenlar yo'qligini tekshiring va ularni backend proksi orqali yashiring.",
+                confidence=QoD.STATIC_SAST,
+            )
+        elif len(secret_bundles) > 1:
+            ev_parts = [f"{fn} ({', '.join(sc[:3])})" for fn, _, sc in secret_bundles[:8]]
+            self.db.upsert_finding(
+                project_id, "Agent-2 (JS-Auditor)", f"Sensitive Config / API Key Patterns Across {len(secret_bundles)} JS Bundles",
+                "Sensitive Data Exposure in JS", "Medium", 5.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+                "CWE-312", "A02:2021 - Cryptographic Failures", secret_bundles[0][1],
+                f"Topilgan JS paketlar ({len(secret_bundles)}): {' | '.join(ev_parts)}",
+                "Mijozga yuklanadigan bir nechta JS bundle ichida API baseURL, token yoki konfiguratsiya kalitlari aniqlandi.",
+                "JS bundle ichida maxfiy tokenlar yo'qligini tekshiring va ularni backend proksi orqali yashiring.",
+                confidence=QoD.STATIC_SAST,
+            )
 
 
     def _run_sast_scan(self, project_id: int, code_path_str: str, log_fn):

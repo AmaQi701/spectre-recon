@@ -1,5 +1,6 @@
 import concurrent.futures
 import difflib
+import hashlib
 import io
 import json
 import re
@@ -382,12 +383,25 @@ def mine_well_known_and_mobile_links(db, session: requests.Session, project_id: 
         ("/.well-known/oauth-authorization-server", "OAuth2 Authorization Server Metadata"),
     ]
 
-    for svc in services[:8]:
+    # Filter out cross-host redirect stubs and deduplicate identical catch-all vhost clones
+    unique_services = []
+    seen_svc_templates: set[tuple[str, str, int]] = set()
+    for s in services:
+        if int(s.get("status_code") or 0) in (301, 302, 303, 307, 308):
+            continue
+        tpl_k = (str(s.get("server") or ""), str(s.get("title") or "")[:50], int(s.get("content_length") or 0) // 2048)
+        if tpl_k in seen_svc_templates and len(unique_services) >= 1:
+            continue
+        seen_svc_templates.add(tpl_k)
+        unique_services.append(s)
+
+    seen_wk_hashes: set[tuple[str, str]] = set()
+    for svc in unique_services[:8]:
         base_url = svc["url"]
         for path, label in wk_paths:
             full_u = urllib.parse.urljoin(base_url, path)
             try:
-                r = session.get(full_u, timeout=4.5, verify=False)
+                r = session.get(full_u, timeout=4.5, verify=False, allow_redirects=False)
                 if r.status_code == 200 and r.text.strip().startswith(("{", "[")):
                     data = r.json()
                     summary = ""
@@ -409,12 +423,17 @@ def mine_well_known_and_mobile_links(db, session: requests.Session, project_id: 
                             summary = f"Issuer: {data.get('issuer')} | OIDC Endpoints: {', '.join(eps[:4])}"
 
                     if summary:
+                        canon_lbl = label.replace(" (Root)", "")
+                        wk_sig = (canon_lbl, hashlib.sha256(summary.encode("utf-8", errors="ignore")).hexdigest()[:16])
+                        if wk_sig in seen_wk_hashes:
+                            continue
+                        seen_wk_hashes.add(wk_sig)
                         log_fn(f"  [📱 {label}] {full_u} -> {summary[:140]}")
                         db.upsert_finding(
-                            project_id, "SPECTRE-Agent1 (Mobile/OIDC Miner)", f"{label} Discovered ({full_u})",
+                            project_id, "SPECTRE-Agent1 (Mobile/OIDC Miner)", f"{canon_lbl} Discovered ({urllib.parse.urlparse(full_u).hostname or full_u})",
                             "Mobile & SSO Architecture Intelligence", "Info", 0.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
                             "CWE-200", "A05:2021 - Security Misconfiguration", full_u,
-                            summary, f"{label} orqali nishonning mobil ilova paketlari yoki SSO endpointlari aniqlandi.",
+                            summary, f"{canon_lbl} orqali nishonning mobil ilova paketlari yoki SSO endpointlari aniqlandi.",
                             "Mobil deep-link va OIDC endpointlarida redirect_uri validatsiyasini tekshiring.",
                         )
             except Exception:

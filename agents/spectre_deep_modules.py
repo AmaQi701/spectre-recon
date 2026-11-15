@@ -434,8 +434,29 @@ def build_target_dossier(db, project_id: int, selected_domain: str = "") -> str:
     dom_obj = next((d for d in domains if d["domain"] == selected_domain), {})
     ip = dom_obj.get("ip", "")
     co_hosted = [d["domain"] for d in domains if d.get("ip") == ip and ip and d["domain"] != selected_domain]
-    host_ports = [p for p in ports if p["host"] == selected_domain or (ip and p.get("ip") == ip)]
-    host_https = [h for h in https if selected_domain in h["url"] or (ip and ip in h["url"])]
+    raw_host_ports = [p for p in ports if p["host"] == selected_domain or (ip and (p.get("ip") == ip or p.get("host") == ip))]
+    merged_ports_map: dict[tuple[int, str], dict] = {}
+    for rp in raw_host_ports:
+        pk = (int(rp.get("port") or 0), str(rp.get("protocol") or "tcp").lower())
+        if pk not in merged_ports_map:
+            merged_ports_map[pk] = dict(rp)
+        else:
+            cur = merged_ports_map[pk]
+            v_old = str(cur.get("version") or "").strip()
+            v_new = str(rp.get("version") or "").strip()
+            if v_new and v_new not in v_old:
+                cur["version"] = f"{v_old} | {v_new}".strip(" |") if v_old else v_new
+            s_old = str(cur.get("source") or "").strip()
+            s_new = str(rp.get("source") or "").strip()
+            if s_new and s_new not in s_old:
+                cur["source"] = f"{s_old},{s_new}".strip(",")
+            if (not cur.get("service") or cur.get("service") in ("tcp-open", "shodan-port")) and rp.get("service"):
+                cur["service"] = rp["service"]
+    host_ports = list(merged_ports_map.values())
+    host_https = [
+        h for h in https
+        if urllib.parse.urlparse(h["url"]).hostname in (selected_domain, f"www.{selected_domain}", ip)
+    ]
     host_finds = [f for f in findings if selected_domain in f["asset"] or (ip and ip in f["asset"])]
 
     rec_raw = dom_obj.get("records_json") or "{}"

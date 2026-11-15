@@ -256,7 +256,7 @@ class ApexNativeWindow(Gtk.Window):
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
         hb.props.title = "SPECTRE  —  Kiber-Razvedka va Hujum Yuzasi Platformasi"
-        hb.props.subtitle = "●  v13.1 Obsidian Emerald  •  Multi-Role BOLA Matrix, Asset-Bound Graph Chaining & Recon"
+        hb.props.subtitle = "●  v14.4 NASL-Titan  •  Phased KB-Orchestrator, 27-Product CPE 2.3 Engine & Attack Graph Studio"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)

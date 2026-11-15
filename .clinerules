@@ -78,6 +78,13 @@ Sening yagona va asosiy vazifang — Ubuntu Linux (`Python 3.14 + GTK3`) muhitid
     - Har qanday kod o‘zgarishidan so‘ng foydalanuvchiga javob berishdan oldin MAJBURIY ravishda `python3 /home/amaqi/projects/apex-pentest-gui/tests/test_integrity_gate.py` ni ishga tushir (`ERRORS_FOUND=0` chiqishi shart!), o‘zgarishni `ARCHITECTURE_AND_RULES.md` ga qayd et va GitHub (`origin/main`) ga push qil.
 11. **Bir Urinishda To‘liq Muhandislik (`One-Pass Complete Engineering`):**
     - Kod yozishdan oldin ham *Happy Path*, ham barcha *Edge-Case* holatlarini (status kodlar `200/206`, soket yopilishi, dublikatlar, chegara qiymatlari) boshidayoq to‘liq hisobga olib, **birinchi urinishning o‘zidayoq 100% tugallangan kod** yoz. Keyinchalik sun’iy ravishda mikro-kamchilik o‘ylab topma — tayyor bo‘lgan modulni xolis "100% tayyor" deb tasdiqla.
+12. **Xostlararo Redirect va Wildcard Klon Izolyatsiyasi (`Cross-Host Redirect & Clone Isolation Law`):**
+    - `_stage3_http_probe` hech qachon bir subdomendan (`sub.target.com`) boshqa xostga (`target.com`) yo‘naltirilgan `301/302/303/307/308` yoki `<meta http-equiv="refresh">` javobini asosiy saytning `200 OK` sahifasi sifatida subdomen nomiga yozmasligi shart (`orig_host == primary_host -> www.primary_host` bundan mustasno). Bunday subdomenlar haqiqiy `301/302` statusi bilan yoziladi va Stage 4–6 og‘ir skanerlariga uzatilmaydi.
+    - `Smart Clone Skip` (`app_sig`) `<title>` va `<script src>` ni kamida `html[:80000]` bayt oynada qidirishi hamda `scanned_app_sigs` barcha bosqichlar uchun global bo‘lishi shart.
+13. **Ko‘paytma Shovqinni Taqiqlash (`Anti-Cardinality Explosion & SHA-256 Deduplication Law`):**
+    - `N=500+` subdomenli loyihalarda hech bir modul bir xil artefaktni (`.well-known/assetlinks.json`, `apple-app-site-association`, `.js.map` SourceMap) yoki bir xil turdagi xatoni (`SSL Mismatch`, `DOM XSS Sinks`, `Insecure Cookie`, `Missing Headers`) `N` marta alohida-alohida `findings` jadvaliga yozmasligi shart. Artefaktlar `SHA-256` xeshi bilan deduplikatsiya qilinadi, ko‘p-faylli/ko‘p-xostli ogohlantirishlar esa bitta guruhlangan topilmaga (`Aggregated across N assets`) jamlanadi.
+14. **Masshtab Simulyatsiyasi Darvozasi (`Multi-Host Scale Simulation Gate`):**
+    - Har qanday yangi razvedka yoki zaiflik moduli faqat 1 ta sintetik xostda emas, balki `tests/test_integrity_gate.py` ichidagi ko‘p-subdomenli klon/redirect va dublikat-guruhlash testlaridan (`ERRORS_FOUND=0`) o‘tishi shart.
 
 ---
 

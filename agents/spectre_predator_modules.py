@@ -177,10 +177,14 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
 # 2. JAVASCRIPT SOURCEMAP (*.js.map) UNPACKER & SOURCE CODE RECONSTRUCTOR
 # ══════════════════════════════════════════════════════════════════════════════
 
+_SEEN_SOURCEMAPS_BY_PROJ: dict[int, set[str]] = {}
+
+
 def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_url: str, log_fn) -> int:
     if not js_urls:
         return 0
     unpacked_count = 0
+    seen_maps = _SEEN_SOURCEMAPS_BY_PROJ.setdefault(project_id, set())
     route_re = re.compile(r"""['"`]((?:/api/v\d+/|/api/|/v1/|/v2/|/internal/|/admin/|/graphql|/auth/)[a-zA-Z0-9_\-/\.?=&{}]+)['"`]""")
     out_dir = BASE_DIR / "workspaces" / "sourcemaps" / f"project_{project_id}"
 
@@ -209,6 +213,11 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
             try:
                 rm = session.get(map_u, timeout=8, verify=False)
                 if rm.status_code == 200 and '"version"' in rm.text[:300] and '"sources"' in rm.text[:2000]:
+                    map_fname = urllib.parse.urlparse(map_u).path.split("/")[-1]
+                    map_sig = f"{map_fname}:{hashlib.sha256(rm.content[:65536]).hexdigest()[:16]}"
+                    if map_sig in seen_maps:
+                        break
+                    seen_maps.add(map_sig)
                     data = rm.json()
                     sources = [str(s) for s in (data.get("sources") or []) if s]
                     contents = [str(c) for c in (data.get("sourcesContent") or []) if c]

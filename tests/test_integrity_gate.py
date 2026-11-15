@@ -219,6 +219,47 @@ def run_integrity_gate() -> list[str]:
         if len(ready) != 49:
             errors.append(f"[TOOLS NOT READY] Expected 49/49 ready, got {len(ready)}/{len(tools)}")
 
+        # 6. Rule 14 — Multi-Host Scale, Anti-Cardinality & Port Deduplication Gate
+        from agents.vuln_agent import VulnAssessmentSuperAgent
+        from agents import spectre_deep_modules
+        pid_scale = db.create_project("ScaleGate", "example.org", "example.org")
+        db.upsert_domain(pid_scale, "example.org", ip="93.184.216.34")
+        db.upsert_port(pid_scale, "example.org", 443, "tcp", ip="93.184.216.34", service="https", version="nginx 1.24.0", source="nmap_deep_nse")
+        db.upsert_port(pid_scale, "93.184.216.34", 443, "tcp", ip="93.184.216.34", service="https", version="cpe:/a:f5:nginx", source="shodan_internetdb")
+        dossier_txt = spectre_deep_modules.build_target_dossier(db, pid_scale, "example.org")
+        if "OCHIQ TARMOQ PORTLARI (1 ta)" not in dossier_txt or "nmap_deep_nse,shodan_internetdb" not in dossier_txt:
+            errors.append(f"[DOSSIER PORT MERGE BROKEN] {dossier_txt}")
+
+        for idx_j in range(6):
+            db.upsert_js_asset(pid_scale, f"https://sub{idx_j}.example.org/chunk_{idx_j}.js", sinks=["innerHTML", "dangerouslySetInnerHTML"])
+        va = VulnAssessmentSuperAgent(db)
+        va._audit_endpoints_and_js(pid_scale, [], db.get_project_bundle(pid_scale)["js_assets"], lambda _m: None)
+        dom_sink_findings = [f for f in db.get_project_bundle(pid_scale)["findings"] if "DOM XSS" in f["title"]]
+        if len(dom_sink_findings) != 1 or "Across 6 JS Bundles" not in dom_sink_findings[0]["title"]:
+            errors.append(f"[JS SINK CARDINALITY EXPLOSION] Expected 1 consolidated finding, got {len(dom_sink_findings)}")
+
+        # Cross-host 301 redirect isolation check (Rule 12)
+        class _FakeResp:
+            def __init__(self, status_code, headers, text=""):
+                self.status_code = status_code
+                self.headers = headers
+                self.text = text
+                self.content = text.encode("utf-8")
+                self.raw = None
+                self.url = "https://example.org/"
+
+        orig_sget = ra.session.get
+        ra.session.get = lambda u, **kw: (
+            _FakeResp(301, {"Location": "https://example.org/"}, "")
+            if not kw.get("allow_redirects", True)
+            else _FakeResp(200, {"Server": "nginx"}, "<html><title>Main Portal</title></html>")
+        )
+        body_redir = ra._stage3_http_probe(pid_scale, "https://sub99.example.org", {}, ScopeGuard("example.org"), lambda _m: None, primary_host="example.org")
+        ra.session.get = orig_sget
+        redir_svc = [s for s in db.get_project_bundle(pid_scale)["http_services"] if "sub99.example.org" in s["url"]]
+        if body_redir != "" or not redir_svc or redir_svc[0]["status_code"] != 301:
+            errors.append(f"[CROSS-HOST REDIRECT CLONE LEAK] {body_redir!r} | {redir_svc}")
+
     return errors
 
 

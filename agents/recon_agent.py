@@ -94,6 +94,7 @@ class ReconSuperAgent:
         self._host_fail_counts: dict[str, int] = {}
         self._dead_hosts: set[str] = set()
         self._host_to_ip: dict[str, str] = {}
+        self._seen_ext_redirects: set[tuple[int, str]] = set()
         _orig_get = self.session.get
         _orig_post = self.session.post
         _orig_head = self.session.head
@@ -795,41 +796,96 @@ class ReconSuperAgent:
             log_fn(f"  [!] Nmap XML parse ogohlantirish: {e}")
 
     # ================= STAGE 3: WEB PROBING & TECH STACK =================
-    def _stage3_http_probe(self, project_id: int, url: str, tls_info: dict, scope: ScopeGuard, log_fn) -> str:
+    def _stage3_http_probe(
+        self,
+        project_id: int,
+        url: str,
+        tls_info: dict,
+        scope: ScopeGuard,
+        log_fn,
+        primary_host: str = "",
+        ip_clone_tracker: dict[tuple[str, str], int] | None = None,
+        domain_ip: str = "",
+        is_hv_host: bool = True,
+    ) -> str:
         self._probe_tls.last_status = 0
         ok, reason = scope.is_in_scope(url)
         if not ok:
             return ""
+        orig_host = ScopeGuard.extract_host(url).lower()
+        p_host = (primary_host or "").strip().lower()
         try:
             resp = self.session.get(url, timeout=(3.5, 5.5), verify=False, allow_redirects=False)
             redirect_note = ""
+            is_cross_host_redirect = False
             if resp.status_code in (301, 302, 303, 307, 308):
                 loc = resp.headers.get("Location", "").strip()
                 if loc:
                     loc_full = urllib.parse.urljoin(url, loc)
+                    loc_host = ScopeGuard.extract_host(loc_full).lower()
                     if scope.is_in_scope(loc_full)[0]:
-                        try:
-                            resp_f = self.session.get(url, timeout=(3.5, 5.5), verify=False, allow_redirects=True)
-                            resp = resp_f
-                        except Exception:
+                        if loc_host and loc_host != orig_host:
+                            self.db.upsert_domain(project_id, loc_host, source="http_redirect")
+                        same_or_canonical_www = (
+                            loc_host == orig_host
+                            or (p_host and orig_host == p_host and loc_host == f"www.{orig_host}")
+                            or (p_host and orig_host == p_host and orig_host == f"www.{loc_host}")
+                        )
+                        if same_or_canonical_www:
+                            try:
+                                resp_f = self.session.get(url, timeout=(3.5, 5.5), verify=False, allow_redirects=True)
+                                final_h = ScopeGuard.extract_host(getattr(resp_f, "url", url)).lower()
+                                if final_h == orig_host or final_h == loc_host:
+                                    resp = resp_f
+                                else:
+                                    is_cross_host_redirect = True
+                                    redirect_note = f"Redirect ({resp.status_code}) -> {getattr(resp_f, 'url', loc_full)[:80]}"
+                            except Exception:
+                                redirect_note = f"Redirect ({resp.status_code}) -> {loc_full[:80]}"
+                                is_cross_host_redirect = True
+                        else:
+                            is_cross_host_redirect = True
                             redirect_note = f"Redirect ({resp.status_code}) -> {loc_full[:80]}"
                     else:
+                        is_cross_host_redirect = True
                         redirect_note = f"External Redirect ({resp.status_code}) -> {loc_full[:80]}"
-                        log_fn(f"  [🔄 EXTERNAL REDIRECT] {url} -> {loc_full} (Scope tashqarisidagi domenga yo'naltirilgan)")
-                        self.db.upsert_finding(
-                            project_id, "SPECTRE-Agent1 (Redirect-Intel)", f"External Domain Redirect Detected ({ScopeGuard.extract_host(url)})",
-                            "Infrastructure / Domain Migration Intelligence", "Info", 0.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
-                            "CWE-601", "A05:2021 - Security Misconfiguration", url,
-                            f"HTTP {resp.status_code} Location: {loc_full}",
-                            "Domen tashqi (scope tashqarisidagi) boshqa domenga HTTP 301/302 orqali yo'naltirilgan.",
-                            "Agar yangi domen ham tashkilotga tegishli bo'lsa, uni Scope ro'yxatiga qo'shing.",
-                        )
+                        ext_key = (project_id, loc_host or loc_full[:60])
+                        with self._cache_lock:
+                            first_ext = ext_key not in self._seen_ext_redirects
+                            if first_ext:
+                                self._seen_ext_redirects.add(ext_key)
+                        if first_ext:
+                            log_fn(f"  [🔄 EXTERNAL REDIRECT] {url} -> {loc_full} (Scope tashqarisidagi domenga yo'naltirilgan)")
+                            self.db.upsert_finding(
+                                project_id, "SPECTRE-Agent1 (Redirect-Intel)", f"External Domain Redirect Detected ({loc_host or ScopeGuard.extract_host(url)})",
+                                "Infrastructure / Domain Migration Intelligence", "Info", 0.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
+                                "CWE-601", "A05:2021 - Security Misconfiguration", url,
+                                f"HTTP {resp.status_code} Location: {loc_full}",
+                                "Domen tashqi (scope tashqarisidagi) boshqa domenga HTTP 301/302 orqali yo'naltirilgan.",
+                                "Agar yangi domen ham tashkilotga tegishli bo'lsa, uni Scope ro'yxatiga qo'shing.",
+                            )
             self._probe_tls.last_status = resp.status_code
             headers = {k: v for k, v in resp.headers.items()}
             headers_l = {k.lower(): v for k, v in headers.items()}
 
-            soup = BeautifulSoup(resp.text[:50000], "html.parser")
-            title = (soup.title.string.strip() if (soup.title and soup.title.string) else "") or redirect_note
+            if not is_cross_host_redirect and resp.status_code == 200 and len(resp.text) < 12000:
+                m_meta = re.search(
+                    r'<meta[^>]+http-equiv=["\']?refresh["\']?[^>]*content=["\']?\s*\d+\s*;\s*url=([^"\'\s>;]+)',
+                    resp.text[:8000],
+                    re.I,
+                )
+                if m_meta:
+                    meta_full = urllib.parse.urljoin(url, m_meta.group(1).strip())
+                    meta_host = ScopeGuard.extract_host(meta_full).lower()
+                    if meta_host and meta_host != orig_host and not (p_host and orig_host == p_host and meta_host == f"www.{orig_host}"):
+                        is_cross_host_redirect = True
+                        redirect_note = f"Meta-Refresh -> {meta_full[:80]}"
+                        if scope.is_in_scope(meta_full)[0]:
+                            self.db.upsert_domain(project_id, meta_host, source="meta_refresh")
+
+            soup = BeautifulSoup(resp.text[:80000], "html.parser")
+            raw_title = soup.title.string.strip() if (soup.title and soup.title.string) else ""
+            title = redirect_note if is_cross_host_redirect and redirect_note else (raw_title or redirect_note)
             server = headers_l.get("server", "")
             powered = headers_l.get("x-powered-by", "")
 
@@ -899,16 +955,42 @@ class ReconSuperAgent:
                 waf = "FortiGuard / DNS Filter"
             elif "cf-ray" in headers_l or "cloudflare" in server.lower():
                 waf = "Cloudflare"
-            elif "x-sucuri-id" in headers_l:
+            elif "x-amz-cf-id" in headers_l or "cloudfront" in server.lower() or "cloudfront" in headers_l.get("via", "").lower():
+                waf = "Amazon CloudFront"
+            elif "x-sucuri-id" in headers_l or "sucuri" in server.lower():
                 waf = "Sucuri"
-            elif "x-iinfo" in headers_l:
+            elif "x-iinfo" in headers_l or "imperva" in server.lower() or "incapsula" in server.lower():
                 waf = "Imperva Incapsula"
-            elif "akamai" in server.lower():
+            elif "akamai" in server.lower() or "x-akamai-transformed" in headers_l:
                 waf = "Akamai"
+            elif "x-fastly-request-id" in headers_l or "fastly" in headers_l.get("via", "").lower():
+                waf = "Fastly"
+            elif "ddos-guard" in server.lower():
+                waf = "DDoS-Guard"
+            elif "qrator" in server.lower():
+                waf = "Qrator"
+
+            if waf and not is_isp_or_fw_block and orig_host:
+                self.db.upsert_domain(project_id, orig_host, cdn_waf=waf)
+
+            # Suppress wildcard/catch-all vhost clones on the same IP for low-priority subdomains
+            if (
+                ip_clone_tracker is not None
+                and not is_hv_host
+                and orig_host != p_host
+                and not is_cross_host_redirect
+                and resp.status_code == 200
+            ):
+                clone_key = (domain_ip or server, title[:60].lower(), len(resp.content) // 2048)
+                with self._cache_lock:
+                    seen_c = ip_clone_tracker.get(clone_key, 0) + 1
+                    ip_clone_tracker[clone_key] = seen_c
+                if seen_c > 2:
+                    return ""
 
             # High-Value Target priority score
-            prio = 15 if is_isp_or_fw_block else 50
-            if not is_isp_or_fw_block:
+            prio = 15 if (is_isp_or_fw_block or is_cross_host_redirect) else 50
+            if not is_isp_or_fw_block and not is_cross_host_redirect:
                 if any(k in url.lower() for k in ("admin", "dev", "stage", "test", "api", "internal", "portal", "auth")):
                     prio += 30
                 if resp.status_code in (200, 401, 403):
@@ -931,7 +1013,7 @@ class ReconSuperAgent:
                 source="http_prober",
             )
             log_fn(f"  [+] HTTP {resp.status_code} | {url} | Title: '{title[:45]}' | Tech: {', '.join(tech) or 'N/A'}")
-            if is_isp_or_fw_block or resp.status_code in (400, 404, 410, 500, 502, 503, 504):
+            if is_isp_or_fw_block or is_cross_host_redirect or resp.status_code in (301, 302, 303, 307, 308, 400, 404, 410, 429, 500, 502, 503, 504):
                 return ""
             return resp.text
         except Exception as e:
@@ -1411,6 +1493,9 @@ class ReconSuperAgent:
                 return 60
 
             probed_domains = set()
+            scanned_app_sigs: dict[tuple, str] = {}
+            tarpitted_ips: set[str] = set()
+            ip_clone_tracker: dict[tuple[str, str], int] = {}
             for pass_num in (1, 2):
                 if pass_num == 2 and recon_mode == "full":
                     self._stage1_dns_enum(project_id, primary_host, scope, log_fn, only_unresolved=True)
@@ -1446,20 +1531,47 @@ class ReconSuperAgent:
                     if project_id in self.abort_flags:
                         return
                     dip = dom_ip_map.get(dom_item, "")
+                    is_hv_dom = _dom_priority(dom_item) >= 90
                     known_pts = open_ports_by_ip.get(dip, set()) | open_ports_by_ip.get(dom_item, set())
                     schemes = ("http", "https") if (80 in known_pts and 443 not in known_pts) else ("https", "http")
                     for sch in schemes:
                         u_cand = f"{sch}://{dom_item}"
-                        h_body = self._stage3_http_probe(project_id, u_cand, tls_info if dom_item == primary_host else {}, scope, log_fn)
+                        h_body = self._stage3_http_probe(
+                            project_id,
+                            u_cand,
+                            tls_info if dom_item == primary_host else {},
+                            scope,
+                            log_fn,
+                            primary_host=primary_host,
+                            ip_clone_tracker=ip_clone_tracker,
+                            domain_ip=dip,
+                            is_hv_host=is_hv_dom,
+                        )
                         if h_body:
                             probe_results[dom_item] = (u_cand, h_body)
                             break
                         if sch == "https" and getattr(self._probe_tls, "last_status", 0) > 0:
                             break
 
-                batch_to_probe = unprobed[:60]
-                for d_p in batch_to_probe:
-                    probed_domains.add(d_p)
+                # Prioritize IP diversity so 500 wildcard subdomains on 1 IP never starve distinct hosts
+                batch_to_probe: list[str] = []
+                ip_seen_batch: dict[str, int] = {}
+                deferred_wildcard: list[str] = []
+                for cand_d in unprobed:
+                    c_ip = dom_ip_map.get(cand_d, "")
+                    if _dom_priority(cand_d) >= 90 or not c_ip or ip_seen_batch.get(c_ip, 0) < 8:
+                        batch_to_probe.append(cand_d)
+                        if c_ip:
+                            ip_seen_batch[c_ip] = ip_seen_batch.get(c_ip, 0) + 1
+                    else:
+                        deferred_wildcard.append(cand_d)
+                    if len(batch_to_probe) >= 60:
+                        break
+                if len(batch_to_probe) < 60:
+                    batch_to_probe.extend(deferred_wildcard[: 60 - len(batch_to_probe)])
+                for d_p in unprobed:
+                    if d_p in batch_to_probe or d_p in deferred_wildcard:
+                        probed_domains.add(d_p)
                 ex_p = concurrent.futures.ThreadPoolExecutor(max_workers=12)
                 futs_p = [ex_p.submit(_fast_probe_host, d_i) for d_i in batch_to_probe]
                 concurrent.futures.wait(futs_p, timeout=35)
@@ -1467,8 +1579,6 @@ class ReconSuperAgent:
 
                 # Phase B: Deep Inspection on top-priority unique live web services (with Smart Clone Deduplication & Tarpit Circuit-Breaker)
                 live_sorted = sorted(probe_results.keys(), key=lambda x: (-_dom_priority(x), x))
-                scanned_app_sigs: dict[tuple, str] = {}
-                tarpitted_ips: set[str] = set()
                 deep_scanned_count = 0
                 for dom in live_sorted[:16]:
                     if project_id in self.abort_flags:
@@ -1493,10 +1603,11 @@ class ReconSuperAgent:
                             tarpitted_ips.add(dip)
                         log_fn(f"  [⚡ Firewall Circuit-Breaker] {dom} ({url}) ulanishni uzdi yoki javob bermayapti (WAF/CSF IP-ban) — sekin modullar o'tkazib yuborildi.")
                         continue
-                    m_title = re.search(r"<title[^>]*>(.*?)</title>", html[:15000], re.I | re.S)
+                    m_title = re.search(r"<title[^>]*>(.*?)</title>", html[:80000], re.I | re.S)
                     t_sig = (m_title.group(1).strip().lower()[:60] if m_title else "")
-                    sc_names = tuple(sorted({s.split("/")[-1].split("?")[0] for s in re.findall(r'src=["\']([^"\']+\.js)', html[:25000])})[:4])
-                    body_sig = "" if (t_sig or sc_names) else hashlib.md5(html[:4096].encode("utf-8", errors="ignore")).hexdigest()[:10]
+                    sc_names = tuple(sorted({s.split("/")[-1].split("?")[0] for s in re.findall(r'src=["\']([^"\']+\.js)', html[:80000])})[:4])
+                    norm_chunk = re.sub(r'nonce=["\'][^"\']*["\']|[0-9a-fA-F]{16,}', "", html[:8192])
+                    body_sig = "" if (t_sig or sc_names) else hashlib.md5(norm_chunk.encode("utf-8", errors="ignore")).hexdigest()[:10]
                     app_sig = (t_sig, sc_names, body_sig)
                     if dom != primary_host and html and app_sig in scanned_app_sigs:
                         log_fn(f"  [⚡ Smart Clone Skip] {dom} ({url}) -> {scanned_app_sigs[app_sig]} bilan bir xil ilova shabloni, takroriy og'ir skan o'tkazib yuborildi.")

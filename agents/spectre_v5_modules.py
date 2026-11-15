@@ -67,12 +67,18 @@ def enrich_asn_and_isp_intel(db, project_id: int, log_fn):
 
 # ================= #2 SSL/TLS DEEP CERTIFICATE & EXPIRY AUDITOR =================
 def audit_ssl_certificates_deep(db, project_id: int, log_fn):
+    import threading
+
     bundle = db.get_project_bundle(project_id)
     https_urls = [s["url"] for s in bundle.get("http_services", []) if s["url"].startswith("https://")]
     if not https_urls:
         return
 
-    log_fn(f"[SPECTRE v5 SSL/TLS Auditor] {len(https_urls)} ta HTTPS servisda sertifikat muddati va imzosi tekshirilmoqda...")
+    log_fn(f"[SPECTRE v5 SSL/TLS Auditor] {len(https_urls[:20])} ta HTTPS servisda sertifikat muddati va imzosi tekshirilmoqda...")
+    tls_lock = threading.Lock()
+    mismatch_items: list[tuple[str, str, str]] = []
+    expired_items: list[tuple[str, str, str]] = []
+    weak_tls_items: list[tuple[str, str, str]] = []
 
     def inspect_cert(url: str):
         parsed = urllib.parse.urlparse(url)
@@ -92,33 +98,15 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
                         now_utc = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
                         days_left = (exp_dt - now_utc).days
                         if days_left < 0:
-                            db.upsert_finding(
-                                project_id, "SPECTRE-v5 (TLS-Audit)", f"Expired SSL/TLS Certificate ({host}:{port})",
-                                "Cryptographic Failure (TLS)", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
-                                "CWE-298", "A02:2021 - Cryptographic Failures", url,
-                                f"Expired on: {not_after_str} ({abs(days_left)} days ago)",
-                                "Serverning SSL/TLS sertifikati muddati tugagan.",
-                                "Let's Encrypt yoki CA orqali SSL sertifikatni yangilang.",
-                            )
+                            with tls_lock:
+                                expired_items.append((f"{host}:{port}", url, f"Expired on {not_after_str} ({abs(days_left)}d ago)"))
                     if tls_ver in ("TLSv1", "TLSv1.1", "SSLv3"):
-                        db.upsert_finding(
-                            project_id, "SPECTRE-v5 (TLS-Audit)", f"Deprecated TLS Protocol Enabled ({tls_ver} on {host}:{port})",
-                            "Cryptographic Failure (TLS)", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
-                            "CWE-326", "A02:2021 - Cryptographic Failures", url,
-                            f"Negotiated Protocol: {tls_ver}",
-                            "Eskirgan TLS protokoli yoqilgan.",
-                            "Faqat TLSv1.2 va TLSv1.3 protokollariga ruxsat bering.",
-                        )
+                        with tls_lock:
+                            weak_tls_items.append((f"{host}:{port}", url, f"Protocol: {tls_ver}"))
         except ssl.SSLCertVerificationError as ssl_err:
             err_msg = str(ssl_err)
-            db.upsert_finding(
-                project_id, "SPECTRE-v5 (TLS-Audit)", f"Untrusted / Self-Signed / Mismatched SSL Certificate ({host}:{port})",
-                "Cryptographic / Certificate Misconfiguration", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
-                "CWE-295", "A02:2021 - Cryptographic Failures", url,
-                f"SSL Verification Error: {err_msg[:160]}",
-                "Serverda o'z-o'ziga imzolangan (Self-Signed), muddati o'tgan yoki boshqa domenga tegishli SSL sertifikat o'rnatilgan.",
-                "Rasmiy CA tomonidan imzolangan va barcha subdomenlarni (SAN) qamrab oluvchi sertifikat o'rnating.",
-            )
+            with tls_lock:
+                mismatch_items.append((f"{host}:{port}", url, err_msg[:140]))
             log_fn(f"  [🔐 TLS ALERT] {url} -> {err_msg[:90]}")
         except Exception:
             pass
@@ -127,6 +115,38 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
     futs = [ex.submit(inspect_cert, u) for u in https_urls[:20]]
     concurrent.futures.wait(futs, timeout=8.0)
     ex.shutdown(wait=False, cancel_futures=True)
+
+    if expired_items:
+        lbl = expired_items[0][0] if len(expired_items) == 1 else f"{len(expired_items)} HTTPS Hosts"
+        ev = " | ".join(f"{hp}: {msg}" for hp, _, msg in expired_items[:8])
+        db.upsert_finding(
+            project_id, "SPECTRE-v5 (TLS-Audit)", f"Expired SSL/TLS Certificate ({lbl})",
+            "Cryptographic Failure (TLS)", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+            "CWE-298", "A02:2021 - Cryptographic Failures", expired_items[0][1],
+            ev, "Serverning SSL/TLS sertifikati muddati tugagan.",
+            "Let's Encrypt yoki CA orqali SSL sertifikatni yangilang.",
+        )
+    if weak_tls_items:
+        lbl = weak_tls_items[0][0] if len(weak_tls_items) == 1 else f"{len(weak_tls_items)} HTTPS Hosts"
+        ev = " | ".join(f"{hp} ({msg})" for hp, _, msg in weak_tls_items[:8])
+        db.upsert_finding(
+            project_id, "SPECTRE-v5 (TLS-Audit)", f"Deprecated TLS Protocol Enabled ({lbl})",
+            "Cryptographic Failure (TLS)", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+            "CWE-326", "A02:2021 - Cryptographic Failures", weak_tls_items[0][1],
+            ev, "Eskirgan TLS protokoli yoqilgan.",
+            "Faqat TLSv1.2 va TLSv1.3 protokollariga ruxsat bering.",
+        )
+    if mismatch_items:
+        lbl = mismatch_items[0][0] if len(mismatch_items) == 1 else f"{len(mismatch_items)} Subdomains"
+        hosts_sample = ", ".join(hp for hp, _, _ in mismatch_items[:8])
+        db.upsert_finding(
+            project_id, "SPECTRE-v5 (TLS-Audit)", f"Untrusted / Self-Signed / Mismatched SSL Certificate ({lbl})",
+            "Cryptographic / Certificate Misconfiguration", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+            "CWE-295", "A02:2021 - Cryptographic Failures", mismatch_items[0][1],
+            f"Affected Hosts ({len(mismatch_items)}): {hosts_sample} | Sample Error: {mismatch_items[0][2]}",
+            "Serverda o'z-o'ziga imzolangan (Self-Signed), muddati o'tgan yoki boshqa domenga tegishli SSL sertifikat o'rnatilgan.",
+            "Rasmiy CA tomonidan imzolangan va barcha subdomenlarni (SAN) qamrab oluvchi sertifikat o'rnating.",
+        )
 
 
 # ================= #3 DOMAIN-AWARE BACKUP & ARCHIVE EXPOSURE AUDITOR =================

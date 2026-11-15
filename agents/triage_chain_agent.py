@@ -254,8 +254,20 @@ class TriageAndChainSuperAgent:
                 log_fn(f"  [CHAIN] {host}: Protocol/Debug + Web Surface zanjiri tuzildi!")
 
         pt_host = proj.get("primary_target", "").lower()
+        cdn_tokens = ("cloudflare", "cloudfront", "akamai", "fastly", "imperva", "incapsula", "sucuri", "ddos-guard", "qrator")
         cf_hosts = [d["domain"] for d in domains if "cloudflare" in str(d.get("cdn_waf", "")).lower()]
-        direct_hosts = [f"{d['domain']} ({d['ip']})" for d in domains if d.get("ip") and "cloudflare" not in str(d.get("cdn_waf", "")).lower()]
+        direct_hosts = []
+        seen_orig_ips: set[str] = set()
+        for d in domains:
+            d_ip = str(d.get("ip") or "").strip()
+            d_cdn = str(d.get("cdn_waf") or "").lower()
+            d_rec = str(d.get("records_json") or "").lower()
+            if not d_ip or d_ip in seen_orig_ips:
+                continue
+            if any(ct in d_cdn or ct in d_rec for ct in cdn_tokens) or "amazon.com" in d_rec and "cloudfront" in str(d.get("cname") or "").lower():
+                continue
+            seen_orig_ips.add(d_ip)
+            direct_hosts.append(f"{d['domain']} ({d_ip})")
         if cf_hosts and direct_hosts and any(pt_host in ch or ch in pt_host for ch in cf_hosts):
             self.db.upsert_bug_chain(
                 project_id,
