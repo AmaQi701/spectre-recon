@@ -157,20 +157,24 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
                 pass
 
     from core.scope_guard import ScopeGuard
-    apex_asset = ScopeGuard.extract_apex_domain(urllib.parse.urlparse(base_url).hostname or base_url)
-    desc_extra = f" | Origin IP Match: {', '.join(matched_origins)}" if matched_origins else ""
-    db.upsert_finding(
-        project_id, "SPECTRE-Predator (Favicon-MMH3)",
-        f"Favicon MurmurHash3 Fingerprint ({fav_hash})" + (f" — {matched_tech}" if matched_tech else ""),
-        "Reconnaissance & Shadow Asset Intelligence",
-        "Medium" if matched_origins else "Info", 5.3 if matched_origins else 0.0,
-        "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-        used_fav_url if matched_origins else apex_asset,
-        f"Sample Favicon: {used_fav_url} | Shodan: {shodan_dork} | Censys: services.http.response.favicons.shodan_hash:{fav_hash}{desc_extra}",
-        "Favicon MurmurHash3 xeshi orqali internet bo'ylab barcha klon/staging serverlar va CDN ortidagi IP manzillarni qidirish mumkin.",
-        "Origin serverlarda asosiy domen favicon faylini ochiq qoldirmang va IP kirishni faqat CDN subnetlariga cheklang.",
-    )
-    return {"hash": fav_hash, "tech": matched_tech, "matched_origins": matched_origins}
+    seen_favs = _SEEN_SOURCEMAPS_BY_PROJ.setdefault(-project_id - 1000, set())
+    fav_key = str(fav_hash)
+    if fav_key not in seen_favs:
+        seen_favs.add(fav_key)
+        apex_asset = ScopeGuard.extract_apex_domain(urllib.parse.urlparse(base_url).hostname or base_url)
+        desc_extra = f" | Origin IP Match: {', '.join(matched_origins)}" if matched_origins else ""
+        db.upsert_finding(
+            project_id, "SPECTRE-Predator (Favicon-MMH3)",
+            f"Favicon MurmurHash3 Fingerprint ({fav_hash})" + (f" — {matched_tech}" if matched_tech else ""),
+            "Reconnaissance & Shadow Asset Intelligence",
+            "Medium" if matched_origins else "Info", 5.3 if matched_origins else 0.0,
+            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
+            used_fav_url if matched_origins else apex_asset,
+            f"Sample Favicon: {used_fav_url} | Shodan: {shodan_dork} | Censys: services.http.response.favicons.shodan_hash:{fav_hash}{desc_extra}",
+            "Favicon MurmurHash3 xeshi orqali internet bo'ylab barcha klon/staging serverlar va CDN ortidagi IP manzillarni qidirish mumkin.",
+            "Origin serverlarda asosiy domen favicon faylini ochiq qoldirmang va IP kirishni faqat CDN subnetlariga cheklang.",
+        )
+    return {"hash": fav_hash, "tech": matched_origins and matched_tech or matched_tech, "matched_origins": matched_origins}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

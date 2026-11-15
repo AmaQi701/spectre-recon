@@ -1009,6 +1009,12 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
     if os.path.isdir(js_cache_d) and os.listdir(js_cache_d):
         scan_dirs.append(js_cache_d)
 
+    seen_secret_vals: set[str] = set()
+    for ex_f in bundle.get("findings", []):
+        if "secret" in str(ex_f.get("category", "")).lower() or "api key" in str(ex_f.get("title", "")).lower():
+            for tok in re.findall(r"[A-Za-z0-9_\-]{20,}", str(ex_f.get("evidence", ""))):
+                seen_secret_vals.add(tok[:48])
+
     for scan_dir in scan_dirs:
         safe_dir = shlex.quote(scan_dir)
         if "trufflehog" in active_ids and agent._find_binary("trufflehog"):
@@ -1019,8 +1025,9 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
                         tobj = json.loads(tl)
                         det = tobj.get("DetectorName", "")
                         raw_s = str(tobj.get("Raw", "")).strip()[:80]
-                        if not det or not raw_s:
+                        if not det or not raw_s or raw_s[:48] in seen_secret_vals:
                             continue
+                        seen_secret_vals.add(raw_s[:48])
                         agent.db.upsert_finding(
                             project_id, "SPECTRE-Agent1 (TruffleHog)", f"[CONFIRMED] TruffleHog Verified Secret: {det}",
                             "Cryptographic / Secret Exposure", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
@@ -1035,9 +1042,14 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
             agent._run_cli(f"gitleaks detect --no-git -s {safe_dir} -r {gl_json}", log_fn, timeout=25, project_id=project_id)
             if os.path.exists(gl_json):
                 try:
-                    for gitem in (json.load(open(gl_json, "r", errors="ignore")) or [])[:15]:
+                    for gitem in (json.load(open(gl_json, "r", errors="ignore")) or [])[:20]:
                         rule_id = gitem.get("RuleID", "Hardcoded-Secret")
-                        f_path = gitem.get("File", scan_dir)
+                        sec_val = str(gitem.get("Secret") or gitem.get("Match") or "").strip()
+                        if sec_val and sec_val[:48] in seen_secret_vals:
+                            continue
+                        if sec_val:
+                            seen_secret_vals.add(sec_val[:48])
+                        f_path = os.path.basename(str(gitem.get("File", scan_dir))) or scan_dir
                         agent.db.upsert_finding(
                             project_id, "SPECTRE-Agent1 (Gitleaks)", f"[CONFIRMED] Gitleaks Secret Leak ({rule_id})",
                             "Cryptographic / Secret Exposure", "High", 8.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",

@@ -82,6 +82,7 @@ class TriageAndChainSuperAgent:
         graph: dict[str, dict] = {}
         sast_sinks: list[dict] = []
 
+        csrf_cookie_tokens = ("xsrf-token", "csrftoken", "_csrf", "csrf_token", "csrf-token", "antiforgery")
         for svc in http_svcs:
             h = self._extract_asset_host(svc.get("url", ""), known_hosts, ip_to_host)
             if not h:
@@ -89,8 +90,9 @@ class TriageAndChainSuperAgent:
             g = graph.setdefault(h, _node())
             g["has_web"] = True
             for ck in json.loads(svc.get("cookies_json") or "[]"):
-                if not ck.get("httponly"):
-                    g["weak_cookies"].append(ck.get("name", "session"))
+                ck_n = str(ck.get("name") or "session")
+                if not ck.get("httponly") and not any(ct in ck_n.lower() for ct in csrf_cookie_tokens):
+                    g["weak_cookies"].append(ck_n)
 
         for pt in ports:
             raw_pt_h = (pt.get("host") or pt.get("ip") or "").strip().lower()
@@ -128,7 +130,7 @@ class TriageAndChainSuperAgent:
             g = graph.setdefault(h, _node())
             if "cors" in tl:
                 g["cors"].append(f)
-            if "cookie" in tl and not g["weak_cookies"]:
+            if "cookie" in tl and not g["weak_cookies"] and not any(ct in tl for ct in csrf_cookie_tokens):
                 g["weak_cookies"].append(f["title"])
             if ("dom xss" in tl or "reflection" in tl or "xss" in tl) and "x-forwarded-host" not in tl:
                 g["xss_sinks"].append(f["title"])

@@ -260,6 +260,21 @@ def run_integrity_gate() -> list[str]:
         if body_redir != "" or not redir_svc or redir_svc[0]["status_code"] != 301:
             errors.append(f"[CROSS-HOST REDIRECT CLONE LEAK] {body_redir!r} | {redir_svc}")
 
+        # CSRF Double-Submit Cookie (XSRF-TOKEN) must NOT trigger HttpOnly false positive
+        db.upsert_http_service(
+            pid_scale,
+            "https://csrf-check.example.org",
+            200,
+            "Portal",
+            "nginx",
+            [],
+            cookies=[{"name": "XSRF-TOKEN", "httponly": False, "secure": True, "samesite": True, "raw": "XSRF-TOKEN=abc; Secure"}],
+        )
+        va._audit_http_services(pid_scale, [s for s in db.get_project_bundle(pid_scale)["http_services"] if "csrf-check" in s["url"]], lambda _m: None)
+        xsrf_fp = [f for f in db.get_project_bundle(pid_scale)["findings"] if "XSRF-TOKEN" in f["title"]]
+        if xsrf_fp:
+            errors.append(f"[CSRF COOKIE FALSE POSITIVE] {xsrf_fp}")
+
     return errors
 
 

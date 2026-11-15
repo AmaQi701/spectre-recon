@@ -1569,9 +1569,8 @@ class ReconSuperAgent:
                         break
                 if len(batch_to_probe) < 60:
                     batch_to_probe.extend(deferred_wildcard[: 60 - len(batch_to_probe)])
-                for d_p in unprobed:
-                    if d_p in batch_to_probe or d_p in deferred_wildcard:
-                        probed_domains.add(d_p)
+                for d_p in batch_to_probe:
+                    probed_domains.add(d_p)
                 ex_p = concurrent.futures.ThreadPoolExecutor(max_workers=12)
                 futs_p = [ex_p.submit(_fast_probe_host, d_i) for d_i in batch_to_probe]
                 concurrent.futures.wait(futs_p, timeout=35)
@@ -1605,7 +1604,21 @@ class ReconSuperAgent:
                         continue
                     m_title = re.search(r"<title[^>]*>(.*?)</title>", html[:80000], re.I | re.S)
                     t_sig = (m_title.group(1).strip().lower()[:60] if m_title else "")
-                    sc_names = tuple(sorted({s.split("/")[-1].split("?")[0] for s in re.findall(r'src=["\']([^"\']+\.js)', html[:80000])})[:4])
+                    if dom != primary_host and t_sig == "telegram web" and "telegram" not in apex_domain.lower() and 10000 <= len(html) <= 25000:
+                        if ("reality_decoy", "telegram_web") not in scanned_app_sigs:
+                            scanned_app_sigs[("reality_decoy", "telegram_web")] = dom
+                            self.db.upsert_finding(
+                                project_id, "SPECTRE-Agent1 (Infra-Intel)", f"VPN / Reality Camouflage Proxy Decoy Detected ({dom})",
+                                "Infrastructure Topology Intelligence", "Info", 0.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
+                                "CWE-200", "A05:2021 - Security Misconfiguration", url,
+                                f"Subdomain serves proxied 'Telegram Web' decoy ({len(html)} bytes) on non-Telegram domain.",
+                                "Xost Xray/VLESS Reality kabi TLS maskirovka (decoy reverse-proxy) sifatida web.telegram.org sahifasini qaytarmoqda.",
+                                "Tashqi proksi tugunlarini asosiy korporativ domen zonasidan alohida domenga ajrating.",
+                            )
+                        log_fn(f"  [⚡ Decoy Proxy Skip] {dom} ({url}) -> 'Telegram Web' TLS maskirovka tuguni, begona JS skan o'tkazib yuborildi.")
+                        continue
+                    raw_scripts = [s.split("/")[-1].split("?")[0] for s in re.findall(r'src=["\']([^"\']+\.js)', html[:80000])]
+                    sc_names = tuple(sorted({re.sub(r"[-_.][A-Za-z0-9_-]{6,16}(?=\.js$)", "", fn) for fn in raw_scripts})[:4])
                     norm_chunk = re.sub(r'nonce=["\'][^"\']*["\']|[0-9a-fA-F]{16,}', "", html[:8192])
                     body_sig = "" if (t_sig or sc_names) else hashlib.md5(norm_chunk.encode("utf-8", errors="ignore")).hexdigest()[:10]
                     app_sig = (t_sig, sc_names, body_sig)

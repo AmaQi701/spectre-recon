@@ -182,6 +182,7 @@ class VulnAssessmentSuperAgent:
 
     def _audit_http_services(self, project_id: int, http_services: list[dict], log_fn):
         seen_header_sigs: set[tuple[str, str]] = set()
+        missing_header_items: list[tuple[str, list[str]]] = []
         seen_cookie_names: set[str] = set()
         seen_cors_templates: set[tuple[str, str, int]] = set()
         cors_dead_hosts: set[str] = set()
@@ -253,19 +254,15 @@ class VulnAssessmentSuperAgent:
             hdr_sig = (svc.get("server", ""), ",".join(missing_headers))
             if missing_headers and hdr_sig not in seen_header_sigs:
                 seen_header_sigs.add(hdr_sig)
-                self.db.upsert_finding(
-                    project_id, "Agent-2 (VulnAudit)", "Missing HTTP Security Hardening Headers",
-                    "Security Misconfiguration", "Low", 3.1, "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:N/A:N",
-                    "CWE-693", "A05:2021 - Security Misconfiguration", url,
-                    f"Yetishmayotgan headerlar: {', '.join(missing_headers)}",
-                    "Veb-server javobida himoya headerlari (CSP, HSTS, XFO, XCTO) sozlanmagan.",
-                    "Nginx/Apache yoki ilova darajasida HSTS, CSP, X-Frame-Options: DENY va X-Content-Type-Options: nosniff qo'shing.",
-                    confidence=QoD.HEADER_CONFIG,
-                )
+                missing_header_items.append((url, missing_headers))
 
+            csrf_ck_tokens = ("xsrf-token", "csrftoken", "_csrf", "csrf_token", "csrf-token", "antiforgery")
+            is_https = url.lower().startswith("https://")
             for ck in cookies:
                 ck_name = str(ck.get("name") or "session")
-                if (not ck.get("httponly") or not ck.get("secure")) and ck_name not in seen_cookie_names:
+                is_csrf_ck = any(ct in ck_name.lower() for ct in csrf_ck_tokens)
+                needs_flag = (is_https and not ck.get("secure")) if is_csrf_ck else (not ck.get("httponly") or (is_https and not ck.get("secure")))
+                if needs_flag and ck_name not in seen_cookie_names:
                     seen_cookie_names.add(ck_name)
                     self.db.upsert_finding(
                         project_id, "Agent-2 (VulnAudit)", f"Insecure Cookie Flags ({ck_name})",
@@ -290,6 +287,27 @@ class VulnAssessmentSuperAgent:
                     "Nginx da 'server_tokens off;' yoki Apache da 'ServerTokens Prod' sozlamasini yoqing.",
                     confidence=QoD.HEADER_CONFIG,
                 )
+
+        if missing_header_items:
+            first_u, first_mh = missing_header_items[0]
+            if len(missing_header_items) == 1:
+                mh_title = "Missing HTTP Security Hardening Headers"
+                mh_ev = f"Yetishmayotgan headerlar: {', '.join(first_mh)}"
+            else:
+                mh_title = f"Missing HTTP Security Hardening Headers ({len(missing_header_items)} Service Profiles)"
+                mh_ev = " | ".join(
+                    f"{urllib.parse.urlparse(u_i).netloc or u_i}: {', '.join(mh_i)}"
+                    for u_i, mh_i in missing_header_items[:6]
+                )
+            self.db.upsert_finding(
+                project_id, "Agent-2 (VulnAudit)", mh_title,
+                "Security Misconfiguration", "Low", 3.1, "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:N/A:N",
+                "CWE-693", "A05:2021 - Security Misconfiguration", first_u,
+                mh_ev,
+                "Veb-server javobida himoya headerlari (CSP, HSTS, XFO, XCTO) sozlanmagan.",
+                "Nginx/Apache yoki ilova darajasida HSTS, CSP, X-Frame-Options: DENY va X-Content-Type-Options: nosniff qo'shing.",
+                confidence=QoD.HEADER_CONFIG,
+            )
         log_fn(f"  [+] {len(http_services)} ta HTTP servis, Server versiyalari va Active CORS Reflection tekshirildi.")
 
     def _audit_open_ports(self, project_id: int, ports: list[dict], log_fn, domains: list[dict] | None = None):
@@ -485,6 +503,16 @@ class VulnAssessmentSuperAgent:
                 if not d.get("cdn_waf"):
                     non_cdn_dom_ip[dom] = dip
 
+        distro_re = re.compile(r"\b(?:ubuntu|debian|deb1[0-3]|rhel|centos|rocky|almalinux|el[7-9])\b", re.I)
+        distro_hosts: set[str] = set()
+        for pt in ports:
+            raw_h = str(pt.get("host") or pt.get("ip") or "").lower()
+            pt_ip = str(pt.get("ip") or "").strip()
+            dh = non_cdn_dom_ip.get(raw_h, "") or pt_ip or ip_to_primary_dom.get(raw_h, raw_h)
+            blob_p = f"{pt.get('version', '')} {pt.get('banner', '')}"
+            if dh and distro_re.search(blob_p):
+                distro_hosts.add(dh)
+
         grouped: dict[tuple[str, str], dict] = {}
 
         for svc in http_services:
@@ -529,17 +557,24 @@ class VulnAssessmentSuperAgent:
                 elif disp_host not in grouped[sig]["vhosts"]:
                     grouped[sig]["vhosts"].append(disp_host)
 
-        for (_, _), item in grouped.items():
+        cve_counts: dict[str, int] = {}
+        for (_, cve_id) in grouped.keys():
+            cve_counts[cve_id] = cve_counts.get(cve_id, 0) + 1
+
+        distro_pkg_prods = {"openssh", "exim", "apache_http_server", "nginx", "postfix", "dovecot", "proftpd", "vsftpd", "mariadb", "postgresql", "php"}
+        for (dedup_h, _), item in grouped.items():
             adv = item["adv"]
             vhosts = item["vhosts"]
             if kb is not None:
                 kb.add_fact("CVE/detected", adv["cve"])
-            bp_note = " [OS Distro Backport Possible — verify dpkg/rpm patch level]" if adv.get("distro_backport_likely") else ""
+            is_bp = bool(adv.get("distro_backport_likely")) or (dedup_h in distro_hosts and adv.get("product") in distro_pkg_prods)
+            bp_note = " [OS Distro Backport Possible — verify dpkg/rpm patch level]" if is_bp else ""
             vh_note = f" | Shared Origin VHosts ({len(vhosts)}): {', '.join(vhosts[:6])}" if len(vhosts) > 1 else ""
-            conf_qod = QoD.HEURISTIC if adv.get("distro_backport_likely") else QoD.BANNER_CVE
+            conf_qod = QoD.HEURISTIC if is_bp else QoD.BANNER_CVE
             src_lbl = "Tarmoq porti" if item["is_port"] else "HTTP servis"
+            host_sfx = f" ({vhosts[0]})" if cve_counts.get(adv["cve"], 0) > 1 and vhosts else ""
             self.db.upsert_finding(
-                project_id, "Agent-2 (CVE-Engine)", f"{adv['title']} [{adv['cve']}]",
+                project_id, "Agent-2 (CVE-Engine)", f"{adv['title']}{host_sfx} [{adv['cve']}]",
                 "Vulnerable & Outdated Components", adv["severity"], adv["cvss"], adv["vector"],
                 adv["cwe"], adv["owasp"], item["primary_asset"],
                 f"CPE: {adv.get('cpe23', '')} | Detected: {adv['product']} {adv['detected_version']} (>= {adv['min']}, < {adv['max']}){bp_note}{vh_note} | Banner: {item['banner']}",
@@ -673,6 +708,19 @@ class VulnAssessmentSuperAgent:
                 "innerHTML/document.write/dangerouslySetInnerHTML o'rniga textContent ishlating yoki DOMPurify orqali sanitizatsiya qiling.",
                 confidence=QoD.STATIC_SAST,
             )
+
+        existing_sec_tokens: set[str] = set()
+        for ex_f in self.db.get_project_bundle(project_id).get("findings", []):
+            if "secret" in str(ex_f.get("category", "")).lower() or "api key" in str(ex_f.get("title", "")).lower():
+                for tok in re.findall(r"[A-Za-z0-9_\-]{20,}", str(ex_f.get("evidence", ""))):
+                    existing_sec_tokens.add(tok[:48])
+
+        filtered_secret_bundles = []
+        for fn, js_u, secrets in secret_bundles:
+            novel_s = [s for s in secrets if not any(tok[:48] in existing_sec_tokens for tok in re.findall(r"[A-Za-z0-9_\-]{20,}", str(s)))]
+            if novel_s:
+                filtered_secret_bundles.append((fn, js_u, novel_s))
+        secret_bundles = filtered_secret_bundles
 
         if len(secret_bundles) == 1:
             fname, js_u, secrets = secret_bundles[0]
