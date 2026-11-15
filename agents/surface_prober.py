@@ -17,7 +17,7 @@ if urllib3_disable:
     urllib3_disable.disable_warnings()
 
 
-# ================= #7 FAVICON MURMURHASH3 (SHODAN COMPATIBLE) =================
+# --- 3 (SHODAN COMPATIBLE) ---
 FAVICON_SIGNATURES = {
     116323821: "Spring Boot",
     81586312: "Jenkins",
@@ -101,7 +101,7 @@ def fingerprint_favicon(session, base_url: str, db, project_id: int, log_fn) -> 
     return None, ""
 
 
-# ================= #1 NON-STANDARD WEB PORT PROBER =================
+# --- -STANDARD WEB PORT PROBER ---
 WEB_CANDIDATE_PORTS = {
     81, 1500, 1501, 2083, 2087, 3000, 4443, 5000, 5601, 7001, 8000, 8006, 8008, 8080, 8081,
     8083, 8086, 8087, 8088, 8090, 8181, 8443, 8444, 8880, 8888, 9000, 9001, 9080, 9090, 9200, 9443, 9999, 10000
@@ -175,7 +175,7 @@ def probe_nonstandard_web_ports(db, session, project_id: int, log_fn):
     ex_pw.shutdown(wait=False, cancel_futures=True)
 
 
-# ================= #2 VHOST & ORIGIN IP HUNTER =================
+# ---   ---
 VHOST_PREFIXES = ["admin", "internal", "dev", "stage", "test", "api", "backend", "cp", "panel", "crm", "erp", "old", "git"]
 
 
@@ -246,7 +246,7 @@ def hunt_virtual_hosts(db, session, project_id: int, apex_domain: str, log_fn):
         ex.shutdown(wait=False, cancel_futures=True)
 
 
-# ================= #4 CLOUD STORAGE, UPLOAD & OPEN DIRECTORY HUNTER =================
+# --- , UPLOAD & OPEN DIRECTORY HUNTER ---
 def hunt_cloud_and_storage_buckets(db, session, project_id: int, apex_domain: str, log_fn):
     bundle = db.get_project_bundle(project_id)
     domains = bundle.get("domains", [])
@@ -287,7 +287,7 @@ def hunt_cloud_and_storage_buckets(db, session, project_id: int, apex_domain: st
 
 
 
-# ================= #5 BADSECRETS (JWT/HMAC CRACKER) & CROSS-SUBDOMAIN COOKIE SCOPE =================
+# --- (JWT/HMAC CRACKER) & CROSS-SUBDOMAIN COOKIE SCOPE ---
 WEAK_SECRETS = [
     "secret", "123456", "12345678", "password", "admin", "jwt_secret", "changeme",
     "key", "supersecret", "laravel", "django", "secretkey", "mysecret", "test", "dev", "default"
@@ -328,7 +328,7 @@ def analyze_badsecrets_and_cookies(db, project_id: int, apex_domain: str, log_fn
 
 
 
-# ================= #8 CUSTOM WORDLIST & PARAMETER MINER =================
+# ---   ---
 def build_custom_wordlist_and_params(db, project_id: int, apex_domain: str, log_fn) -> str:
     bundle = db.get_project_bundle(project_id)
     words = set()
@@ -349,7 +349,8 @@ def build_custom_wordlist_and_params(db, project_id: int, apex_domain: str, log_
         for p in json.loads(j.get("params_json") or "[]"):
             params.add(p)
 
-    w_dir = Path("/home/amaqi/projects/apex-pentest-gui/workspaces")
+    w_dir = Path(__file__).resolve().parent.parent / "workspaces"
+    w_dir.mkdir(parents=True, exist_ok=True)
     w_path = w_dir / f"project_{project_id}_custom_wordlist.txt"
     combined = sorted(words | params)
     w_path.write_text("\n".join(combined), encoding="utf-8")
@@ -357,7 +358,7 @@ def build_custom_wordlist_and_params(db, project_id: int, apex_domain: str, log_
     return str(w_path)
 
 
-# ================= #9 CORPORATE EMAIL & OSINT HARVESTER =================
+# ---   ---
 def harvest_emails_and_osint(db, project_id: int, apex_domain: str, text_blobs: list[str], log_fn):
     email_regex = re.compile(rf"[a-zA-Z0-9._%+\-]+@(?:[a-zA-Z0-9\-]+\.)*{re.escape(apex_domain)}", re.IGNORECASE)
     found_emails = set()
@@ -377,7 +378,7 @@ def harvest_emails_and_osint(db, project_id: int, apex_domain: str, text_blobs: 
         log_fn(f"  [📧 OSINT EMAILS] {len(sorted_em)} ta korporativ email topildi: {', '.join(sorted_em[:6])}")
 
 
-# ================= #3 INCREMENTAL DIFFING ENGINE (PERSISTENT SQLITE SNAPSHOTS) =================
+# --- (PERSISTENT SQLITE SNAPSHOTS) ---
 def take_recon_snapshot(db, project_id: int) -> dict:
     prev = db.get_latest_snapshot(project_id) if hasattr(db, "get_latest_snapshot") else None
     if prev:
@@ -419,7 +420,7 @@ def log_incremental_diff(before: dict, db, project_id: int, log_fn):
 
 
 
-# ================= #10 PENTESTING TASK TREE (PTT) & TARGET DOSSIER =================
+# --- (PTT) & TARGET DOSSIER ---
 def build_target_dossier(db, project_id: int, selected_domain: str = "") -> str:
     b = db.get_project_bundle(project_id)
     domains = b.get("domains", [])
@@ -525,7 +526,7 @@ def build_target_dossier(db, project_id: int, selected_domain: str = "") -> str:
     return "\n".join(lines)
 
 
-# ================= #3 API VERSION SHADOW TWINS & WAYBACK GHOST PROBER =================
+# ---   ---
 def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn, session: requests.Session | None = None):
     bundle = db.get_project_bundle(project_id)
     endpoints = bundle.get("endpoints", [])
@@ -626,7 +627,7 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn, session:
     ex.shutdown(wait=False, cancel_futures=True)
 
 
-# ================= #5A & #6B AUTH PORTAL CLASSIFIER & MASS-ASSIGNMENT SCHEMA =================
+# --- #6B AUTH PORTAL CLASSIFIER & MASS-ASSIGNMENT SCHEMA ---
 DEFAULT_STUB_TITLES = ("welcome to nginx", "domain default page", "apache2 ubuntu default page", "404 not found", "403 forbidden")
 
 

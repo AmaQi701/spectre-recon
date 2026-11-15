@@ -1,5 +1,5 @@
 """
-SPECTRE v12.0 Titan — Headless V8 DOM, IPv6 Dual-Stack, CSP Nonce, UDP & WASM Intelligence
+SPECTRE v3.0 — Headless V8 DOM, IPv6 Dual-Stack, CSP Nonce, UDP & WASM Modules
 """
 
 from __future__ import annotations
@@ -24,9 +24,7 @@ from bs4 import BeautifulSoup
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 1. HEADLESS CHROME V8 RUNTIME DOM & LAZY-ROUTE INTERCEPTOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def headless_chrome_dom_and_route_renderer(db, session, project_id: int, base_url: str, js_urls: list[str], log_fn) -> int:
     chrome_bin = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
@@ -100,9 +98,7 @@ def headless_chrome_dom_and_route_renderer(db, session, project_id: int, base_ur
     return new_discoveries
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 2. DUAL-STACK IPV6 (AAAA) RESOLVER & ORIGIN WAF-BYPASS PROBER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def resolve_and_probe_ipv6_dual_stack(db, session, project_id: int, apex_domain: str, primary_host: str, log_fn) -> int:
     bundle = db.get_project_bundle(project_id)
@@ -164,9 +160,7 @@ def resolve_and_probe_ipv6_dual_stack(db, session, project_id: int, apex_domain:
     return ipv6_hits
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 3. DEEP CSP DIRECTIVE MINER & STATIC NONCE REUSE AUDITOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def audit_csp_deep_and_static_nonce(db, session, project_id: int, base_url: str, apex_domain: str, log_fn) -> int:
     nonce_re = re.compile(r"'nonce-([A-Za-z0-9+/=_\-]{6,})'")
@@ -221,9 +215,7 @@ def audit_csp_deep_and_static_nonce(db, session, project_id: int, base_url: str,
     return issues
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 4. CORPORATE BGPVIEW ASN & MULTI-SIGNAL BACKEND CORRELATOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def build_corporate_org_and_backend_correlation_graph(db, session, project_id: int, apex_domain: str, log_fn) -> dict[str, Any]:
     bundle = db.get_project_bundle(project_id)
@@ -260,9 +252,7 @@ def build_corporate_org_and_backend_correlation_graph(db, session, project_id: i
     return shared_backends
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 5. CALIBRATED SEMANTIC REST API ENDPOINT PREDICTOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def predict_and_verify_semantic_rest_endpoints(db, session, project_id: int, base_url: str, log_fn) -> int:
     bundle = db.get_project_bundle(project_id)
@@ -320,9 +310,7 @@ def predict_and_verify_semantic_rest_endpoints(db, session, project_id: int, bas
     return len(verified_preds)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 6. NON-ROOT PURE-PYTHON UDP SERVICE INSPECTOR (161/SNMP & 123/NTP)
-# ══════════════════════════════════════════════════════════════════════════════
 
 SNMP_PUBLIC_SYSDESCR_PKT = bytes.fromhex("302902010104067075626c6963a01c02041a2b3c4d020100020100300e300c06082b060102010101000500")
 NTP_MODE3_PKT = b"\x1b" + (47 * b"\x00")
@@ -376,9 +364,7 @@ def probe_udp_services_safe(db, project_id: int, log_fn) -> int:
     return hits
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 7. WEBASSEMBLY (.WASM) BINARY STRING EXTRACTOR & SERVER-TIMING MINER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def analyze_wasm_binaries_and_server_timing(db, session, project_id: int, base_url: str, js_urls: list[str], log_fn) -> int:
     hits = 0
@@ -439,25 +425,21 @@ def analyze_wasm_binaries_and_server_timing(db, session, project_id: int, base_u
     return hits
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# MASTER ORCHESTRATOR FOR ALL SPECTRE v12.0 TITAN MODULES
-# ══════════════════════════════════════════════════════════════════════════════
-
 from core.plugin_runner import ScanPhase, run_plugin_safely
 
 
-def run_v12_titan_suite(agent, project_id: int, apex_domain: str, primary_host: str, base_url: str, js_urls: list[str], log_fn) -> None:
-    log_fn(f"  [🔱 SPECTRE v12.0 TITAN] {base_url} ustida Headless V8, IPv6, CSP Nonce, Semantic API, UDP va WASM modullari ishga tushirildi...")
+def run_runtime_network_suite(agent, project_id: int, apex_domain: str, primary_host: str, base_url: str, js_urls: list[str], log_fn) -> None:
+    log_fn(f"  [Runtime-Network-Suite] {base_url} ustida Headless V8, CSP Nonce, Semantic REST va WASM modullari ishga tushirildi...")
     db = agent.db
     session = agent.session
 
-    run_plugin_safely(db, project_id, "v12_headless_v8", headless_chrome_dom_and_route_renderer, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
-    run_plugin_safely(db, project_id, "v12_csp_nonce", audit_csp_deep_and_static_nonce, db, session, project_id, base_url, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
-    run_plugin_safely(db, project_id, "v12_semantic_rest", predict_and_verify_semantic_rest_endpoints, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
-    run_plugin_safely(db, project_id, "v12_wasm_timing", analyze_wasm_binaries_and_server_timing, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "rt_headless_v8", headless_chrome_dom_and_route_renderer, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "rt_csp_nonce", audit_csp_deep_and_static_nonce, db, session, project_id, base_url, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+    run_plugin_safely(db, project_id, "rt_semantic_rest", predict_and_verify_semantic_rest_endpoints, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+    run_plugin_safely(db, project_id, "rt_wasm_timing", analyze_wasm_binaries_and_server_timing, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
     if urllib.parse.urlparse(base_url).hostname == primary_host.split(":")[0].lower():
-        run_plugin_safely(db, project_id, "v12_backend_correlator", build_corporate_org_and_backend_correlation_graph, db, session, project_id, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_END)
-    db.log_task(project_id, "SPECTRE-v12", "v12_titan_suite", "COMPLETED", f"v12_suite {base_url}", f"Executed v12 Titan Intelligence Suite on {base_url}")
+        run_plugin_safely(db, project_id, "rt_backend_correlator", build_corporate_org_and_backend_correlation_graph, db, session, project_id, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_END)
+    db.log_task(project_id, "SPECTRE-Runtime", "runtime_network_suite", "COMPLETED", f"runtime_suite {base_url}", f"Executed Runtime & Network Suite on {base_url}")
 
 
 

@@ -1,5 +1,5 @@
 """
-SPECTRE v11.0 — Apex Enterprise Intelligence & Schema Synthesis Modules
+SPECTRE v3.0 — IAM/OIDC Discovery, OpenAPI Schema Synthesis & DOM Clustering
 """
 
 from __future__ import annotations
@@ -14,9 +14,7 @@ from typing import Any
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 1. KEYCLOAK / OIDC IAM REALM & DISCOVERY MAPPER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def map_iam_and_keycloak_realms(db, session, project_id: int, base_url: str, log_fn) -> int:
     bundle = db.get_project_bundle(project_id)
@@ -68,9 +66,7 @@ def map_iam_and_keycloak_realms(db, session, project_id: int, base_url: str, log
     return mapped
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 2. OPENAPI / SWAGGER $REF SCHEMA PARAMETER & BODY SYNTHESIZER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def resolve_openapi_schema_refs(db, session, project_id: int, base_url: str, log_fn) -> int:
     doc_paths = ("/v3/api-docs", "/v2/api-docs", "/openapi.json", "/swagger.json", "/api/openapi.json")
@@ -145,9 +141,7 @@ def resolve_openapi_schema_refs(db, session, project_id: int, base_url: str, log
     return synthesized
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 3. STRUCTURAL DOM FINGERPRINTING & SUBDOMAIN CLUSTERING
-# ══════════════════════════════════════════════════════════════════════════════
 
 def cluster_subdomains_by_dom_structure(db, session, project_id: int, log_fn) -> dict[str, list[str]]:
     bundle = db.get_project_bundle(project_id)
@@ -189,9 +183,7 @@ def cluster_subdomains_by_dom_structure(db, session, project_id: int, log_fn) ->
     return clusters
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 4. WEBPACK / VITE LAZY-LOADED CHUNK HASH PREDICTOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def predict_and_fetch_webpack_chunks(db, session, project_id: int, base_url: str, js_urls: list[str], log_fn) -> list[str]:
     map_re = re.compile(r"\{((?:\s*['\"]?[a-zA-Z0-9_\-]+['\"]?\s*:\s*['\"][a-f0-9]{6,20}['\"]\s*,?){2,40})\}")
@@ -236,9 +228,7 @@ def predict_and_fetch_webpack_chunks(db, session, project_id: int, base_url: str
     return found_chunks
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 5. INTERNATIONALIZATION (i18n / LOCALES JSON) FEATURE & ADMIN MINER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def mine_i18n_translation_dictionaries(db, session, project_id: int, base_url: str, log_fn) -> list[str]:
     i18n_paths = [
@@ -282,9 +272,7 @@ def mine_i18n_translation_dictionaries(db, session, project_id: int, base_url: s
     return sorted(discovered_keys)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 6. LOAD-BALANCER NODE, CLOCK SKEW & ETAG INODE FINGERPRINTER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def fingerprint_load_balancer_and_etag(db, session, project_id: int, base_url: str, log_fn) -> dict[str, Any]:
     etags: list[str] = []
@@ -320,9 +308,7 @@ def fingerprint_load_balancer_and_etag(db, session, project_id: int, base_url: s
     return {"etags": etags, "upstreams": sorted(upstreams)}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 7. CORS PREFLIGHT (OPTIONS) ALLOWED-METHODS & CUSTOM-HEADERS HARVESTER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def harvest_cors_preflight_capabilities(db, session, project_id: int, base_url: str, log_fn) -> dict[str, list[str]]:
     custom_headers: set[str] = set()
@@ -373,9 +359,7 @@ def harvest_cors_preflight_capabilities(db, session, project_id: int, base_url: 
     return {"custom_headers": sorted(custom_headers), "methods": sorted(allowed_methods)}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 8. SMART SCOPE EXPANSION RECOMMENDER (RELATED APEX / SISTER DOMAINS)
-# ══════════════════════════════════════════════════════════════════════════════
 
 def discover_related_sister_domains(db, project_id: int, apex_domain: str, log_fn) -> list[str]:
     from core.scope_guard import ScopeGuard
@@ -412,12 +396,8 @@ def discover_related_sister_domains(db, project_id: int, apex_domain: str, log_f
     return sorted(sister_apexes)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# MASTER ORCHESTRATOR FOR ALL 8 SPECTRE v11.0 APEX MODULES
-# ══════════════════════════════════════════════════════════════════════════════
-
-def run_v11_apex_suite(agent, project_id: int, apex_domain: str, base_url: str, js_urls: list[str], log_fn) -> None:
-    log_fn(f"  [👑 SPECTRE v11.0 APEX] {base_url} ustida 8 ta intellektual sxema va klaster moduli ishga tushirildi...")
+def run_schema_iam_suite(agent, project_id: int, apex_domain: str, base_url: str, js_urls: list[str], log_fn) -> None:
+    log_fn(f"  [Schema-IAM-Suite] {base_url} ustida 8 ta IAM, OpenAPI va klaster moduli ishga tushirildi...")
     db = agent.db
     session = agent.session
 
@@ -433,10 +413,10 @@ def run_v11_apex_suite(agent, project_id: int, apex_domain: str, base_url: str, 
     mine_i18n_translation_dictionaries(db, session, project_id, base_url, log_fn)
     fingerprint_load_balancer_and_etag(db, session, project_id, base_url, log_fn)
     harvest_cors_preflight_capabilities(db, session, project_id, base_url, log_fn)
-    if "v11_sister_domains" not in proj_done:
-        proj_done.add("v11_sister_domains")
+    if "sister_domains" not in proj_done:
+        proj_done.add("sister_domains")
         discover_related_sister_domains(db, project_id, apex_domain, log_fn)
-    db.log_task(project_id, "SPECTRE-v11", "v11_apex_suite", "COMPLETED", f"v11_suite {base_url}", f"Executed 8 v11 Apex Intelligence modules on {base_url}")
+    db.log_task(project_id, "SPECTRE-SchemaIAM", "schema_iam_suite", "COMPLETED", f"schema_suite {base_url}", f"Executed 8 schema/IAM modules on {base_url}")
 
 
 

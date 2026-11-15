@@ -8,13 +8,14 @@ from core.database import DatabaseManager
 
 class TriageAndChainSuperAgent:
     """
-    3-SuperAgent (v13.0): Asset-Bound Attack Graph Correlation, Triage & Report Studio.
+    3-SuperAgent (SPECTRE v3.0): Asset-Bound Attack Graph Correlation, Triage & Report Studio.
     Correlates findings, cookies, ports, JS sinks, and API routes per exact host/origin.
     """
 
-    def __init__(self, db: DatabaseManager, reports_dir: str = "/home/amaqi/projects/apex-pentest-gui/reports"):
+    def __init__(self, db: DatabaseManager, reports_dir: str | Path | None = None):
         self.db = db
-        self.reports_dir = Path(reports_dir)
+        default_rep = Path(__file__).resolve().parent.parent / "reports"
+        self.reports_dir = Path(reports_dir) if reports_dir else default_rep
         self.reports_dir.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
@@ -383,7 +384,7 @@ class TriageAndChainSuperAgent:
             for ch in chains
         )
         html_content = f"""<!DOCTYPE html>
-<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v14.0 NASL-Titan Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
+<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v3.0 Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
 <style>
 body {{ font-family: "Inter", system-ui, sans-serif; background: #090c0a; color: #e2e8f0; padding: 32px; }}
 h1, h2 {{ color: #4ade80; border-bottom: 1px solid #1b2a21; padding-bottom: 8px; }}
@@ -392,7 +393,7 @@ th, td {{ border: 1px solid #1b2a21; padding: 10px 12px; text-align: left; font-
 th {{ background: #13281c; color: #4ade80; font-weight: 700; }}
 code {{ color: #86efac; background: #080b09; padding: 2px 6px; border-radius: 4px; }}
 </style></head><body>
-<h1>SPECTRE v14.0 NASL-Titan — Security &amp; Attack Surface Audit Report: {_html.escape(str(proj.get('name', '')))}</h1>
+<h1>SPECTRE v3.0 — Security &amp; Attack Surface Audit Report: {_html.escape(str(proj.get('name', '')))}</h1>
 <p><b>Primary Target:</b> <code>{_html.escape(str(proj.get('primary_target', '')))}</code> | <b>In-Scope:</b> <code>{_html.escape(str(proj.get('in_scope', '')))}</code></p>
 <h2>🔗 Zaifliklar Zanjiri (Bug Chaining Scenarios — {len(chains)})</h2>
 <table><thead><tr><th>Severity / CVSS</th><th>Zanjir Nomi va Bosqichlari</th><th>Hujum Ssenariysi</th><th>Remediation</th></tr></thead>

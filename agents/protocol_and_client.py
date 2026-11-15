@@ -1,5 +1,5 @@
 """
-SPECTRE v10.0 — Deep Architecture, Protocol & Structural Intelligence Modules
+SPECTRE v3.0 — Protocol, Cache, VCS & Client-State Analysis Modules
 """
 
 from __future__ import annotations
@@ -15,9 +15,7 @@ import dns.resolver
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 1. VCS (.git/config & .git/logs/HEAD) METADATA & COMMIT HISTORY PARSER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def audit_vcs_metadata_exposure(db, session, project_id: int, base_url: str, log_fn) -> int:
     hits = 0
@@ -66,9 +64,7 @@ def audit_vcs_metadata_exposure(db, session, project_id: int, base_url: str, log
     return hits
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 2. STATIC DIRECTORY INDEXING & SERVER HEADER CONFIGURATION AUDITOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def audit_static_routing_headers(db, session, project_id: int, base_url: str, log_fn) -> int:
     prefixes = ("/static/", "/assets/", "/media/", "/uploads/", "/public/", "/files/")
@@ -95,9 +91,7 @@ def audit_static_routing_headers(db, session, project_id: int, base_url: str, lo
     return issues
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 3. GRPC-WEB & PROTOBUF SERVICE/METHOD DESCRIPTOR EXTRACTOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def extract_grpc_and_protobuf_schemas(db, session, project_id: int, base_url: str, js_urls: list[str], log_fn) -> list[str]:
     grpc_methods: set[str] = set()
@@ -136,9 +130,7 @@ def extract_grpc_and_protobuf_schemas(db, session, project_id: int, base_url: st
     return sorted(grpc_methods)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 4. CLIENT-SIDE POSTMESSAGE BRACE-BALANCED AST HANDLER ANALYZER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def _extract_brace_block(text: str, start_idx: int, max_len: int = 1800) -> str:
     brace_pos = text.find("{", start_idx)
@@ -192,9 +184,7 @@ def analyze_postmessage_handlers(db, session, project_id: int, base_url: str, js
     return issues
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 5. WEB CACHE POLICY, VARY HEADER & STATIC-EXTENSION CACHE AUDITOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def audit_cache_policy_and_headers(db, session, project_id: int, base_url: str, log_fn) -> int:
     issues = 0
@@ -246,9 +236,7 @@ def audit_cache_policy_and_headers(db, session, project_id: int, base_url: str, 
     return issues
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 6. RECURSIVE DNS SPF LOOKUP-TREE & DMARC POLICY VALIDATOR (RFC-7208)
-# ══════════════════════════════════════════════════════════════════════════════
 
 def validate_spf_dmarc_recursive(db, project_id: int, apex_domain: str, log_fn) -> dict[str, Any]:
     resolver = dns.resolver.Resolver()
@@ -341,9 +329,7 @@ def validate_spf_dmarc_recursive(db, project_id: int, apex_domain: str, log_fn) 
     return {"spf_lookups": total_lookups, "issues": issues}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 7. SERVICE WORKER (sw.js / Workbox / Angular ngsw.json) ROUTE HARVESTER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def parse_service_worker_manifests(db, session, project_id: int, base_url: str, log_fn) -> list[str]:
     sw_paths = ("/sw.js", "/service-worker.js", "/ngsw.json", "/manifest.json", "/manifest.webmanifest", "/asset-manifest.json")
@@ -392,9 +378,7 @@ def parse_service_worker_manifests(db, session, project_id: int, base_url: str, 
     return sorted(discovered_routes)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 8. HTTP/3 (ALT-SVC) & REVERSE-PROXY TOPOLOGY MAPPER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def inspect_http_protocol_and_proxy_topology(db, session, project_id: int, base_url: str, log_fn) -> dict[str, Any]:
     topo: dict[str, str] = {}
@@ -422,9 +406,7 @@ def inspect_http_protocol_and_proxy_topology(db, session, project_id: int, base_
     return topo
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 9. OAUTH 2.0 / OIDC STATE, PKCE & IMPLICIT FLOW AUDITOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def audit_oauth_oidc_parameters(db, project_id: int, base_url: str, log_fn) -> int:
     bundle = db.get_project_bundle(project_id)
@@ -466,9 +448,7 @@ def audit_oauth_oidc_parameters(db, project_id: int, base_url: str, log_fn) -> i
     return issues
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 10. CROSS-DOMAIN ANALYTICS & TAG ID (GTM / GA / METRIKA) CORRELATOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def correlate_analytics_and_tag_ids(db, session, project_id: int, base_url: str, js_urls: list[str], log_fn) -> dict[str, list[str]]:
     patterns = {
@@ -506,9 +486,7 @@ def correlate_analytics_and_tag_ids(db, session, project_id: int, base_url: str,
     return clean_map
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 11. HTTP RANGE (BYTES=0-63) ARCHIVE MAGIC-BYTE SIGNATURE VERIFIER
-# ══════════════════════════════════════════════════════════════════════════════
 
 ARCHIVE_SIGNATURES: list[tuple[bytes, str]] = [
     (b"PK\x03\x04", "ZIP Archive"),
@@ -567,9 +545,7 @@ def verify_archive_magic_bytes_range(db, session, project_id: int, apex_domain: 
     return verified
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 12. CLIENT-SIDE WEB STORAGE (LOCALSTORAGE / SESSIONSTORAGE / INDEXEDDB) MAPPER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def extract_client_storage_keys_and_checks(db, session, project_id: int, base_url: str, js_urls: list[str], log_fn) -> list[str]:
     storage_re = re.compile(r"""(?:localStorage|sessionStorage)\.(?:getItem|setItem)\s*\(\s*['"]([a-zA-Z0-9_\-\.]{2,45})['"]\s*[,)]""")
@@ -612,12 +588,8 @@ def extract_client_storage_keys_and_checks(db, session, project_id: int, base_ur
     return sorted(keys)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# MASTER ORCHESTRATOR FOR ALL 12 SPECTRE v10.0 MODULES
-# ══════════════════════════════════════════════════════════════════════════════
-
-def run_v10_enterprise_suite(agent, project_id: int, apex_domain: str, base_url: str, js_urls: list[str], log_fn) -> None:
-    log_fn(f"  [⚡ SPECTRE v10.0] {base_url} ustida 12 ta chuqur arxitektura va protokol moduli ishga tushirildi...")
+def run_protocol_client_suite(agent, project_id: int, apex_domain: str, base_url: str, js_urls: list[str], log_fn) -> None:
+    log_fn(f"  [Protocol-Client-Suite] {base_url} ustida 12 ta arxitektura va protokol moduli ishga tushirildi...")
     db = agent.db
     session = agent.session
 
@@ -632,8 +604,8 @@ def run_v10_enterprise_suite(agent, project_id: int, apex_domain: str, base_url:
     extract_grpc_and_protobuf_schemas(db, session, project_id, base_url, js_urls, log_fn)
     analyze_postmessage_handlers(db, session, project_id, base_url, js_urls, log_fn)
     audit_cache_policy_and_headers(db, session, project_id, base_url, log_fn)
-    if "v10_spf_dmarc" not in proj_done:
-        proj_done.add("v10_spf_dmarc")
+    if "spf_dmarc_audit" not in proj_done:
+        proj_done.add("spf_dmarc_audit")
         validate_spf_dmarc_recursive(db, project_id, apex_domain, log_fn)
     parse_service_worker_manifests(db, session, project_id, base_url, log_fn)
     inspect_http_protocol_and_proxy_topology(db, session, project_id, base_url, log_fn)
@@ -641,7 +613,7 @@ def run_v10_enterprise_suite(agent, project_id: int, apex_domain: str, base_url:
     correlate_analytics_and_tag_ids(db, session, project_id, base_url, js_urls, log_fn)
     verify_archive_magic_bytes_range(db, session, project_id, apex_domain, base_url, log_fn)
     extract_client_storage_keys_and_checks(db, session, project_id, base_url, js_urls, log_fn)
-    db.log_task(project_id, "SPECTRE-v10", "v10_enterprise_suite", "COMPLETED", f"v10_suite {base_url}", f"Executed 12 v10 Deep Architecture modules on {base_url}")
+    db.log_task(project_id, "SPECTRE-Protocol", "protocol_client_suite", "COMPLETED", f"protocol_suite {base_url}", f"Executed 12 protocol/client modules on {base_url}")
 
 
 

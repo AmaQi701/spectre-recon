@@ -1,8 +1,8 @@
 """
-SPECTRE v12.3 — Automated AST, Signature, Schema & Runtime Integrity Gate
-=========================================================================
-Run before every commit to guarantee zero hallucinated keys, zero mismatched
-function signatures, zero deprecated calls, and 49/49 tool readiness.
+SPECTRE v3.0 — Automated AST, Signature, Schema & Runtime Integrity Gate
+========================================================================
+Run before every commit to guarantee zero invalid keys, zero mismatched
+function signatures, zero hardcoded developer paths, and 49/49 tool readiness.
 """
 
 from __future__ import annotations
@@ -24,23 +24,23 @@ from agents.recon_agent import ReconSuperAgent
 from agents.vuln_agent import VulnAssessmentSuperAgent
 from agents.triage_chain_agent import TriageAndChainSuperAgent
 from agents import (
-    spectre_deep_modules,
-    spectre_v5_modules,
-    spectre_ultra_modules,
-    spectre_predator_modules,
-    spectre_v10_modules,
-    spectre_v11_modules,
-    spectre_v12_modules,
+    active_web_auditor,
+    cli_orchestrator,
+    origin_and_spa,
+    protocol_and_client,
+    runtime_and_network,
+    schema_and_iam,
+    surface_prober,
 )
 
 MODULE_MAP = {
-    "spectre_deep_modules": spectre_deep_modules,
-    "spectre_v5_modules": spectre_v5_modules,
-    "spectre_ultra_modules": spectre_ultra_modules,
-    "spectre_predator_modules": spectre_predator_modules,
-    "spectre_v10_modules": spectre_v10_modules,
-    "spectre_v11_modules": spectre_v11_modules,
-    "spectre_v12_modules": spectre_v12_modules,
+    "surface_prober": surface_prober,
+    "cli_orchestrator": cli_orchestrator,
+    "origin_and_spa": origin_and_spa,
+    "active_web_auditor": active_web_auditor,
+    "protocol_and_client": protocol_and_client,
+    "schema_and_iam": schema_and_iam,
+    "runtime_and_network": runtime_and_network,
 }
 
 
@@ -101,6 +101,10 @@ def run_integrity_gate() -> list[str]:
                     ctx_s = ast.unparse(item.context_expr) if hasattr(ast, "unparse") else ""
                     if "ThreadPoolExecutor" in ctx_s:
                         errors.append(f"[BLOCKING WITH-EXECUTOR] {pf.name}:{node.lineno} -> Use explicit wait(timeout=...) + shutdown(wait=False, cancel_futures=True)")
+
+            # 4b. Portability Gate — forbid hardcoded '/home/<username>' strings in source code
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and "/home/" in node.value:
+                errors.append(f"[HARDCODED HOME PATH] {pf.name}:{node.lineno} contains '{node.value[:60]}'")
 
     # 5. Runtime Smoke Check of DB, ScopeGuard, KB Gate, Advisory Catalog, and 49/49 Tools
     from core.advisory_kb import CURATED_CVE_ADVISORIES, extract_cpe_inventory, match_version_advisories, version_in_range
@@ -219,14 +223,14 @@ def run_integrity_gate() -> list[str]:
         if len(ready) != 49:
             errors.append(f"[TOOLS NOT READY] Expected 49/49 ready, got {len(ready)}/{len(tools)}")
 
-        # 6. Rule 14 — Multi-Host Scale, Anti-Cardinality & Port Deduplication Gate
+        # 6. Multi-Host Scale, Anti-Cardinality & Port Deduplication Gate
         from agents.vuln_agent import VulnAssessmentSuperAgent
-        from agents import spectre_deep_modules
+        from agents import surface_prober
         pid_scale = db.create_project("ScaleGate", "example.org", "example.org")
         db.upsert_domain(pid_scale, "example.org", ip="93.184.216.34")
         db.upsert_port(pid_scale, "example.org", 443, "tcp", ip="93.184.216.34", service="https", version="nginx 1.24.0", source="nmap_deep_nse")
         db.upsert_port(pid_scale, "93.184.216.34", 443, "tcp", ip="93.184.216.34", service="https", version="cpe:/a:f5:nginx", source="shodan_internetdb")
-        dossier_txt = spectre_deep_modules.build_target_dossier(db, pid_scale, "example.org")
+        dossier_txt = surface_prober.build_target_dossier(db, pid_scale, "example.org")
         if "OCHIQ TARMOQ PORTLARI (1 ta)" not in dossier_txt or "nmap_deep_nse,shodan_internetdb" not in dossier_txt:
             errors.append(f"[DOSSIER PORT MERGE BROKEN] {dossier_txt}")
 

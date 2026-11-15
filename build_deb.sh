@@ -14,14 +14,14 @@ mkdir -p "${DIST_DIR}"
 
 cat << 'EOF' > "${PKG_DIR}/DEBIAN/control"
 Package: spectre-recon
-Version: 12.10
+Version: 3.0.0
 Section: utils
 Priority: optional
 Architecture: all
 Depends: python3, python3-gi, gir1.2-gtk-3.0, python3-requests, python3-yaml, python3-dnspython, python3-bs4
 Maintainer: AmaQi701 <67887617+AmaQi701@users.noreply.github.com>
 Description: SPECTRE Autonomous Cyber-Recon, Attack Surface & Security Audit Studio
- Native Ubuntu GTK3 Desktop platform for authorized penetration testing and ASM.
+ Native Linux GTK3 Desktop platform for authorized penetration testing and ASM.
 EOF
 
 cp -r "${ROOT_DIR}/agents" "${ROOT_DIR}/config" "${ROOT_DIR}/core" "${ROOT_DIR}/ui" "${ROOT_DIR}/apex_gtk_app.py" "${ROOT_DIR}/launch_apex.sh" "${PKG_DIR}/opt/apex-asm-studio/"
@@ -36,7 +36,7 @@ Version=1.0
 Type=Application
 Name=SPECTRE Recon Studio
 GenericName=Cyber-Recon & Attack Surface Studio
-Comment=SPECTRE v12.10 Autonomous Recon, Vulnerability Assessment, Bug Chaining & Report Studio
+Comment=SPECTRE v3.0.0 Autonomous Recon, Vulnerability Assessment, Bug Chaining & Report Studio
 Exec=/bin/bash /opt/apex-asm-studio/launch_apex.sh
 Path=/opt/apex-asm-studio
 Icon=/opt/apex-asm-studio/ui/apex-icon.svg
@@ -46,5 +46,5 @@ Keywords=pentest;recon;security;audit;spectre;scanner;
 StartupNotify=true
 EOF
 
-dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_12.10_all.deb"
-echo "[+] Built package: ${DIST_DIR}/spectre-recon_12.10_all.deb"
+dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_3.0.0_all.deb"
+echo "[+] Built package: ${DIST_DIR}/spectre-recon_3.0.0_all.deb"

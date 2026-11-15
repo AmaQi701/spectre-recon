@@ -6,6 +6,7 @@ workspaces/*.txt
 workspaces/*.json
 workspaces/*.csv
 workspaces/sourcemaps/
+workspaces/tmp/
 reports/*.md
 reports/*.html
 reports/*.pdf
@@ -17,12 +18,21 @@ reports/*.txt
 !workspaces/.gitkeep
 !reports/.gitkeep
 
-# Python & OS artifacts
+# Local developer / AI rules & internal notes
+.clinerules
+.cursorrules
+MASTER_PROMPT.md
+ARCHITECTURE_AND_RULES.md
+ROADMAP_V13.md
+
+# Python, build & OS artifacts
 __pycache__/
 *.py[cod]
 *$py.class
 .venv/
 venv/
 .env
+dist/
 *.deb
 .DS_Store
+

@@ -1,6 +1,6 @@
 """
-SPECTRE v14.0 — KB-Driven Phased Orchestrator, QoD Standard & Fault-Isolated Plugin Runner
-==========================================================================================
+SPECTRE v3.0 — KB-Driven Phased Orchestrator, QoD Standard & Fault-Isolated Plugin Runner
+=========================================================================================
 """
 
 from __future__ import annotations

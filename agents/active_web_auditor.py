@@ -1,5 +1,5 @@
 """
-SPECTRE v9.0 — Predator Recon & Dark Attack Surface Intelligence Modules
+SPECTRE v3.0 — Active Web Surface, API Parameter & Client-Side Security Modules
 """
 
 from __future__ import annotations
@@ -177,9 +177,7 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
     return {"hash": fav_hash, "tech": matched_origins and matched_tech or matched_tech, "matched_origins": matched_origins}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 2. JAVASCRIPT SOURCEMAP (*.js.map) UNPACKER & SOURCE CODE RECONSTRUCTOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 _SEEN_SOURCEMAPS_BY_PROJ: dict[int, set[str]] = {}
 
@@ -266,9 +264,7 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
     return unpacked_count
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 3. 401/403 REVERSE-PROXY & PATH NORMALIZATION ACL AUDITOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def audit_reverse_proxy_acl_misconfigs(db, session, project_id: int, base_url: str, log_fn) -> int:
     candidate_paths = ["/admin", "/api/admin", "/actuator", "/metrics", "/swagger-ui.html", "/internal", "/console", "/debug"]
@@ -337,9 +333,7 @@ def audit_reverse_proxy_acl_misconfigs(db, session, project_id: int, base_url: s
     return confirmed
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 4. ARJUN-STYLE CHUNKED + BINARY-SEARCH HIDDEN QUERY PARAMETER MINER
-# ══════════════════════════════════════════════════════════════════════════════
 
 COMMON_HIDDEN_PARAMS = [
     "id", "user_id", "account_id", "page", "q", "search", "query", "keyword",
@@ -434,9 +428,7 @@ def mine_hidden_query_parameters(db, session, project_id: int, base_url: str, lo
     return discovered_total
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 5. WEBSOCKET (WS/WSS & SOCKET.IO) HANDSHAKE & CSWSH AUDITOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def audit_websocket_endpoints_and_cswsh(db, session, project_id: int, base_url: str, log_fn) -> int:
     bundle = db.get_project_bundle(project_id)
@@ -484,9 +476,7 @@ def audit_websocket_endpoints_and_cswsh(db, session, project_id: int, base_url: 
 
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 6. MULTI-CLOUD (FIREBASE, MINIO, S3) & CONTAINER REGISTRY ENUMERATOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def enumerate_multicloud_and_containers(db, session, project_id: int, apex_domain: str, base_url: str, log_fn) -> int:
     brand = apex_domain.split(".")[0].lower()
@@ -550,9 +540,7 @@ def enumerate_multicloud_and_containers(db, session, project_id: int, apex_domai
     return hits
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 7. GRAPHQL FIELD-SUGGESTION ("DID YOU MEAN...") SCHEMA RECONSTRUCTOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def introspect_graphql_field_suggestions(db, session, project_id: int, base_url: str, log_fn) -> list[str]:
     """
@@ -610,9 +598,7 @@ def introspect_graphql_field_suggestions(db, session, project_id: int, base_url:
     return sorted(discovered_fields)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 8. DEPENDENCY CONFUSION & UNCLAIMED SCOPED NPM PACKAGE HUNTER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def hunt_dependency_confusion_risks(db, session, project_id: int, js_urls: list[str], base_url: str, log_fn) -> int:
     """
@@ -675,9 +661,7 @@ def hunt_dependency_confusion_risks(db, session, project_id: int, js_urls: list[
     return unclaimed
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 9. JWT (eyJ...) PASSIVE HARVESTER, CLAIMS DECODER & WEAK-HMAC AUDITOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 DEFAULT_JWT_SECRETS = (
     "secret", "123456", "password", "jwt_secret", "changeme", "admin", "default",
@@ -780,9 +764,7 @@ def harvest_and_audit_jwt_tokens(db, session, project_id: int, apex_domain: str,
     return audited
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 10. SECOND-ORDER <SCRIPT SRC> NXDOMAIN TAKEOVER & BROKEN LINK HIJACKING
-# ══════════════════════════════════════════════════════════════════════════════
 
 def hunt_broken_external_links_and_script_hijack(db, session, project_id: int, base_url: str, log_fn) -> int:
     """
@@ -882,15 +864,11 @@ def hunt_broken_external_links_and_script_hijack(db, session, project_id: int, b
     return issues
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# MASTER ORCHESTRATOR FOR ALL 10 PREDATOR MODULES
-# ══════════════════════════════════════════════════════════════════════════════
-
-def run_predator_recon_suite(agent, project_id: int, apex_domain: str, base_url: str, js_urls: list[str], log_fn) -> None:
+def run_active_web_suite(agent, project_id: int, apex_domain: str, base_url: str, js_urls: list[str], log_fn) -> None:
     """
-    Executes all 10 Predator v9.0 Recon & Dark Attack Surface Intelligence modules on a live target.
+    Executes active web surface, API schema, SourceMap, and client-side security modules on a live target.
     """
-    log_fn(f"  [🦁 PREDATOR v9.0] {base_url} ustida 10 ta chuqur Dark-Attack-Surface moduli ishga tushirildi...")
+    log_fn(f"  [Active-Web-Suite] {base_url} ustida 10 ta veb va API tahlil moduli ishga tushirildi...")
     db = agent.db
     session = agent.session
 
@@ -905,14 +883,14 @@ def run_predator_recon_suite(agent, project_id: int, apex_domain: str, base_url:
     audit_reverse_proxy_acl_misconfigs(db, session, project_id, base_url, log_fn)
     mine_hidden_query_parameters(db, session, project_id, base_url, log_fn)
     audit_websocket_endpoints_and_cswsh(db, session, project_id, base_url, log_fn)
-    if "v9_multicloud" not in proj_done:
-        proj_done.add("v9_multicloud")
+    if "multicloud_enum" not in proj_done:
+        proj_done.add("multicloud_enum")
         enumerate_multicloud_and_containers(db, session, project_id, apex_domain, base_url, log_fn)
     introspect_graphql_field_suggestions(db, session, project_id, base_url, log_fn)
     hunt_dependency_confusion_risks(db, session, project_id, js_urls, base_url, log_fn)
     harvest_and_audit_jwt_tokens(db, session, project_id, apex_domain, base_url, js_urls, log_fn)
     hunt_broken_external_links_and_script_hijack(db, session, project_id, base_url, log_fn)
-    db.log_task(project_id, "SPECTRE-Predator", "predator_v9_suite", "COMPLETED", f"predator_suite {base_url}", f"Executed 10 Predator modules on {base_url} ({len(js_urls)} JS bundles)")
+    db.log_task(project_id, "SPECTRE-ActiveWeb", "active_web_suite", "COMPLETED", f"active_web_suite {base_url}", f"Executed 10 web/API modules on {base_url} ({len(js_urls)} JS bundles)")
 
 
 

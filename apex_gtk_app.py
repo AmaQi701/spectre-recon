@@ -23,13 +23,13 @@ GLib.set_prgname("spectre-recon")
 GLib.set_application_name("SPECTRE Recon Studio")
 Gdk.set_program_class("spectre-recon")
 
-BASE_DIR = Path("/home/amaqi/projects/apex-pentest-gui")
+BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
 
 from agents.recon_agent import ReconSuperAgent
 from agents.triage_chain_agent import TriageAndChainSuperAgent
 from agents.vuln_agent import VulnAssessmentSuperAgent
-from agents import spectre_deep_modules, spectre_v5_modules
+from agents import cli_orchestrator, surface_prober
 from core.database import DatabaseManager
 from core.scope_guard import ScopeGuard
 
@@ -81,7 +81,7 @@ progressbar progress { min-height: 22px; background-image: none; background-colo
 
 class ApexNativeWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="SPECTRE Recon & Attack Surface Studio v14.0 NASL-Titan")
+        super().__init__(title="SPECTRE Recon & Attack Surface Studio v3.0")
         self.set_default_size(1280, 760)
         self.maximize()
         self.set_wmclass("spectre-recon", "spectre-recon")
@@ -256,7 +256,7 @@ class ApexNativeWindow(Gtk.Window):
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
         hb.props.title = "SPECTRE  —  Kiber-Razvedka va Hujum Yuzasi Platformasi"
-        hb.props.subtitle = "●  v14.4 NASL-Titan  •  Phased KB-Orchestrator, 27-Product CPE 2.3 Engine & Attack Graph Studio"
+        hb.props.subtitle = "●  v3.0.0  •  Phased KB-Orchestrator, 27-Product CPE 2.3 Engine & Attack Graph Studio"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -643,7 +643,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v14.3 NASL-Titan Workstation] 49/49 CLI, PhaseOrchestrator & 27-Product CPE Engine initialized.\n")
+        self.term_buf.set_text("[SPECTRE v3.0.0 Workstation] 49/49 CLI, PhaseOrchestrator & 27-Product CPE Engine initialized.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)
@@ -714,7 +714,7 @@ class ApexNativeWindow(Gtk.Window):
             import re as _re
             dom_name = _re.sub(r"<[^>]+>", "", model[treeiter][0])
             self._selected_domain = dom_name
-            dossier_txt = spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, dom_name)
+            dossier_txt = surface_prober.build_target_dossier(self.db, self.current_project_id, dom_name)
             self._set_styled_text(self.dossier_view, dossier_txt)
 
     @staticmethod
@@ -784,8 +784,8 @@ class ApexNativeWindow(Gtk.Window):
         self.dossier_view.get_buffer().set_text(f"Generating tactical architecture analysis for '{dom_name or 'Primary Target'}'...")
 
         def _ai_worker():
-            ai_txt = spectre_v5_modules.generate_ai_tactical_analysis(self.db, pid, dom_name)
-            dossier_txt = spectre_deep_modules.build_target_dossier(self.db, pid, dom_name)
+            ai_txt = cli_orchestrator.generate_ai_tactical_analysis(self.db, pid, dom_name)
+            dossier_txt = surface_prober.build_target_dossier(self.db, pid, dom_name)
             full_txt = ai_txt + "\n\n" + dossier_txt
             GLib.idle_add(lambda: self.dossier_view.get_buffer().set_text(full_txt) or False)
             self.log_msg(f"[AI ANALYST] Tactical analysis generated for '{dom_name or 'Primary Target'}'.")
@@ -961,7 +961,7 @@ class ApexNativeWindow(Gtk.Window):
             self._selected_domain = primary_dom
             self._set_styled_text(
                 self.dossier_view,
-                spectre_deep_modules.build_target_dossier(self.db, self.current_project_id, primary_dom),
+                surface_prober.build_target_dossier(self.db, self.current_project_id, primary_dom),
             )
         if sorted_finds and hasattr(self, "finding_detail_view") and not preserve_if_unchanged:
             self._set_styled_text(self.finding_detail_view, self._format_finding_detail(sorted_finds[0]))
@@ -1254,7 +1254,7 @@ class ApexNativeWindow(Gtk.Window):
         self.repeater_view.get_buffer().set_text(f"⏳ So'rov yuborilmoqda: {method} {url} ...")
 
         def _req_worker():
-            out = spectre_v5_modules.send_repeater_request(method, url, auth, proxy_val, req_body=req_body)
+            out = cli_orchestrator.send_repeater_request(method, url, auth, proxy_val, req_body=req_body)
             GLib.idle_add(lambda: self.repeater_view.get_buffer().set_text(out) or False)
 
         threading.Thread(target=_req_worker, daemon=True).start()
@@ -1263,7 +1263,7 @@ class ApexNativeWindow(Gtk.Window):
     def on_export_artifacts(self, _btn):
         if not self.current_project_id:
             return
-        res = spectre_v5_modules.export_project_artifacts(self.db, self.current_project_id)
+        res = cli_orchestrator.export_project_artifacts(self.db, self.current_project_id)
         msg = (
             "╔══ 📤 SPECTRE MULTI-FORMAT ARTIFACTS EXPORTED ══╗\n"
             f"• Burp Suite Scope JSON: {res['burp_scope_json']}\n"

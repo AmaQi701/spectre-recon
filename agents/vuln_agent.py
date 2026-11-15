@@ -1034,7 +1034,8 @@ class VulnAssessmentSuperAgent:
         if not enable_cli:
             return
         env = os.environ.copy()
-        env["PATH"] = "/home/amaqi/go/bin:/home/amaqi/.local/bin:/usr/local/bin:/usr/bin:" + env.get("PATH", "")
+        home_bins = f"{Path.home() / 'go' / 'bin'}:{Path.home() / '.local' / 'bin'}"
+        env["PATH"] = f"{home_bins}:/usr/local/bin:/usr/bin:" + env.get("PATH", "")
         nuc_bin = shutil.which("nuclei", path=env["PATH"])
         svcs = [
             s["url"] for s in bundle.get("http_services", [])
@@ -1103,7 +1104,7 @@ class VulnAssessmentSuperAgent:
         kb = ScanContextKB(project_id, str(proj.get("primary_target", "")))
         kb.hydrate_from_bundle(bundle, has_auth_a=bool(self.role_a_headers), has_auth_b=bool(self.role_b_headers))
 
-        log_fn(f"═══ 2-SUPERAGENT (v14.0 NASL-TITAN): KB-GATED CVE, POSTURE & BOLA AUDIT ({proj['name']}) ═══")
+        log_fn(f"═══ 2-SUPERAGENT (SPECTRE v3.0): KB-GATED CVE, POSTURE & BOLA AUDIT ({proj['name']}) ═══")
         http_svcs = bundle.get("http_services", [])
         ports = bundle.get("ports", [])
         eps = bundle.get("endpoints", [])

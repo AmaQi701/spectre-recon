@@ -10,7 +10,7 @@ from pathlib import Path
 import requests
 
 
-# ================= #1 ASN, ISP, SUBNET (/24) & GEOLOCATION MAPPER =================
+# --- , ISP, SUBNET (/24) & GEOLOCATION MAPPER ---
 def enrich_asn_and_isp_intel(db, project_id: int, log_fn):
     import ipaddress
 
@@ -65,7 +65,7 @@ def enrich_asn_and_isp_intel(db, project_id: int, log_fn):
             db.upsert_domain(project_id, d["domain"], ip=ip, cname=d.get("cname", ""), records=recs, cdn_waf=cdn_label, source=d.get("source", ""))
 
 
-# ================= #2 SSL/TLS DEEP CERTIFICATE & EXPIRY AUDITOR =================
+# --- /TLS DEEP CERTIFICATE & EXPIRY AUDITOR ---
 def audit_ssl_certificates_deep(db, project_id: int, log_fn):
     import threading
 
@@ -149,7 +149,7 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
         )
 
 
-# ================= #3 DOMAIN-AWARE BACKUP & ARCHIVE EXPOSURE AUDITOR =================
+# --- -AWARE BACKUP & ARCHIVE EXPOSURE AUDITOR ---
 def audit_domain_backup_exposure(db, project_id: int, apex_domain: str, log_fn, session: requests.Session | None = None):
     base_word = apex_domain.split(".")[0]
     candidates = [
@@ -201,9 +201,10 @@ def audit_domain_backup_exposure(db, project_id: int, apex_domain: str, log_fn, 
     ex.shutdown(wait=False, cancel_futures=True)
 
 
-# ================= #4 ONE-CLICK MULTI-FORMAT EXPORTER (BURP, NUCLEI, CSV, JSON) =================
-def export_project_artifacts(db, project_id: int, reports_dir: str = "/home/amaqi/projects/apex-pentest-gui/reports") -> dict:
-    out_dir = Path(reports_dir)
+# Multi-format artifact exporter (Burp Scope, Live URLs, CSV, Full JSON)
+def export_project_artifacts(db, project_id: int, reports_dir: str | Path | None = None) -> dict:
+    default_out = Path(__file__).resolve().parent.parent / "reports"
+    out_dir = Path(reports_dir) if reports_dir else default_out
     out_dir.mkdir(parents=True, exist_ok=True)
     b = db.get_project_bundle(project_id)
     domains = b.get("domains", [])
@@ -240,7 +241,7 @@ def export_project_artifacts(db, project_id: int, reports_dir: str = "/home/amaq
     }
 
 
-# ================= #5 IN-APP HTTP REQUEST/RESPONSE INSPECTOR (FULL INTERACTIVE REPEATER) =================
+# --- -APP HTTP REQUEST/RESPONSE INSPECTOR (FULL INTERACTIVE REPEATER) ---
 def send_repeater_request(method: str, url: str, auth_header: str = "", proxy_url: str = "", custom_headers_raw: str = "", req_body: str = "") -> str:
     headers = {"User-Agent": "SPECTRE-Studio-Repeater/6.0", "Accept": "*/*"}
     if auth_header.strip():
@@ -285,7 +286,7 @@ def send_repeater_request(method: str, url: str, auth_header: str = "", proxy_ur
 
 
 
-# ================= #7 AI & HEURISTIC TACTICAL ANALYST =================
+# ---   ---
 def generate_ai_tactical_analysis(db, project_id: int, selected_domain: str = "") -> str:
     b = db.get_project_bundle(project_id)
     domains = b.get("domains", [])
@@ -339,7 +340,7 @@ def generate_ai_tactical_analysis(db, project_id: int, selected_domain: str = ""
     return "\n".join(summary_lines)
 
 
-# ================= #8 DEEP MULTI-TOOL EXECUTION & STRUCTURED PARSERS (v7.0) =================
+# --- -TOOL EXECUTION & STRUCTURED PARSERS (v7.0) ---
 def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, active_ids: set, log_fn):
     import os
     import re
@@ -368,7 +369,8 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
 
     def _task_sublist3r():
         if "sublist3r" in active_ids and agent._find_binary("sublist3r"):
-            subl_bin = "/home/amaqi/.local/bin/sublist3r" if os.path.exists("/home/amaqi/.local/bin/sublist3r") else "sublist3r"
+            local_subl = Path.home() / ".local" / "bin" / "sublist3r"
+            subl_bin = str(local_subl) if local_subl.exists() else "sublist3r"
             out_file = f"/tmp/spectre_sublist3r_{project_id}.txt"
             try:
                 if os.path.exists(out_file):
@@ -916,7 +918,12 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
     if dom.lower() in getattr(agent, "_dead_hosts", set()):
         return
 
-    seclists_common = "/home/amaqi/SecLists/Discovery/Web-Content/common.txt"
+    _wl_candidates = (
+        Path.home() / "SecLists/Discovery/Web-Content/common.txt",
+        Path("/usr/share/seclists/Discovery/Web-Content/common.txt"),
+        Path("/usr/share/wordlists/dirb/common.txt"),
+    )
+    seclists_common = str(next((p for p in _wl_candidates if p.exists()), _wl_candidates[0]))
     is_fuzz_target = (dom == primary_host) or any(k in dom.split(".")[0].lower() for k in ("api", "admin", "my", "id", "auth", "sso", "portal"))
 
     def _task_ffuf():

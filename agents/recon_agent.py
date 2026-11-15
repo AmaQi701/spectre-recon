@@ -21,7 +21,15 @@ from bs4 import BeautifulSoup, Comment
 
 from core.database import DatabaseManager
 from core.scope_guard import ScopeGuard
-from agents import spectre_deep_modules, spectre_v5_modules, spectre_ultra_modules, spectre_predator_modules, spectre_v10_modules, spectre_v11_modules, spectre_v12_modules
+from agents import (
+    active_web_auditor,
+    cli_orchestrator,
+    origin_and_spa,
+    protocol_and_client,
+    runtime_and_network,
+    schema_and_iam,
+    surface_prober,
+)
 
 urllib3_disable = getattr(requests.packages, "urllib3", None)
 if urllib3_disable:
@@ -36,8 +44,8 @@ class ReconSuperAgent:
     """
 
     EXTRA_PATHS = [
-        "/home/amaqi/go/bin",
-        "/home/amaqi/.local/bin",
+        str(Path.home() / "go" / "bin"),
+        str(Path.home() / ".local" / "bin"),
         "/snap/bin",
         "/usr/local/bin",
         "/usr/bin",
@@ -78,9 +86,10 @@ class ReconSuperAgent:
         8888: "http-alt", 9000: "http-alt", 9200: "elasticsearch",
     }
 
-    def __init__(self, db: DatabaseManager, registry_path: str = "/home/amaqi/projects/apex-pentest-gui/config/tools_registry.yaml"):
+    def __init__(self, db: DatabaseManager, registry_path: str | Path | None = None):
         self.db = db
-        self.registry_path = Path(registry_path)
+        default_reg = Path(__file__).resolve().parent.parent / "config" / "tools_registry.yaml"
+        self.registry_path = Path(registry_path) if registry_path else default_reg
         self.session = requests.Session()
         adapter = requests.adapters.HTTPAdapter(pool_connections=30, pool_maxsize=30)
         self.session.mount("https://", adapter)
@@ -265,7 +274,7 @@ class ReconSuperAgent:
 
 
 
-    # ================= STAGE 1: MULTI-SOURCE PASSIVE OSINT & DNS =================
+    # --- STAGE 1: MULTI-SOURCE PASSIVE OSINT & DNS ---
     def _stage1_crtsh(self, project_id: int, domain: str, scope: ScopeGuard, log_fn):
         log_fn(f"[SPECTRE Stage 1] 8 ta Global OSINT Baza (CRT.sh, SubdomainCenter, RapidDNS, CertSpotter, HackerTarget, URLScan, Wayback, OTX) parallel qidiruvi: {domain}")
         discovered: set[tuple[str, str, str]] = set()
@@ -396,8 +405,13 @@ class ReconSuperAgent:
                 candidates.add(f"{prefix}.{apex_domain}")
 
             # Load top 1,200 prefixes from SecLists if available on system
-            seclist_dns = Path("/home/amaqi/SecLists/Discovery/DNS/subdomains-top1million-5000.txt")
-            if seclist_dns.exists():
+            seclist_candidates = (
+                Path.home() / "SecLists/Discovery/DNS/subdomains-top1million-5000.txt",
+                Path("/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt"),
+                Path("/usr/share/wordlists/seclists/Discovery/DNS/subdomains-top1million-5000.txt"),
+            )
+            seclist_dns = next((p for p in seclist_candidates if p.exists()), None)
+            if seclist_dns is not None:
                 try:
                     for line in seclist_dns.read_text(encoding="utf-8", errors="ignore").splitlines()[:1200]:
                         w = line.strip().lower()
@@ -683,7 +697,7 @@ class ReconSuperAgent:
         concurrent.futures.wait(futs_sh, timeout=18)
         ex_sh.shutdown(wait=False, cancel_futures=True)
 
-    # ================= STAGE 2: NETWORK, PORT & TLS =================
+    # --- STAGE 2: NETWORK, PORT & TLS ---
     def _stage2_tls_inspect(self, project_id: int, host: str, scope: ScopeGuard, log_fn) -> dict:
         tls_info = {}
         sans = []
@@ -795,7 +809,7 @@ class ReconSuperAgent:
         except Exception as e:
             log_fn(f"  [!] Nmap XML parse ogohlantirish: {e}")
 
-    # ================= STAGE 3: WEB PROBING & TECH STACK =================
+    # --- STAGE 3: WEB PROBING & TECH STACK ---
     def _stage3_http_probe(
         self,
         project_id: int,
@@ -1412,7 +1426,7 @@ class ReconSuperAgent:
         if hasattr(self, "_ran_apex_suites"):
             self._ran_apex_suites.pop(project_id, None)
         shutil.rmtree(f"/tmp/spectre_js_cache_{project_id}", ignore_errors=True)
-        before_snap = spectre_deep_modules.take_recon_snapshot(self.db, project_id)
+        before_snap = surface_prober.take_recon_snapshot(self.db, project_id)
         collected_html: list[str] = []
         apex_domain = ScopeGuard.extract_apex_domain(primary_host)
         safe_host = shlex.quote(primary_host)
@@ -1451,7 +1465,7 @@ class ReconSuperAgent:
             _prog(0.15, "Stage 1/6: 8-OSINT Mesh, Subfinder, Sublist3r, Amass, Dig AXFR...")
             if "crtsh_builtin" in active_ids:
                 self._stage1_crtsh(project_id, apex_domain, scope, log_fn)
-            spectre_v5_modules.run_deep_subdomain_tools(self, project_id, apex_domain, scope, active_ids, log_fn)
+            cli_orchestrator.run_deep_subdomain_tools(self, project_id, apex_domain, scope, active_ids, log_fn)
             _prog(0.30, "Stage 1/6: SecLists DNS Enum & Smart Permutations...")
             if "dns_enum_builtin" in active_ids:
                 self._stage1_dns_enum(project_id, primary_host, scope, log_fn)
@@ -1463,16 +1477,16 @@ class ReconSuperAgent:
             if "tls_inspector_builtin" in active_ids:
                 tls_info = self._stage2_tls_inspect(project_id, primary_host, scope, log_fn)
                 self._stage2_shodan_internetdb(project_id, scope, log_fn)
-                spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
+                cli_orchestrator.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
                 self.db.log_task(project_id, "SPECTRE-Agent1", "tls_inspector_builtin", "COMPLETED", f"tls_shodan_asn {primary_host}", f"TLS SAN + Shodan InternetDB + ASN/ISP completed")
             _prog(0.55, f"Stage 2/6: Nmap Deep NSE, Naabu & NetExec ({primary_host})...")
-            spectre_v5_modules.run_deep_network_and_ad_tools(self, project_id, primary_host, active_ids, log_fn)
-            spectre_ultra_modules.sweep_subnet_neighbors_and_ptr(self.db, project_id, apex_domain, scope, log_fn)
-            spectre_ultra_modules.unmask_cloudflare_origin_ips(self.db, self.session, project_id, apex_domain, primary_host, log_fn)
-            spectre_deep_modules.probe_nonstandard_web_ports(self.db, self.session, project_id, log_fn)
-            spectre_deep_modules.hunt_virtual_hosts(self.db, self.session, project_id, apex_domain, log_fn)
-            spectre_v12_modules.resolve_and_probe_ipv6_dual_stack(self.db, self.session, project_id, apex_domain, primary_host, log_fn)
-            spectre_v12_modules.probe_udp_services_safe(self.db, project_id, log_fn)
+            cli_orchestrator.run_deep_network_and_ad_tools(self, project_id, primary_host, active_ids, log_fn)
+            origin_and_spa.sweep_subnet_neighbors_and_ptr(self.db, project_id, apex_domain, scope, log_fn)
+            origin_and_spa.unmask_cloudflare_origin_ips(self.db, self.session, project_id, apex_domain, primary_host, log_fn)
+            surface_prober.probe_nonstandard_web_ports(self.db, self.session, project_id, log_fn)
+            surface_prober.hunt_virtual_hosts(self.db, self.session, project_id, apex_domain, log_fn)
+            runtime_and_network.resolve_and_probe_ipv6_dual_stack(self.db, self.session, project_id, apex_domain, primary_host, log_fn)
+            runtime_and_network.probe_udp_services_safe(self.db, project_id, log_fn)
 
 
 
@@ -1500,7 +1514,7 @@ class ReconSuperAgent:
                 if pass_num == 2 and recon_mode == "full":
                     self._stage1_dns_enum(project_id, primary_host, scope, log_fn, only_unresolved=True)
                     self._stage2_shodan_internetdb(project_id, scope, log_fn)
-                    spectre_v5_modules.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
+                    cli_orchestrator.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
                 raw_domains = [
                     d["domain"] for d in self.db.get_project_bundle(project_id).get("domains", [])
                     if (d.get("ip") or (d.get("cname") and not str(d.get("cname", "")).startswith("loopback:")) or d["domain"] == primary_host)
@@ -1630,37 +1644,37 @@ class ReconSuperAgent:
                     is_high_val = (_dom_priority(dom) >= 60) and (deep_scanned_count <= 8)
                     collected_html.append(html[:50000])
                     js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)[:35]
-                    spectre_v5_modules.run_deep_web_and_fuzz_tools(
+                    cli_orchestrator.run_deep_web_and_fuzz_tools(
                         self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn, phase="crawl_only"
                     )
                     self._stage6_js_analyzer(project_id, js_list[:35], url, scope, log_fn)
                     if is_high_val:
                         self._stage5_openapi_discovery(project_id, url, scope, log_fn)
-                        spectre_predator_modules.run_predator_recon_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                        spectre_v10_modules.run_v10_enterprise_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                        spectre_v11_modules.run_v11_apex_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                        spectre_v12_modules.run_v12_titan_suite(self, project_id, apex_domain, primary_host, url, js_list, log_fn)
-                    spectre_v5_modules.run_deep_web_and_fuzz_tools(
+                        active_web_auditor.run_active_web_suite(self, project_id, apex_domain, url, js_list, log_fn)
+                        protocol_and_client.run_protocol_client_suite(self, project_id, apex_domain, url, js_list, log_fn)
+                        schema_and_iam.run_schema_iam_suite(self, project_id, apex_domain, url, js_list, log_fn)
+                        runtime_and_network.run_runtime_network_suite(self, project_id, apex_domain, primary_host, url, js_list, log_fn)
+                    cli_orchestrator.run_deep_web_and_fuzz_tools(
                         self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn, phase="fuzz_only"
                     )
 
-            _prog(0.90, "Stage 6/6: Adaptive Brain, SPA Manifests, Secrets v2, OSINT & DOM Clustering...")
-            spectre_ultra_modules.run_adaptive_brain_strategy(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-            spectre_ultra_modules.deconstruct_spa_manifests_and_ssr_state(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-            spectre_ultra_modules.hunt_deep_secrets_and_uz_ecosystem(self.db, self.session, project_id, log_fn)
-            spectre_ultra_modules.mine_well_known_and_mobile_links(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-            spectre_ultra_modules.trace_redirect_chains_and_oauth_flows(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-            spectre_ultra_modules.extract_document_metadata_osint(self.db, self.session, project_id, apex_domain, log_fn)
-            spectre_deep_modules.probe_api_versions_and_ghost_endpoints(self.db, project_id, log_fn, self.session)
-            spectre_deep_modules.classify_auth_portals_and_schema(self.db, project_id, log_fn)
-            spectre_deep_modules.analyze_badsecrets_and_cookies(self.db, project_id, apex_domain, log_fn)
-            spectre_v5_modules.audit_ssl_certificates_deep(self.db, project_id, log_fn)
-            spectre_deep_modules.harvest_emails_and_osint(self.db, project_id, apex_domain, collected_html, log_fn)
-            spectre_deep_modules.build_custom_wordlist_and_params(self.db, project_id, apex_domain, log_fn)
-            spectre_v5_modules.run_deep_cloud_osint_and_vuln_tools(self, project_id, apex_domain, primary_host, active_ids, log_fn)
-            spectre_v11_modules.cluster_subdomains_by_dom_structure(self.db, self.session, project_id, log_fn)
+            _prog(0.90, "Stage 6/6: Adaptive Brain, SPA Manifests, Secrets, OSINT & DOM Clustering...")
+            origin_and_spa.run_adaptive_brain_strategy(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+            origin_and_spa.deconstruct_spa_manifests_and_ssr_state(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+            origin_and_spa.hunt_deep_secrets_and_uz_ecosystem(self.db, self.session, project_id, log_fn)
+            origin_and_spa.mine_well_known_and_mobile_links(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+            origin_and_spa.trace_redirect_chains_and_oauth_flows(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+            origin_and_spa.extract_document_metadata_osint(self.db, self.session, project_id, apex_domain, log_fn)
+            surface_prober.probe_api_versions_and_ghost_endpoints(self.db, project_id, log_fn, self.session)
+            surface_prober.classify_auth_portals_and_schema(self.db, project_id, log_fn)
+            surface_prober.analyze_badsecrets_and_cookies(self.db, project_id, apex_domain, log_fn)
+            cli_orchestrator.audit_ssl_certificates_deep(self.db, project_id, log_fn)
+            surface_prober.harvest_emails_and_osint(self.db, project_id, apex_domain, collected_html, log_fn)
+            surface_prober.build_custom_wordlist_and_params(self.db, project_id, apex_domain, log_fn)
+            cli_orchestrator.run_deep_cloud_osint_and_vuln_tools(self, project_id, apex_domain, primary_host, active_ids, log_fn)
+            schema_and_iam.cluster_subdomains_by_dom_structure(self.db, self.session, project_id, log_fn)
 
-        spectre_deep_modules.log_incremental_diff(before_snap, self.db, project_id, log_fn)
+        surface_prober.log_incremental_diff(before_snap, self.db, project_id, log_fn)
         _prog(1.0, "✅ Recon Completed!")
 
         b_final = self.db.get_project_bundle(project_id)
@@ -1706,8 +1720,8 @@ class ReconSuperAgent:
 
         _prog(0.20, f"Single-Host DNS, TLS & Nmap Deep NSE: {target_host}...")
         tls_info = self._stage2_tls_inspect(project_id, target_host, scope, log_fn)
-        spectre_v5_modules.run_deep_network_and_ad_tools(self, project_id, target_host, active_ids, log_fn)
-        spectre_deep_modules.probe_nonstandard_web_ports(self.db, self.session, project_id, log_fn)
+        cli_orchestrator.run_deep_network_and_ad_tools(self, project_id, target_host, active_ids, log_fn)
+        surface_prober.probe_nonstandard_web_ports(self.db, self.session, project_id, log_fn)
 
         _prog(0.55, f"Single-Host Deep Web, FFUF, Katana, Arjun & JS: {target_host}...")
         for scheme in ("https", "http"):
@@ -1715,27 +1729,27 @@ class ReconSuperAgent:
             html = self._stage3_http_probe(project_id, url, tls_info, scope, log_fn)
             if html:
                 js_list = self._stage4_html_and_wayback(project_id, url, html, target_host, scope, log_fn)
-                spectre_v5_modules.run_deep_web_and_fuzz_tools(
+                cli_orchestrator.run_deep_web_and_fuzz_tools(
                     self, project_id, url, target_host, target_host, True, scope, active_ids, js_list, log_fn, phase="crawl_only"
                 )
                 self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
                 self._stage5_openapi_discovery(project_id, url, scope, log_fn)
-                spectre_predator_modules.run_predator_recon_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                spectre_v10_modules.run_v10_enterprise_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                spectre_v11_modules.run_v11_apex_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                spectre_v12_modules.run_v12_titan_suite(self, project_id, apex_domain, target_host, url, js_list, log_fn)
-                spectre_v5_modules.run_deep_web_and_fuzz_tools(
+                active_web_auditor.run_active_web_suite(self, project_id, apex_domain, url, js_list, log_fn)
+                protocol_and_client.run_protocol_client_suite(self, project_id, apex_domain, url, js_list, log_fn)
+                schema_and_iam.run_schema_iam_suite(self, project_id, apex_domain, url, js_list, log_fn)
+                runtime_and_network.run_runtime_network_suite(self, project_id, apex_domain, target_host, url, js_list, log_fn)
+                cli_orchestrator.run_deep_web_and_fuzz_tools(
                     self, project_id, url, target_host, target_host, True, scope, active_ids, js_list, log_fn, phase="fuzz_only"
                 )
                 break
 
-        _prog(0.85, f"Single-Host Adaptive Brain, SPA Manifest & SecretHunter v2: {target_host}...")
-        spectre_ultra_modules.run_adaptive_brain_strategy(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-        spectre_ultra_modules.deconstruct_spa_manifests_and_ssr_state(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-        spectre_ultra_modules.hunt_deep_secrets_and_uz_ecosystem(self.db, self.session, project_id, log_fn)
-        spectre_ultra_modules.mine_well_known_and_mobile_links(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-        spectre_ultra_modules.trace_redirect_chains_and_oauth_flows(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-        spectre_v5_modules.run_deep_cloud_osint_and_vuln_tools(self, project_id, apex_domain, target_host, active_ids, log_fn)
+        _prog(0.85, f"Single-Host Adaptive Brain, SPA Manifest & SecretHunter: {target_host}...")
+        origin_and_spa.run_adaptive_brain_strategy(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+        origin_and_spa.deconstruct_spa_manifests_and_ssr_state(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+        origin_and_spa.hunt_deep_secrets_and_uz_ecosystem(self.db, self.session, project_id, log_fn)
+        origin_and_spa.mine_well_known_and_mobile_links(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+        origin_and_spa.trace_redirect_chains_and_oauth_flows(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
+        cli_orchestrator.run_deep_cloud_osint_and_vuln_tools(self, project_id, apex_domain, target_host, active_ids, log_fn)
         _prog(1.0, f"✅ Deep Scan Completed: {target_host}")
         log_fn(f"═══ ✅ SINGLE-HOST DEEP RECON YAKUNLANDI: {target_host} ═══")
 

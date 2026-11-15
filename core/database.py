@@ -153,8 +153,9 @@ CREATE INDEX IF NOT EXISTS idx_snaps_proj ON scan_snapshots(project_id, id DESC)
 
 
 class DatabaseManager:
-    def __init__(self, db_path: str = "/home/amaqi/projects/apex-pentest-gui/workspaces/apex_state.db"):
-        self.db_path = Path(db_path)
+    def __init__(self, db_path: str | Path | None = None):
+        default_db = Path(__file__).resolve().parent.parent / "workspaces" / "apex_state.db"
+        self.db_path = Path(db_path) if db_path else default_db
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self.db_path), timeout=60, check_same_thread=False)

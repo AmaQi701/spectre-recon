@@ -1,8 +1,8 @@
 """
-SPECTRE v12.3 — Strict Database Schema Contracts & Typed Models
-===============================================================
+SPECTRE v3.0 — Strict Database Schema Contracts & Typed Models
+==============================================================
 Single source of truth for all SQLite table column names and bundle keys.
-Prevents hallucinated dictionary keys (e.g. 'cdn_provider', 'ip_address', 'urls').
+Prevents invalid dictionary keys across reconnaissance and audit modules.
 """
 
 from __future__ import annotations

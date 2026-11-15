@@ -14,7 +14,7 @@ import dns.reversename
 import requests
 
 
-# ================= #1 CLOUDFLARE / WAF ORIGIN IP UNMASKER (TRUE TLS SNI + HOST INJECTION) =================
+# --- / WAF ORIGIN IP UNMASKER (TRUE TLS SNI + HOST INJECTION) ---
 def _raw_sni_https_get(ip_addr: str, host_name: str, path: str = "/", timeout: float = 4.0) -> tuple[int, bytes, list[str]]:
     sans = []
     try:
@@ -159,7 +159,7 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
     ex_o.shutdown(wait=False, cancel_futures=True)
 
 
-# ================= #2 FULL /24 SUBNET NEIGHBOR PTR & INFRASTRUCTURE SWEEPER =================
+# --- /24 SUBNET NEIGHBOR PTR & INFRASTRUCTURE SWEEPER ---
 def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope, log_fn):
     bundle = db.get_project_bundle(project_id)
     domains = bundle.get("domains", [])
@@ -222,7 +222,7 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
         )
 
 
-# ================= #3 NEXT.JS / NUXT / VITE / WEBPACK MANIFEST & SSR DECONSTRUCTOR =================
+# --- .JS / NUXT / VITE / WEBPACK MANIFEST & SSR DECONSTRUCTOR ---
 def deconstruct_spa_manifests_and_ssr_state(db, session: requests.Session, project_id: int, scope, log_fn, record_url_fn=None):
     bundle = db.get_project_bundle(project_id)
     services = bundle.get("http_services", [])
@@ -298,7 +298,7 @@ def deconstruct_spa_manifests_and_ssr_state(db, session: requests.Session, proje
             pass
 
 
-# ================= #4 SECRETHUNTER V2 (TELEGRAM BOT, PAYME/CLICK/UZUM, FIREBASE, AWS, WSS) =================
+# --- 2 (TELEGRAM BOT, PAYME/CLICK/UZUM, FIREBASE, AWS, WSS) ---
 def hunt_deep_secrets_and_uz_ecosystem(db, session: requests.Session, project_id: int, log_fn):
     bundle = db.get_project_bundle(project_id)
     js_assets = bundle.get("js_assets", [])
@@ -366,7 +366,7 @@ def hunt_deep_secrets_and_uz_ecosystem(db, session: requests.Session, project_id
             pass
 
 
-# ================= #5 MOBILE APP & .WELL-KNOWN DEEP-LINK MINER =================
+# --- .WELL-KNOWN DEEP-LINK MINER ---
 def mine_well_known_and_mobile_links(db, session: requests.Session, project_id: int, scope, log_fn, record_url_fn=None):
     bundle = db.get_project_bundle(project_id)
     services = bundle.get("http_services", [])
@@ -440,7 +440,7 @@ def mine_well_known_and_mobile_links(db, session: requests.Session, project_id: 
                 pass
 
 
-# ================= #6 HTTP REDIRECT-CHAIN & SSO/OAUTH PARAMETER TRACKER =================
+# --- -CHAIN & SSO/OAUTH PARAMETER TRACKER ---
 def trace_redirect_chains_and_oauth_flows(db, session: requests.Session, project_id: int, scope, log_fn, record_url_fn=None):
     bundle = db.get_project_bundle(project_id)
     services = bundle.get("http_services", [])
@@ -472,7 +472,7 @@ def trace_redirect_chains_and_oauth_flows(db, session: requests.Session, project
                 pass
 
 
-# ================= #7 DOCUMENT METADATA (PDF / DOCX / XLSX) OSINT EXTRACTOR =================
+# --- (PDF / DOCX / XLSX) OSINT EXTRACTOR ---
 def extract_document_metadata_osint(db, session: requests.Session, project_id: int, apex_domain: str, log_fn):
     bundle = db.get_project_bundle(project_id)
     doc_urls = [
@@ -517,7 +517,7 @@ def extract_document_metadata_osint(db, session: requests.Session, project_id: i
             pass
 
 
-# ================= #8 CONTEXT-AWARE ADAPTIVE BRAIN (OBSERVE -> THINK -> ACT) =================
+# --- -AWARE ADAPTIVE BRAIN (OBSERVE -> THINK -> ACT) ---
 TECH_PLAYBOOKS = {
     "wordpress": {
         "triggers": ("wordpress", "wp-content", "wp-includes"),
@@ -601,7 +601,7 @@ def run_adaptive_brain_strategy(db, session: requests.Session, project_id: int, 
                         pass
 
 
-# ================= #9 SAFE AUTO-VALIDATOR (CONFIRMED POC ENGINE) =================
+# --- -VALIDATOR (CONFIRMED POC ENGINE) ---
 def run_safe_auto_validator(db, session: requests.Session, project_id: int, log_fn):
     bundle = db.get_project_bundle(project_id)
     endpoints = bundle.get("endpoints", [])
