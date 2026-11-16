@@ -84,6 +84,10 @@ class TriageAndChainSuperAgent:
         sast_sinks: list[dict] = []
 
         csrf_cookie_tokens = ("xsrf-token", "csrftoken", "_csrf", "csrf_token", "csrf-token", "antiforgery")
+        analytics_ck_prefixes = (
+            "_ym_", "_ga", "_gid", "_gat", "_fbp", "_fbc", "_gcl_", "__utm", "_pk_",
+            "mp_", "amplitude_", "cf_clearance", "__cf_bm", "intercom-", "_hj", "_clck", "_clsk",
+        )
         for svc in http_svcs:
             h = self._extract_asset_host(svc.get("url", ""), known_hosts, ip_to_host)
             if not h:
@@ -92,7 +96,10 @@ class TriageAndChainSuperAgent:
             g["has_web"] = True
             for ck in json.loads(svc.get("cookies_json") or "[]"):
                 ck_n = str(ck.get("name") or "session")
-                if not ck.get("httponly") and not any(ct in ck_n.lower() for ct in csrf_cookie_tokens):
+                ck_l = ck_n.lower()
+                if ck_l.startswith(analytics_ck_prefixes):
+                    continue
+                if not ck.get("httponly") and not any(ct in ck_l for ct in csrf_cookie_tokens):
                     g["weak_cookies"].append(ck_n)
 
         for pt in ports:
@@ -131,7 +138,7 @@ class TriageAndChainSuperAgent:
             g = graph.setdefault(h, _node())
             if "cors" in tl:
                 g["cors"].append(f)
-            if "cookie" in tl and not g["weak_cookies"] and not any(ct in tl for ct in csrf_cookie_tokens):
+            if "cookie" in tl and not g["weak_cookies"] and not any(ct in tl for ct in csrf_cookie_tokens + analytics_ck_prefixes):
                 g["weak_cookies"].append(f["title"])
             if ("dom xss" in tl or "reflection" in tl or "xss" in tl) and "x-forwarded-host" not in tl:
                 g["xss_sinks"].append(f["title"])
@@ -258,7 +265,10 @@ class TriageAndChainSuperAgent:
 
         pt_host = proj.get("primary_target", "").lower()
         cdn_tokens = ("cloudflare", "cloudfront", "akamai", "fastly", "imperva", "incapsula", "sucuri", "ddos-guard", "qrator")
-        cf_hosts = [d["domain"] for d in domains if "cloudflare" in str(d.get("cdn_waf", "")).lower()]
+        cf_hosts = sorted(
+            [d["domain"] for d in domains if "cloudflare" in str(d.get("cdn_waf", "")).lower()],
+            key=lambda x: (0 if x.lower() == pt_host else 1, len(x), x),
+        )
         direct_hosts = []
         seen_orig_ips: set[str] = set()
         for d in domains:

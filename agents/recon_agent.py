@@ -1349,9 +1349,16 @@ class ReconSuperAgent:
                             if key not in ("http", "https", "true", "false", "null", "undefined"):
                                 extracted_params.add(key)
 
-                is_vendor_js = any(vk in safe_jname.lower() or f"/{vk}" in js_url.lower() for vk in ("require.min", "polyfill", "jquery", "bootstrap", "popper", "modernizr", "lodash", "swiper", "vendor", "uwnd.min", "/.s/src/"))
+                is_vendor_js = any(
+                    vk in safe_jname.lower() or f"/{vk}" in js_url.lower()
+                    for vk in ("require.min", "polyfill", "jquery", "bootstrap", "popper", "modernizr", "lodash", "swiper", "vendor", "uwnd.min", "/.s/src/", "video.min", "videojs", "hls.min", "playerjs")
+                )
                 sinks = [] if is_vendor_js else sorted(set(sink_regex.findall(content)))
-                secrets = sorted({s[:120] for s in secret_regex.findall(content)})
+                placeholder_tokens = ("no_base_url", "undefined", "null", "localhost", "127.0.0.1", "example.com", '""', "''")
+                secrets = [] if is_vendor_js else sorted({
+                    s[:120] for s in secret_regex.findall(content)
+                    if not any(pt in s.lower() for pt in placeholder_tokens)
+                })
                 eps.update(method_map.keys())
                 sorted_eps = sorted(eps)
 

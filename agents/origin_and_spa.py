@@ -146,7 +146,7 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
             log_fn(f"  [🎯 ORIGIN IP UNMASKED] {ip_addr} -> {primary_host} ({', '.join(reasons)})")
             db.upsert_finding(
                 project_id, "SPECTRE-Agent1 (Origin Unmasker)", f"Direct Origin Server IP Confirmed: {ip_addr} ({primary_host})",
-                "Origin IP Exposure / WAF Bypass Vector", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                "Origin IP Exposure / WAF Bypass Vector", "Medium", 5.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
                 "CWE-200", "A05:2021 - Security Misconfiguration", f"{scheme_used}://{ip_addr} (Host: {primary_host})",
                 f"Origin Proof: {', '.join(reasons)} | HTTP {code} ({len(body_b)}B)\nPoC: curl -k -i --resolve {primary_host}:443:{ip_addr} https://{primary_host}/",
                 f"Asosiy domen ({primary_host}) ga xizmat ko'rsatuvchi to'g'ridan-to'g'ri Origin server IP manzili ({ip_addr}) tasdiqlandi.",

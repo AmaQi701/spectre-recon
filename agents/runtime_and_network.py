@@ -375,18 +375,26 @@ def analyze_wasm_binaries_and_server_timing(db, session, project_id: int, base_u
         r = session.get(base_url, timeout=5, verify=False)
         st_hdr = r.headers.get("Server-Timing", "")
         if st_hdr:
-            hits += 1
-            services_leaked = re.findall(r"([a-zA-Z0-9_\-]+)\s*;", st_hdr)
-            db.upsert_finding(
-                project_id, "SPECTRE-v12 (Server-Timing)",
-                "Internal Microservice Metrics Disclosed in Server-Timing Header",
-                "Information Disclosure", "Low", 3.1,
-                "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-                base_url, f"Server-Timing: {st_hdr[:180]} | Services: {', '.join(services_leaked[:8])}",
-                "HTTP javobidagi Server-Timing sarlavhasi ichki mikroservis nomlari va ma'lumotlar bazasi vaqtlarini oshkor qilmoqda.",
-                "Production reverse-proxy darajasida Server-Timing sarlavhasini tashqi foydalanuvchilardan yashiring.",
-            )
-            log_fn(f"  [⏱️ SERVER-TIMING] {base_url} -> {st_hdr[:100]}")
+            cdn_timing_ignore = {
+                "cfcachestatus", "cfedge", "cforigin", "cdn-cache", "cdn", "ak_p",
+                "fastly", "varnish", "cache", "edge", "miss", "hit",
+            }
+            services_leaked = [
+                s for s in re.findall(r"([a-zA-Z0-9_\-]+)\s*;", st_hdr)
+                if s.lower() not in cdn_timing_ignore and not s.lower().startswith(("cf", "ak_"))
+            ]
+            if services_leaked:
+                hits += 1
+                db.upsert_finding(
+                    project_id, "SPECTRE-Runtime (Server-Timing)",
+                    "Internal Microservice Metrics Disclosed in Server-Timing Header",
+                    "Information Disclosure", "Low", 3.1,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
+                    base_url, f"Server-Timing: {st_hdr[:180]} | Services: {', '.join(services_leaked[:8])}",
+                    "HTTP javobidagi Server-Timing sarlavhasi ichki mikroservis nomlari va ma'lumotlar bazasi vaqtlarini oshkor qilmoqda.",
+                    "Production reverse-proxy darajasida Server-Timing sarlavhasini tashqi foydalanuvchilardan yashiring.",
+                )
+                log_fn(f"  [⏱️ SERVER-TIMING] {base_url} -> {st_hdr[:100]}")
         for wm in wasm_re.findall(r.text[:200000]):
             wasm_urls.add(urllib.parse.urljoin(base_url, wm))
     except Exception:

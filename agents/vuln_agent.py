@@ -257,10 +257,17 @@ class VulnAssessmentSuperAgent:
                 missing_header_items.append((url, missing_headers))
 
             csrf_ck_tokens = ("xsrf-token", "csrftoken", "_csrf", "csrf_token", "csrf-token", "antiforgery")
+            analytics_ck_prefixes = (
+                "_ym_", "_ga", "_gid", "_gat", "_fbp", "_fbc", "_gcl_", "__utm", "_pk_",
+                "mp_", "amplitude_", "cf_clearance", "__cf_bm", "intercom-", "_hj", "_clck", "_clsk",
+            )
             is_https = url.lower().startswith("https://")
             for ck in cookies:
                 ck_name = str(ck.get("name") or "session")
-                is_csrf_ck = any(ct in ck_name.lower() for ct in csrf_ck_tokens)
+                ck_low = ck_name.lower()
+                if ck_low.startswith(analytics_ck_prefixes):
+                    continue
+                is_csrf_ck = any(ct in ck_low for ct in csrf_ck_tokens)
                 needs_flag = (is_https and not ck.get("secure")) if is_csrf_ck else (not ck.get("httponly") or (is_https and not ck.get("secure")))
                 if needs_flag and ck_name not in seen_cookie_names:
                     seen_cookie_names.add(ck_name)

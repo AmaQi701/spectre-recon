@@ -264,7 +264,7 @@ def run_integrity_gate() -> list[str]:
         if body_redir != "" or not redir_svc or redir_svc[0]["status_code"] != 301:
             errors.append(f"[CROSS-HOST REDIRECT CLONE LEAK] {body_redir!r} | {redir_svc}")
 
-        # CSRF Double-Submit Cookie (XSRF-TOKEN) must NOT trigger HttpOnly false positive
+        # CSRF & Analytics Cookies (XSRF-TOKEN, _ym_apphash, _ga) must NOT trigger HttpOnly false positive
         db.upsert_http_service(
             pid_scale,
             "https://csrf-check.example.org",
@@ -272,12 +272,15 @@ def run_integrity_gate() -> list[str]:
             "Portal",
             "nginx",
             [],
-            cookies=[{"name": "XSRF-TOKEN", "httponly": False, "secure": True, "samesite": True, "raw": "XSRF-TOKEN=abc; Secure"}],
+            cookies=[
+                {"name": "XSRF-TOKEN", "httponly": False, "secure": True, "samesite": True, "raw": "XSRF-TOKEN=abc; Secure"},
+                {"name": "_ym_apphash", "httponly": False, "secure": False, "samesite": True, "raw": "_ym_apphash=123; SameSite=Lax"},
+            ],
         )
         va._audit_http_services(pid_scale, [s for s in db.get_project_bundle(pid_scale)["http_services"] if "csrf-check" in s["url"]], lambda _m: None)
-        xsrf_fp = [f for f in db.get_project_bundle(pid_scale)["findings"] if "XSRF-TOKEN" in f["title"]]
+        xsrf_fp = [f for f in db.get_project_bundle(pid_scale)["findings"] if "XSRF-TOKEN" in f["title"] or "_ym_apphash" in f["title"]]
         if xsrf_fp:
-            errors.append(f"[CSRF COOKIE FALSE POSITIVE] {xsrf_fp}")
+            errors.append(f"[CSRF/ANALYTICS COOKIE FALSE POSITIVE] {xsrf_fp}")
 
     return errors
 
