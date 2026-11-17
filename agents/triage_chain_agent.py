@@ -156,6 +156,7 @@ class TriageAndChainSuperAgent:
                 g["data_stores"].append(f)
 
         # Per-Host Asset-Bound Graph Correlation Rules
+        seen_cve_chain_sigs: set[str] = set()
         for host, g in graph.items():
             if g["xss_sinks"] and g["weak_cookies"]:
                 self.db.upsert_bug_chain(
@@ -212,17 +213,20 @@ class TriageAndChainSuperAgent:
 
             if g["cves"] and (g["open_ports"] or g["has_web"]):
                 cf = g["cves"][0]
-                surf_lbl = f"Open Ports: {', '.join(g['open_ports'][:4])}" if g["open_ports"] else "Public HTTP/HTTPS Surface"
-                self.db.upsert_bug_chain(
-                    project_id,
-                    f"[{host}] Exposed Service Surface + Outdated Component Advisory -> Infrastructure Risk",
-                    "High", 8.9,
-                    [f"Host: {host}", surf_lbl, cf["title"]],
-                    f"'{host}' xostida ochiq tarmoq/veb xizmati va eskirgan komponent versiyasi ({cf['title']}) aniqlandi.",
-                    "Tashqi tarmoqdan xizmat barqarorligi va xavfsizligiga ta'sir.",
-                    "Ma'muriy portlarni Firewall orqali yoping va xizmat paketlarini yangilang.",
-                )
-                log_fn(f"  [CHAIN] {host}: Exposed Surface + CVE Advisory ({cf['title'][:45]}) zanjiri tuzildi!")
+                cve_sig = re.sub(r"\s*\(\d+\s+Hosts\)", "", cf["title"])
+                if cve_sig not in seen_cve_chain_sigs:
+                    seen_cve_chain_sigs.add(cve_sig)
+                    surf_lbl = f"Open Ports: {', '.join(g['open_ports'][:4])}" if g["open_ports"] else "Public HTTP/HTTPS Surface"
+                    self.db.upsert_bug_chain(
+                        project_id,
+                        f"[{host}] Exposed Service Surface + Outdated Component Advisory -> Infrastructure Risk",
+                        "High", 8.9,
+                        [f"Host: {host}", surf_lbl, cf["title"]],
+                        f"'{host}' xostida ochiq tarmoq/veb xizmati va eskirgan komponent versiyasi ({cf['title']}) aniqlandi.",
+                        "Tashqi tarmoqdan xizmat barqarorligi va xavfsizligiga ta'sir.",
+                        "Ma'muriy portlarni Firewall orqali yoping va xizmat paketlarini yangilang.",
+                    )
+                    log_fn(f"  [CHAIN] {host}: Exposed Surface + CVE Advisory ({cf['title'][:45]}) zanjiri tuzildi!")
 
             if g["data_stores"] and g["has_web"]:
                 df = g["data_stores"][0]

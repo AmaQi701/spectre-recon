@@ -330,6 +330,8 @@ class VulnAssessmentSuperAgent:
 
         data_store_ports = {3306: "MySQL", 5432: "PostgreSQL", 6379: "Redis", 11211: "Memcached", 27017: "MongoDB", 9200: "Elasticsearch"}
         seen_port_checks: set[tuple[str, str, int, str]] = set()
+        ssh_exposed_items: list[tuple[str, int, str, str]] = []
+        cleartext_by_proto: dict[str, list[tuple[str, int, str, str]]] = {}
 
         def _mark(target_k: str, proto_s: str, p_num: int, check_id: str) -> bool:
             key = (target_k, proto_s, p_num, check_id)
@@ -363,15 +365,7 @@ class VulnAssessmentSuperAgent:
                     )
             elif pnum in (22, 1022):
                 if _mark(dedup_k, proto, pnum, "ssh_exposed"):
-                    self.db.upsert_finding(
-                        project_id, "Agent-2 (NetworkAudit)", f"Publicly Exposed SSH Service ({disp_host}:{pnum})",
-                        "Network Exposure", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
-                        "CWE-284", "A05:2021 - Security Misconfiguration", f"{disp_host}:{pnum}",
-                        f"Port {pnum}/{proto} open | Service: {b_full[:160]}",
-                        "SSH boshqaruv porti tashqi internet uchun ochiq qoldirilgan.",
-                        "SSH portini faqat VPN yoki Firewall allowlist uchun oching va PasswordAuthentication ni o'chiring.",
-                        confidence=QoD.HEADER_CONFIG,
-                    )
+                    ssh_exposed_items.append((disp_host, pnum, proto, b_full[:120]))
                 weak_ssh = ("ssh-1.99", "ssh-1.5", "arcfour", "diffie-hellman-group1-sha1", "diffie-hellman-group14-sha1", "ssh-dss", "3des-cbc", "hmac-md5")
                 if any(wk in b_low for wk in weak_ssh) and _mark(dedup_k, proto, pnum, "ssh_weak_algo"):
                     self.db.upsert_finding(
@@ -386,7 +380,50 @@ class VulnAssessmentSuperAgent:
             elif pnum in data_store_ports:
                 self._audit_data_store_port(project_id, data_store_ports[pnum], pnum, proto, dedup_k, disp_host, b_full, b_low, _mark)
             else:
-                self._audit_legacy_and_infra_port(project_id, pnum, proto, dedup_k, disp_host, b_full, b_low, _mark)
+                self._audit_legacy_and_infra_port(project_id, pnum, proto, dedup_k, disp_host, b_full, b_low, _mark, cleartext_by_proto)
+
+        if len(ssh_exposed_items) == 1:
+            dh, pn, pr, bf = ssh_exposed_items[0]
+            self.db.upsert_finding(
+                project_id, "Agent-2 (NetworkAudit)", f"Publicly Exposed SSH Service ({dh}:{pn})",
+                "Network Exposure", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                "CWE-284", "A05:2021 - Security Misconfiguration", f"{dh}:{pn}",
+                f"Port {pn}/{pr} open | Service: {bf}",
+                "SSH boshqaruv porti tashqi internet uchun ochiq qoldirilgan.",
+                "SSH portini faqat VPN yoki Firewall allowlist uchun oching va PasswordAuthentication ni o'chiring.",
+                confidence=QoD.HEADER_CONFIG,
+            )
+        elif len(ssh_exposed_items) > 1:
+            dh0, pn0, _, bf0 = ssh_exposed_items[0]
+            hosts_s = ", ".join(f"{dh}:{pn}" for dh, pn, _, _ in ssh_exposed_items[:10])
+            self.db.upsert_finding(
+                project_id, "Agent-2 (NetworkAudit)", f"Publicly Exposed SSH Service ({len(ssh_exposed_items)} Cluster Hosts)",
+                "Network Exposure", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                "CWE-284", "A05:2021 - Security Misconfiguration", f"{dh0}:{pn0}",
+                f"Exposed SSH Hosts ({len(ssh_exposed_items)}): {hosts_s} | Sample: {bf0}",
+                "Bir nechta serverlarda SSH boshqaruv porti tashqi internet uchun ochiq qoldirilgan.",
+                "SSH portini faqat VPN yoki Bastion Firewall allowlist uchun oching va PasswordAuthentication ni o'chiring.",
+                confidence=QoD.HEADER_CONFIG,
+            )
+
+        for pr_name, c_items in cleartext_by_proto.items():
+            dh0, pn0, pr0, bf0 = c_items[0]
+            if len(c_items) == 1:
+                c_title = f"Cleartext Legacy Service Exposed ({pr_name} on {dh0}:{pn0})"
+                c_ev = f"Port {pn0}/{pr0} ({pr_name}) open | Banner: {bf0}"
+            else:
+                hosts_s = ", ".join(f"{dh}:{pn}" for dh, pn, _, _ in c_items[:10])
+                c_title = f"Cleartext Legacy Service Exposed ({pr_name} Across {len(c_items)} Hosts)"
+                c_ev = f"Affected Hosts ({len(c_items)}): {hosts_s} | Sample Banner: {bf0}"
+            self.db.upsert_finding(
+                project_id, "Agent-2 (ProtocolAudit)", c_title,
+                "Cleartext Transmission / Network Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                "CWE-319", "A02:2021 - Cryptographic Failures", f"{dh0}:{pn0}",
+                c_ev,
+                f"Shifrlanmagan {pr_name} protokoli tashqi tarmoq uchun ochiq qoldirilgan.",
+                f"{pr_name} o'rniga SFTP/SSH ishlating va portni tashqi interfeysdan Firewall orqali yoping.",
+                confidence=QoD.PROTOCOL_VERIFIED,
+            )
 
     def _audit_data_store_port(self, project_id: int, ds_name: str, pnum: int, proto: str, dedup_k: str, disp_host: str, b_full: str, b_low: str, _mark):
         unauth_markers = ("redis_version:", '"cluster_name"', "stat pid", "mongodb server information", "authentication: disabled")
@@ -413,7 +450,7 @@ class VulnAssessmentSuperAgent:
             )
 
 
-    def _audit_legacy_and_infra_port(self, project_id: int, pnum: int, proto: str, dedup_k: str, disp_host: str, b_full: str, b_low: str, _mark):
+    def _audit_legacy_and_infra_port(self, project_id: int, pnum: int, proto: str, dedup_k: str, disp_host: str, b_full: str, b_low: str, _mark, cleartext_by_proto: dict | None = None):
         legacy_cleartext_ports = {21: "FTP", 23: "Telnet", 873: "Rsync"}
         if pnum in legacy_cleartext_ports:
             pr_name = legacy_cleartext_ports[pnum]
@@ -429,15 +466,18 @@ class VulnAssessmentSuperAgent:
                         confidence=QoD.ACTIVE_VERIFIED,
                     )
             if _mark(dedup_k, proto, pnum, "cleartext_legacy"):
-                self.db.upsert_finding(
-                    project_id, "Agent-2 (ProtocolAudit)", f"Cleartext Legacy Service Exposed ({pr_name} on {disp_host}:{pnum})",
-                    "Cleartext Transmission / Network Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
-                    "CWE-319", "A02:2021 - Cryptographic Failures", f"{disp_host}:{pnum}",
-                    f"Port {pnum}/{proto} ({pr_name}) open | Banner: {b_full[:160]}",
-                    f"Shifrlanmagan {pr_name} protokoli tashqi tarmoq uchun ochiq qoldirilgan.",
-                    f"{pr_name} o'rniga SFTP/SSH ishlating va portni tashqi interfeysdan Firewall orqali yoping.",
-                    confidence=QoD.PROTOCOL_VERIFIED,
-                )
+                if cleartext_by_proto is not None:
+                    cleartext_by_proto.setdefault(pr_name, []).append((disp_host, pnum, proto, b_full[:140]))
+                else:
+                    self.db.upsert_finding(
+                        project_id, "Agent-2 (ProtocolAudit)", f"Cleartext Legacy Service Exposed ({pr_name} on {disp_host}:{pnum})",
+                        "Cleartext Transmission / Network Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                        "CWE-319", "A02:2021 - Cryptographic Failures", f"{disp_host}:{pnum}",
+                        f"Port {pnum}/{proto} ({pr_name}) open | Banner: {b_full[:160]}",
+                        f"Shifrlanmagan {pr_name} protokoli tashqi tarmoq uchun ochiq qoldirilgan.",
+                        f"{pr_name} o'rniga SFTP/SSH ishlating va portni tashqi interfeysdan Firewall orqali yoping.",
+                        confidence=QoD.PROTOCOL_VERIFIED,
+                    )
         elif pnum in (25, 465, 587):
             if pnum in (25, 587) and ("open relay" in b_low or ("vrfy" in b_low and "250 " in b_low)) and _mark(dedup_k, proto, pnum, "smtp_relay_vrfy"):
                 self.db.upsert_finding(
@@ -564,33 +604,53 @@ class VulnAssessmentSuperAgent:
                 elif disp_host not in grouped[sig]["vhosts"]:
                     grouped[sig]["vhosts"].append(disp_host)
 
-        cve_counts: dict[str, int] = {}
-        for (_, cve_id) in grouped.keys():
-            cve_counts[cve_id] = cve_counts.get(cve_id, 0) + 1
-
+        # Consolidate identical CVEs across multi-node clusters while preserving all affected hosts
+        by_cve: dict[str, dict] = {}
         distro_pkg_prods = {"openssh", "exim", "apache_http_server", "nginx", "postfix", "dovecot", "proftpd", "vsftpd", "mariadb", "postgresql", "php"}
-        for (dedup_h, _), item in grouped.items():
+        for (dedup_h, cve_id), item in grouped.items():
+            adv = item["adv"]
+            is_bp = (
+                bool(adv.get("distro_backport_likely"))
+                or (dedup_h in distro_hosts and adv.get("product") in distro_pkg_prods)
+                or (adv.get("product") == "openssh" and adv.get("detected_version") in ("9.2p1", "8.9p1", "8.4p1", "9.6p1"))
+            )
+            if cve_id not in by_cve:
+                by_cve[cve_id] = {
+                    "adv": adv,
+                    "primary_asset": item["primary_asset"],
+                    "vhosts": list(item["vhosts"]),
+                    "banner": item["banner"],
+                    "is_port": item["is_port"],
+                    "is_bp": is_bp,
+                }
+            else:
+                for vh in item["vhosts"]:
+                    if vh not in by_cve[cve_id]["vhosts"]:
+                        by_cve[cve_id]["vhosts"].append(vh)
+                if is_bp:
+                    by_cve[cve_id]["is_bp"] = True
+
+        for cve_id, item in by_cve.items():
             adv = item["adv"]
             vhosts = item["vhosts"]
             if kb is not None:
-                kb.add_fact("CVE/detected", adv["cve"])
-            is_bp = bool(adv.get("distro_backport_likely")) or (dedup_h in distro_hosts and adv.get("product") in distro_pkg_prods)
-            bp_note = " [OS Distro Backport Possible — verify dpkg/rpm patch level]" if is_bp else ""
-            vh_note = f" | Shared Origin VHosts ({len(vhosts)}): {', '.join(vhosts[:6])}" if len(vhosts) > 1 else ""
-            conf_qod = QoD.HEURISTIC if is_bp else QoD.BANNER_CVE
+                kb.add_fact("CVE/detected", cve_id)
+            bp_note = " [OS Distro Backport Possible — verify dpkg/rpm patch level]" if item["is_bp"] else ""
+            vh_note = f" | Shared Origin VHosts ({len(vhosts)}): {', '.join(vhosts[:8])}" if len(vhosts) > 1 else ""
+            conf_qod = QoD.HEURISTIC if item["is_bp"] else QoD.BANNER_CVE
             src_lbl = "Tarmoq porti" if item["is_port"] else "HTTP servis"
-            host_sfx = f" ({vhosts[0]})" if cve_counts.get(adv["cve"], 0) > 1 and vhosts else ""
+            host_sfx = f" ({len(vhosts)} Hosts)" if len(vhosts) > 1 else ""
             self.db.upsert_finding(
-                project_id, "Agent-2 (CVE-Engine)", f"{adv['title']}{host_sfx} [{adv['cve']}]",
+                project_id, "Agent-2 (CVE-Engine)", f"{adv['title']}{host_sfx} [{cve_id}]",
                 "Vulnerable & Outdated Components", adv["severity"], adv["cvss"], adv["vector"],
                 adv["cwe"], adv["owasp"], item["primary_asset"],
                 f"CPE: {adv.get('cpe23', '')} | Detected: {adv['product']} {adv['detected_version']} (>= {adv['min']}, < {adv['max']}){bp_note}{vh_note} | Banner: {item['banner']}",
-                f"{src_lbl} bannerida eskirgan '{adv['product']} {adv['detected_version']}' versiyasi aniqlandi ({adv['cve']}).{bp_note}",
+                f"{src_lbl} bannerida eskirgan '{adv['product']} {adv['detected_version']}' versiyasi aniqlandi ({cve_id}).{bp_note}",
                 adv["remediation"],
                 confidence=conf_qod,
             )
-        if grouped:
-            log_fn(f"  [CVE-ENGINE] Semantic Version & CPE 2.3 tahlili: {len(grouped)} ta unikal komponent / CVE tavsiyasi aniqlandi.")
+        if by_cve:
+            log_fn(f"  [CVE-ENGINE] Semantic Version & CPE 2.3 tahlili: {len(by_cve)} ta unikal komponent / CVE tavsiyasi aniqlandi.")
 
     def _audit_tls_and_cache_posture(self, project_id: int, http_services: list[dict], log_fn):
         seen_tls: set[str] = set()

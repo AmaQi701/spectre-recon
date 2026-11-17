@@ -1027,7 +1027,12 @@ class ReconSuperAgent:
                 source="http_prober",
             )
             log_fn(f"  [+] HTTP {resp.status_code} | {url} | Title: '{title[:45]}' | Tech: {', '.join(tech) or 'N/A'}")
-            if is_isp_or_fw_block or is_cross_host_redirect or resp.status_code in (301, 302, 303, 307, 308, 400, 404, 410, 429, 500, 502, 503, 504):
+            is_default_stub = (
+                len(resp.content) < 64
+                or (resp.status_code == 403 and len(resp.content) < 2048 and "<script" not in body_l)
+                or (orig_host != p_host and any(ds in t_low_probe for ds in ("welcome to nginx!", "apache2 debian default page", "apache2 ubuntu default page", "test page for the http server")))
+            )
+            if is_isp_or_fw_block or is_cross_host_redirect or is_default_stub or resp.status_code in (301, 302, 303, 307, 308, 400, 404, 410, 429, 500, 502, 503, 504):
                 return ""
             return resp.text
         except Exception as e:
@@ -1354,11 +1359,21 @@ class ReconSuperAgent:
                     for vk in ("require.min", "polyfill", "jquery", "bootstrap", "popper", "modernizr", "lodash", "swiper", "vendor", "uwnd.min", "/.s/src/", "video.min", "videojs", "hls.min", "playerjs")
                 )
                 sinks = [] if is_vendor_js else sorted(set(sink_regex.findall(content)))
-                placeholder_tokens = ("no_base_url", "undefined", "null", "localhost", "127.0.0.1", "example.com", '""', "''")
-                secrets = [] if is_vendor_js else sorted({
-                    s[:120] for s in secret_regex.findall(content)
-                    if not any(pt in s.lower() for pt in placeholder_tokens)
-                })
+                placeholder_tokens = (
+                    "no_base_url", "undefined", "null", "localhost", "127.0.0.1", "example.com",
+                    "custom-authorized", "changeme", "placeholder", "dummy", '""', "''",
+                )
+                raw_sec_matches = [] if is_vendor_js else secret_regex.findall(content)
+                secrets = []
+                for sm in raw_sec_matches:
+                    sm_s = sm[:120]
+                    if any(pt in sm_s.lower() for pt in placeholder_tokens):
+                        continue
+                    val_part = re.split(r"[:=]", sm_s, maxsplit=1)[-1].strip().strip("'\"` ")
+                    if len(val_part) < 12 and not val_part.startswith(("http://", "https://", "/")):
+                        continue
+                    secrets.append(sm_s)
+                secrets = sorted(set(secrets))
                 eps.update(method_map.keys())
                 sorted_eps = sorted(eps)
 
