@@ -297,6 +297,32 @@ def run_integrity_gate() -> list[str]:
         if false_bola_ch:
             errors.append(f"[SUBSTRING BOLA FALSE CHAIN] {false_bola_ch}")
 
+        # Active Socket Verifier Gate: mock TCP Redis responder
+        import socket as _sock
+        import threading as _thr
+        from core.protocol_verifiers import _tcp_exchange
+        srv_s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+        srv_s.bind(("127.0.0.1", 0))
+        srv_s.listen(1)
+        s_port = srv_s.getsockname()[1]
+
+        def _fake_redis():
+            try:
+                conn_s, _ = srv_s.accept()
+                conn_s.recv(1024)
+                conn_s.sendall(b"+PONG\r\nredis_version:6.0.9\r\n")
+                conn_s.close()
+            except Exception:
+                pass
+            finally:
+                srv_s.close()
+
+        t_red = _thr.Thread(target=_fake_redis, daemon=True)
+        t_red.start()
+        ex_out = _tcp_exchange("127.0.0.1", s_port, [b"PING\r\n"], timeout=1.5)
+        if "redis_version:6.0.9" not in ex_out:
+            errors.append(f"[SOCKET NVT EXCHANGE BROKEN] {ex_out!r}")
+
     return errors
 
 

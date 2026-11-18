@@ -15,6 +15,7 @@ from core.advisory_kb import extract_cpe_inventory, match_version_advisories
 from core.database import DatabaseManager
 from core.http_engine import RateLimitedHttpEngine
 from core.plugin_runner import PhaseOrchestrator, QoD, ScanContextKB, ScanPhase
+from core.protocol_verifiers import run_active_protocol_verifiers
 
 
 class VulnAssessmentSuperAgent:
@@ -1159,6 +1160,17 @@ class VulnAssessmentSuperAgent:
                     except Exception:
                         pass
 
+    def _audit_active_socket_protocols(self, project_id: int, log_fn):
+        b_cur = self.db.get_project_bundle(project_id)
+        run_active_protocol_verifiers(
+            self.db,
+            self.http_engine,
+            project_id,
+            b_cur.get("ports", []),
+            b_cur.get("domains", []),
+            log_fn,
+        )
+
     def run_assessment(self, project_id: int, log_fn, enable_cli: bool = True):
         bundle = self.db.get_project_bundle(project_id)
         proj = bundle.get("project", {})
@@ -1178,6 +1190,14 @@ class VulnAssessmentSuperAgent:
         js_list = bundle.get("js_assets", [])
 
         orch = PhaseOrchestrator(self.db, project_id, kb, log_fn=log_fn)
+        orch.register(
+            "nvt_active_socket_verifiers",
+            ScanPhase.ACT_GATHER_INFO,
+            self._audit_active_socket_protocols,
+            project_id,
+            log_fn,
+            require_any_keys=["Ports/tcp"],
+        )
         orch.register("nvt_http_headers_cors", ScanPhase.ACT_GATHER_INFO, self._audit_http_services, project_id, http_svcs, log_fn, require_keys=["Services/www"])
         orch.register("nvt_tls_cache_posture", ScanPhase.ACT_GATHER_INFO, self._audit_tls_and_cache_posture, project_id, http_svcs, log_fn, require_keys=["Services/www"])
         orch.register(
