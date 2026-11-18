@@ -12,6 +12,7 @@ from pathlib import Path
 import requests
 
 from core.advisory_kb import extract_cpe_inventory, match_version_advisories
+from core.cms_enterprise_nvts import run_cms_and_enterprise_nvts
 from core.database import DatabaseManager
 from core.http_engine import RateLimitedHttpEngine
 from core.plugin_runner import PhaseOrchestrator, QoD, ScanContextKB, ScanPhase
@@ -541,6 +542,11 @@ class VulnAssessmentSuperAgent:
         domains: list[dict] | None = None,
         kb: ScanContextKB | None = None,
     ):
+        fresh_bundle = self.db.get_project_bundle(project_id)
+        if fresh_bundle.get("http_services"):
+            http_services = fresh_bundle["http_services"]
+        if fresh_bundle.get("ports"):
+            ports = fresh_bundle["ports"]
         non_cdn_dom_ip: dict[str, str] = {}
         ip_to_primary_dom: dict[str, str] = {}
         for d in (domains or []):
@@ -1160,6 +1166,16 @@ class VulnAssessmentSuperAgent:
                     except Exception:
                         pass
 
+    def _audit_cms_and_enterprise_apps(self, project_id: int, log_fn):
+        b_cur = self.db.get_project_bundle(project_id)
+        run_cms_and_enterprise_nvts(
+            self.db,
+            self.http_engine,
+            project_id,
+            b_cur.get("http_services", []),
+            log_fn,
+        )
+
     def _audit_active_socket_protocols(self, project_id: int, log_fn):
         b_cur = self.db.get_project_bundle(project_id)
         run_active_protocol_verifiers(
@@ -1199,6 +1215,7 @@ class VulnAssessmentSuperAgent:
             require_any_keys=["Ports/tcp"],
         )
         orch.register("nvt_http_headers_cors", ScanPhase.ACT_GATHER_INFO, self._audit_http_services, project_id, http_svcs, log_fn, require_keys=["Services/www"])
+        orch.register("nvt_cms_enterprise_suite", ScanPhase.ACT_GATHER_INFO, self._audit_cms_and_enterprise_apps, project_id, log_fn, require_keys=["Services/www"])
         orch.register("nvt_tls_cache_posture", ScanPhase.ACT_GATHER_INFO, self._audit_tls_and_cache_posture, project_id, http_svcs, log_fn, require_keys=["Services/www"])
         orch.register(
             "nvt_network_ports",

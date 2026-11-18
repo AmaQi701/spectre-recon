@@ -323,6 +323,12 @@ def run_integrity_gate() -> list[str]:
         if "redis_version:6.0.9" not in ex_out:
             errors.append(f"[SOCKET NVT EXCHANGE BROKEN] {ex_out!r}")
 
+        # Expanded 45-Product Enterprise & CMS CVE Catalog Gate
+        m_gf = match_version_advisories("Grafana 8.2.0\nMoodle 4.0.5\nGitLab 16.5.0")
+        found_cves = {x["product"]: x["cve"] for x in m_gf}
+        if "CVE-2021-43798" not in found_cves.get("grafana", "") or "CVE-2024-43425" not in found_cves.get("moodle", "") or "CVE-2023-7028" not in found_cves.get("gitlab", ""):
+            errors.append(f"[EXPANDED CVE CATALOG BROKEN] {found_cves}")
+
     return errors
 
 
