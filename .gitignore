@@ -24,6 +24,8 @@ reports/*.txt
 MASTER_PROMPT.md
 ARCHITECTURE_AND_RULES.md
 ROADMAP_V13.md
+ENTERPRISE_MASTER_PLAN.md
+workspaces/*.py
 
 # Python, build & OS artifacts
 __pycache__/
