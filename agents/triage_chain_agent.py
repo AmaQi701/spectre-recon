@@ -146,7 +146,10 @@ class TriageAndChainSuperAgent:
                 g["xfh_poison"].append(f)
             if "anonymous ftp" in tl or "smb signing" in tl or "verbose " in tl:
                 g["proto_debug"].append(f)
-            if "bola" in tl or "idor" in tl or "unauthenticated access" in tl:
+            if (
+                cat_l != "hidden attack surface"
+                and (re.search(r"\b(?:bola|idor)\b", tl) or "unauthenticated access" in tl or "access control" in cat_l)
+            ):
                 g["bola_authz"].append(f)
             if "redirect" in tl or "oauth" in tl or "ssrf" in tl:
                 g["redirects"].append(f)

@@ -104,7 +104,7 @@ def fingerprint_favicon(session, base_url: str, db, project_id: int, log_fn) -> 
 # --- -STANDARD WEB PORT PROBER ---
 WEB_CANDIDATE_PORTS = {
     81, 1500, 1501, 2083, 2087, 3000, 4443, 5000, 5601, 7001, 8000, 8006, 8008, 8080, 8081,
-    8083, 8086, 8087, 8088, 8090, 8181, 8443, 8444, 8880, 8888, 9000, 9001, 9080, 9090, 9200, 9443, 9999, 10000
+    8083, 8086, 8087, 8088, 8090, 8181, 8443, 8444, 8880, 8888, 9000, 9001, 9080, 9090, 9100, 9200, 9443, 9999, 10000
 }
 
 
@@ -195,12 +195,18 @@ def hunt_virtual_hosts(db, session, project_id: int, apex_domain: str, log_fn):
         base_url = ""
         base_status = 0
         base_len = 0
+        base_title = ""
+        base_jitter = 0
         for sch in ("https", "http"):
             try:
                 r_base = session.get(f"{sch}://{ip}", headers={"Host": f"nonexistent-99182.{apex_domain}"}, timeout=3.5, verify=False, allow_redirects=False)
+                r_base2 = session.get(f"{sch}://{ip}", headers={"Host": f"nonexistent-44821.{apex_domain}"}, timeout=3.5, verify=False, allow_redirects=False)
                 base_url = f"{sch}://{ip}"
                 base_status = r_base.status_code
                 base_len = len(r_base.content)
+                base_jitter = abs(len(r_base.content) - len(r_base2.content))
+                soup_b = BeautifulSoup(r_base.text[:50000], "html.parser")
+                base_title = soup_b.title.string.strip() if (soup_b.title and soup_b.title.string) else ""
                 break
             except Exception:
                 continue
@@ -211,10 +217,12 @@ def hunt_virtual_hosts(db, session, project_id: int, apex_domain: str, log_fn):
         try:
             r_main = session.get(base_url, headers={"Host": apex_domain}, timeout=3.5, verify=False, allow_redirects=False)
             main_len = len(r_main.content)
-            soup_m = BeautifulSoup(r_main.text[:15000], "html.parser")
+            soup_m = BeautifulSoup(r_main.text[:50000], "html.parser")
             main_title = soup_m.title.string.strip() if (soup_m.title and soup_m.title.string) else ""
         except Exception:
             pass
+
+        min_diff = max(500, base_jitter * 4, int(base_len * 0.12))
 
         def check_vhost(pref: str):
             cand_vhost = f"{pref}.{apex_domain}"
@@ -222,10 +230,12 @@ def hunt_virtual_hosts(db, session, project_id: int, apex_domain: str, log_fn):
                 return
             try:
                 r = session.get(base_url, headers={"Host": cand_vhost}, timeout=3.5, verify=False, allow_redirects=False)
-                if r.status_code == 200 and (r.status_code != base_status or abs(len(r.content) - base_len) > 250):
-                    soup = BeautifulSoup(r.text[:15000], "html.parser")
+                if r.status_code == 200 and (r.status_code != base_status or abs(len(r.content) - base_len) > min_diff):
+                    soup = BeautifulSoup(r.text[:50000], "html.parser")
                     title = soup.title.string.strip() if (soup.title and soup.title.string) else ""
-                    if main_len > 0 and abs(len(r.content) - main_len) < 180 and title == main_title:
+                    if base_title and title == base_title and abs(len(r.content) - base_len) <= max(min_diff, int(base_len * 0.15)):
+                        return
+                    if main_len > 0 and title == main_title and abs(len(r.content) - main_len) <= max(500, int(main_len * 0.15)):
                         return
                     db.upsert_domain(project_id, cand_vhost, ip=ip, source="vhost_fuzz")
                     db.upsert_finding(

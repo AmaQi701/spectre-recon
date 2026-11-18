@@ -358,6 +358,7 @@ def mine_hidden_query_parameters(db, session, project_id: int, base_url: str, lo
                 candidates.append(raw_u)
 
     discovered_total = 0
+    param_hits: list[tuple[str, list[str]]] = []
 
     def _response_differs(r_test, base_status: int, base_len: int, max_jitter: int, canaries: dict[str, str], reflects_query_url: bool) -> bool:
         if r_test.status_code != base_status:
@@ -412,19 +413,29 @@ def mine_hidden_query_parameters(db, session, project_id: int, base_url: str, lo
             if 0 < len(found_for_url) <= 5:
                 discovered_total += len(found_for_url)
                 db.upsert_endpoint(project_id, target_u, method="GET", params=found_for_url, category="high_value_endpoint", risk_tags=["hidden_params"], source="arjun_param_miner")
-                db.upsert_finding(
-                    project_id, "SPECTRE-Predator (Param-Miner)",
-                    f"Hidden Query Parameters Discovered ({urllib.parse.urlparse(target_u).path or '/'})",
-                    "Hidden Attack Surface", "Low", 3.7,
-                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A04:2021 - Insecure Design",
-                    target_u,
-                    f"Reactive Hidden Parameters: {', '.join(found_for_url)}",
-                    "Arjun-uslubidagi differensial va kanareyka tahlili orqali sahifada ko'rinmaydigan, ammo backend qabul qiladigan GET parametrlar aniqlandi.",
-                    "Ishlatilmaydigan debug/redirect/query parametrlarini o'chiring va barcha kiruvchi parametrlarni qat'iy validatsiya qiling.",
-                )
+                param_hits.append((target_u, list(found_for_url)))
                 log_fn(f"  [🧩 PARAM MINER] {target_u} -> Yashirin parametrlar topildi: {', '.join(found_for_url)}")
         except Exception:
             pass
+
+    if param_hits:
+        u0, p0 = param_hits[0]
+        if len(param_hits) == 1:
+            p_title = f"Hidden Query Parameters Discovered ({urllib.parse.urlparse(u0).path or '/'})"
+            p_ev = f"Reactive Hidden Parameters: {', '.join(p0)}"
+        else:
+            all_p = sorted({p for _, plist in param_hits for p in plist})
+            routes_s = ", ".join((urllib.parse.urlparse(u).path or "/")[:45] for u, _ in param_hits[:5])
+            p_title = f"Hidden Query Parameters Discovered ({len(param_hits)} Routes on {urllib.parse.urlparse(u0).hostname or u0})"
+            p_ev = f"Reactive Parameters: {', '.join(all_p)} | Sample Routes: {routes_s}"
+        db.upsert_finding(
+            project_id, "SPECTRE-Predator (Param-Miner)", p_title,
+            "Hidden Attack Surface", "Low", 3.7,
+            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A04:2021 - Insecure Design",
+            u0, p_ev,
+            "Arjun-uslubidagi differensial va kanareyka tahlili orqali sahifada ko'rinmaydigan, ammo backend qabul qiladigan GET parametrlar aniqlandi.",
+            "Ishlatilmaydigan debug/redirect/query parametrlarini o'chiring va barcha kiruvchi parametrlarni qat'iy validatsiya qiling.",
+        )
     return discovered_total
 
 

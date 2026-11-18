@@ -282,6 +282,21 @@ def run_integrity_gate() -> list[str]:
         if xsrf_fp:
             errors.append(f"[CSRF/ANALYTICS COOKIE FALSE POSITIVE] {xsrf_fp}")
 
+        # Word-boundary BOLA/IDOR check: URL words like 'bolalarim' or 'koridor' must NOT create BOLA chains
+        from agents.triage_chain_agent import TriageAndChainSuperAgent
+        db.upsert_endpoint(pid_scale, "https://example.org/api/post", "POST")
+        db.upsert_finding(
+            pid_scale, "Param-Miner",
+            "Hidden Query Parameters Discovered (/seriall/tortinchi-bolalarim-koridor.html)",
+            "Hidden Attack Surface", "Low", 3.7, "", "CWE-200", "A04", "https://example.org/seriall/tortinchi-bolalarim-koridor.html",
+            "Reactive Hidden Parameters: category", "rc", "rem",
+        )
+        tc_g = TriageAndChainSuperAgent(db, "/tmp/spectre_gate_rep")
+        tc_g.run_triage_and_chaining(pid_scale, lambda _m: None)
+        false_bola_ch = [c for c in db.get_project_bundle(pid_scale)["bug_chains"] if "BOLA" in c["chain_title"]]
+        if false_bola_ch:
+            errors.append(f"[SUBSTRING BOLA FALSE CHAIN] {false_bola_ch}")
+
     return errors
 
 

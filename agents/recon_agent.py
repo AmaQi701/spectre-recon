@@ -110,10 +110,12 @@ class ReconSuperAgent:
         self._raw_session_get = _orig_get
 
         def _guard_call(fn, url, **kwargs):
-            h_key = (urllib.parse.urlparse(str(url)).hostname or "").lower()
-            ip_key = self._host_to_ip.get(h_key, "")
+            p_u = urllib.parse.urlparse(str(url))
+            h_only = (p_u.hostname or "").lower()
+            h_key = f"{p_u.scheme}://{p_u.netloc}".lower() if p_u.netloc else h_only
+            ip_key = self._host_to_ip.get(h_only, "")
             with self._cache_lock:
-                if h_key and (h_key in self._dead_hosts or (ip_key and ip_key in self._dead_hosts)):
+                if h_key and (h_key in self._dead_hosts or h_only in self._dead_hosts or (ip_key and ip_key in self._dead_hosts)):
                     raise requests.exceptions.ConnectTimeout(f"Circuit-Breaker: {h_key} unreachable")
             try:
                 resp = fn(url, **kwargs)
@@ -128,8 +130,6 @@ class ReconSuperAgent:
                         self._host_fail_counts[h_key] = cnt
                         if cnt >= 4:
                             self._dead_hosts.add(h_key)
-                            if ip_key:
-                                self._dead_hosts.add(ip_key)
                 raise
 
         def _cached_session_get(url, **kwargs):
