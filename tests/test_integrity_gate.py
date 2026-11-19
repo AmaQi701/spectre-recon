@@ -432,14 +432,16 @@ def run_integrity_gate() -> list[str]:
         from core.nvt_declarative_engine import load_nvt_catalog
         from core.advisory_kb import _CPE_VENDOR_PRODUCT
         nvt_rules = load_nvt_catalog()
-        if len(nvt_rules) < 42:
+        if len(nvt_rules) < 60:
             errors.append(f"[DECLARATIVE NVT CATALOG TOO SMALL] count={len(nvt_rules)}")
-        if len(_CPE_VENDOR_PRODUCT) < 100:
-            errors.append(f"[CPE 2.3 CATALOG BELOW 100 PRODUCTS] count={len(_CPE_VENDOR_PRODUCT)}")
-        m_ext = match_version_advisories("Kibana 8.12.0\nRoundcube 1.6.5\nownCloud 10.13.1\nGitea 1.21.5\nSolr 9.2.0")
+        if len(_CPE_VENDOR_PRODUCT) < 105:
+            errors.append(f"[CPE 2.3 CATALOG BELOW 105 PRODUCTS] count={len(_CPE_VENDOR_PRODUCT)}")
+        m_ext = match_version_advisories("Kibana 8.12.0\nRoundcube 1.6.5\nownCloud 10.13.1\nGitea 1.21.5\nSolr 9.2.0\nActiveMQ 5.17.1\nMetabase 0.45.2")
         ext_prods = {x["product"] for x in m_ext}
-        if not {"kibana", "roundcube", "owncloud", "gitea", "solr"}.issubset(ext_prods):
-            errors.append(f"[102-PRODUCT ENTERPRISE CPE MATCHING BROKEN] {ext_prods}")
+        if not {"kibana", "roundcube", "owncloud", "gitea", "solr", "activemq", "metabase"}.issubset(ext_prods):
+            errors.append(f"[106-PRODUCT ENTERPRISE CPE MATCHING BROKEN] {ext_prods}")
+        if surface_prober.murmur3_32(b"spectre_favicon_check") != active_web_auditor.murmurhash3_32_signed(b"spectre_favicon_check"):
+            errors.append("[C++17 MURMUR3 UNIFICATION MISMATCH]")
 
     return errors
 

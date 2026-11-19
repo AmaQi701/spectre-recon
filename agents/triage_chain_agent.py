@@ -302,6 +302,20 @@ class TriageAndChainSuperAgent:
                 "Origin serverda faqat Cloudflare IP diapazonlaridan keluvchi 80/443 ulanishlarga ruxsat bering.",
             )
 
+        cname_finds = [f for f in findings if "dangling dns cname" in str(f.get("title", "")).lower() or "unclaimed cloud cname" in str(f.get("title", "")).lower()]
+        if cname_finds and http_svcs:
+            cf0 = cname_finds[0]
+            c_host = self._extract_asset_host(cf0.get("asset", ""), known_hosts, ip_to_host) or cf0.get("asset", "")
+            self.db.upsert_bug_chain(
+                project_id,
+                f"[{c_host}] Dangling Cloud CNAME + Parent Domain Origin Trust -> Subdomain Trust Risk",
+                "High", 8.6,
+                [f"Subdomain: {c_host}", cf0["title"], f"Parent Web Surface ({len(http_svcs)} active services)"],
+                f"'{c_host}' subdomenidagi uzilgan CNAME yozuvi asosiy domen cookie va CORS ishonch doirasiga ta'sir ko'rsatishi mumkin.",
+                "Subdomen ishonch chegarasining buzilishi va sessiya xavfsizligiga ta'sir.",
+                "DNS zonasidan barcha foydalanilmayotgan CNAME yozuvlarini olib tashlang va `__Host-` cookie prefiksidan foydalaning.",
+            )
+
         all_api_eps = [e["url"] for e in endpoints if e.get("category") in ("api_endpoint", "high_value_endpoint")]
         smap_finds = [f for f in findings if "exposed javascript sourcemap" in str(f.get("title", "")).lower()]
         if smap_finds and all_api_eps:

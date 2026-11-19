@@ -34,47 +34,8 @@ FAVICON_SIGNATURES = {
 
 
 def murmur3_32(data: bytes, seed: int = 0) -> int:
-    c1, c2 = 0xCC9E2D51, 0x1B873593
-    length = len(data)
-    h1 = seed & 0xFFFFFFFF
-    rounded_end = length & ~0x3
-
-    for i in range(0, rounded_end, 4):
-        k1 = (
-            (data[i] & 0xFF)
-            | ((data[i + 1] & 0xFF) << 8)
-            | ((data[i + 2] & 0xFF) << 16)
-            | ((data[i + 3] & 0xFF) << 24)
-        )
-        k1 = (k1 * c1) & 0xFFFFFFFF
-        k1 = ((k1 << 15) | (k1 >> 17)) & 0xFFFFFFFF
-        k1 = (k1 * c2) & 0xFFFFFFFF
-        h1 ^= k1
-        h1 = ((h1 << 13) | (h1 >> 19)) & 0xFFFFFFFF
-        h1 = (h1 * 5 + 0xE6546B64) & 0xFFFFFFFF
-
-    k1 = 0
-    val = length & 0x3
-    if val == 3:
-        k1 = (data[rounded_end + 2] & 0xFF) << 16
-    if val in (2, 3):
-        k1 |= (data[rounded_end + 1] & 0xFF) << 8
-    if val in (1, 2, 3):
-        k1 |= data[rounded_end] & 0xFF
-        k1 = (k1 * c1) & 0xFFFFFFFF
-        k1 = ((k1 << 15) | (k1 >> 17)) & 0xFFFFFFFF
-        k1 = (k1 * c2) & 0xFFFFFFFF
-        h1 ^= k1
-
-    h1 ^= length
-    h1 ^= h1 >> 16
-    h1 = (h1 * 0x85EBCA6B) & 0xFFFFFFFF
-    h1 ^= h1 >> 13
-    h1 = (h1 * 0xC2B2AE35) & 0xFFFFFFFF
-    h1 ^= h1 >> 16
-    if h1 >= 0x80000000:
-        h1 -= 0x100000000
-    return h1
+    from core.native_bridge import fast_mmh3_signed
+    return fast_mmh3_signed(data, seed)
 
 
 def fingerprint_favicon(session, base_url: str, db, project_id: int, log_fn) -> tuple[int | None, str]:

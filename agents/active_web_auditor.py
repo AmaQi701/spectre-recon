@@ -62,37 +62,8 @@ KNOWN_FAVICON_HASHES: dict[int, str] = {
 
 
 def murmurhash3_32_signed(data: bytes, seed: int = 0) -> int:
-    c1, c2 = 0xCC9E2D51, 0x1B873593
-    length = len(data)
-    h1 = seed & 0xFFFFFFFF
-    rounded_end = length & ~0x3
-    for i in range(0, rounded_end, 4):
-        k1 = (data[i] & 0xFF) | ((data[i + 1] & 0xFF) << 8) | ((data[i + 2] & 0xFF) << 16) | ((data[i + 3] & 0xFF) << 24)
-        k1 = (k1 * c1) & 0xFFFFFFFF
-        k1 = ((k1 << 15) | (k1 >> 17)) & 0xFFFFFFFF
-        k1 = (k1 * c2) & 0xFFFFFFFF
-        h1 ^= k1
-        h1 = ((h1 << 13) | (h1 >> 19)) & 0xFFFFFFFF
-        h1 = (h1 * 5 + 0xE6546B64) & 0xFFFFFFFF
-    k1 = 0
-    tail = length & 0x3
-    if tail == 3:
-        k1 ^= (data[rounded_end + 2] & 0xFF) << 16
-    if tail >= 2:
-        k1 ^= (data[rounded_end + 1] & 0xFF) << 8
-    if tail >= 1:
-        k1 ^= data[rounded_end] & 0xFF
-        k1 = (k1 * c1) & 0xFFFFFFFF
-        k1 = ((k1 << 15) | (k1 >> 17)) & 0xFFFFFFFF
-        k1 = (k1 * c2) & 0xFFFFFFFF
-        h1 ^= k1
-    h1 ^= length
-    h1 ^= h1 >> 16
-    h1 = (h1 * 0x85EBCA6B) & 0xFFFFFFFF
-    h1 ^= h1 >> 13
-    h1 = (h1 * 0xC2B2AE35) & 0xFFFFFFFF
-    h1 ^= h1 >> 16
-    return h1 - 0x100000000 if h1 >= 0x80000000 else h1
+    from core.native_bridge import fast_mmh3_signed
+    return fast_mmh3_signed(data, seed)
 
 
 def compute_shodan_favicon_hash(raw_bytes: bytes) -> int:
@@ -808,6 +779,12 @@ def hunt_broken_external_links_and_script_hijack(db, session, project_id: int, b
     ext_script_hosts: dict[str, str] = {}
     gh_links: set[str] = set()
     tg_handles: set[str] = set()
+    missing_sri_urls: list[str] = []
+    dynamic_analytics_hosts = (
+        "googletagmanager.com", "google-analytics.com", "mc.yandex.ru", "yandex.ru",
+        "yastatic.net", "google.com", "gstatic.com", "connect.facebook.net",
+        "doubleclick.net", "cloudflareinsights.com", "hotjar.com",
+    )
 
     try:
         r = session.get(base_url, timeout=6, verify=False)
@@ -821,6 +798,25 @@ def hunt_broken_external_links_and_script_hijack(db, session, project_id: int, b
             shost = (urllib.parse.urlparse(full_s).hostname or "").lower()
             if shost and shost != base_host and "." in shost:
                 ext_script_hosts[shost] = full_s
+                if not sc.get("integrity") and not any( shost == dh or shost.endswith("." + dh) for dh in dynamic_analytics_hosts):
+                    if full_s not in missing_sri_urls:
+                        missing_sri_urls.append(full_s)
+
+        if missing_sri_urls:
+            seen_sri = _SEEN_SOURCEMAPS_BY_PROJ.setdefault(-project_id - 2000, set())
+            sri_sig = ",".join(sorted(urllib.parse.urlparse(u).hostname or u for u in missing_sri_urls[:6]))
+            if sri_sig not in seen_sri:
+                seen_sri.add(sri_sig)
+                db.upsert_finding(
+                    project_id, "SPECTRE-ActiveWeb (SRI-Auditor)",
+                    f"External Third-Party Scripts Without Subresource Integrity ({len(missing_sri_urls)} scripts)",
+                    "Software and Data Integrity Failures", "Low", 3.7,
+                    "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:L/A:N", "CWE-353", "A08:2021 - Software and Data Integrity Failures",
+                    base_url, f"Missing integrity='sha384-...' on: {', '.join(missing_sri_urls[:4])}",
+                    "Sahifada tashqi domenlardan yuklanayotgan JavaScript kutubxonalarida Subresource Integrity (SRI) kriptografik xeshi ko'rsatilmagan.",
+                    "Tashqi `<script>` teglariga `integrity=\"sha384-...\" crossorigin=\"anonymous\"` atributlarini qo'shing.",
+                    confidence="High (QoD: 90%)",
+                )
 
         for a in soup.find_all("a", href=True):
             href = a["href"].strip()

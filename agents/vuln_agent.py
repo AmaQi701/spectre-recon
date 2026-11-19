@@ -738,8 +738,9 @@ class VulnAssessmentSuperAgent:
             host_k = (urllib.parse.urlparse(url).hostname or url).lower()
             tls = json.loads(svc.get("tls_json") or "{}")
             hdrs = {str(k).lower(): str(v) for k, v in json.loads(svc.get("headers_json") or "{}").items()}
-            proto_ver = str(tls.get("protocol") or tls.get("version") or "")
-            if proto_ver and any(lp in proto_ver.upper() for lp in ("SSL", "TLSV1.0", "TLSV1.1")) and host_k not in seen_tls:
+            proto_ver = str(tls.get("protocol") or tls.get("version") or "").strip()
+            cipher_s = str(tls.get("cipher") or "").strip()
+            if proto_ver and proto_ver.upper() in ("SSLV2", "SSLV3", "TLSV1", "TLSV1.0", "TLSV1.1") and host_k not in seen_tls:
                 seen_tls.add(host_k)
                 self.db.upsert_finding(
                     project_id, "Agent-2 (TLS-Audit)", f"[CONFIRMED] Deprecated TLS Protocol Negotiated ({proto_ver})",
@@ -748,6 +749,17 @@ class VulnAssessmentSuperAgent:
                     f"Negotiated TLS Version: {proto_ver}",
                     "Server eskirgan TLSv1.0/TLSv1.1 yoki SSL protokolini qo'llab-quvvatlamoqda.",
                     "Faqat TLSv1.2 va TLSv1.3 protokollarini qoldiring (`ssl_protocols TLSv1.2 TLSv1.3;`).",
+                    confidence=QoD.PROTOCOL_VERIFIED,
+                )
+            if cipher_s and any(wc in cipher_s.upper() for wc in ("RC4", "3DES", "DES-CBC3", "NULL", "EXPORT")) and f"cip:{host_k}" not in seen_tls:
+                seen_tls.add(f"cip:{host_k}")
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (TLS-Audit)", f"[CONFIRMED] Weak TLS Cipher Suite Negotiated ({cipher_s})",
+                    "Cryptographic Failure", "Medium", 5.9, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                    "CWE-327", "A02:2021 - Cryptographic Failures", url,
+                    f"Negotiated Cipher: {cipher_s} ({proto_ver})",
+                    "TLS seansida kriptografik jihatdan eskirgan RC4/3DES/NULL shifr oilasi tanlandi.",
+                    "Serverda faqat AEAD (AES-GCM, ChaCha20-Poly1305) shifrlar to'plamini qoldiring.",
                     confidence=QoD.PROTOCOL_VERIFIED,
                 )
             acao = hdrs.get("access-control-allow-origin", "")

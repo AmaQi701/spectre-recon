@@ -631,69 +631,6 @@ def run_adaptive_brain_strategy(db, session: requests.Session, project_id: int, 
                         pass
 
 
-# --- -VALIDATOR (CONFIRMED POC ENGINE) ---
-def run_safe_auto_validator(db, session: requests.Session, project_id: int, log_fn):
-    bundle = db.get_project_bundle(project_id)
-    endpoints = bundle.get("endpoints", [])
-    if not endpoints:
-        return
-
-    log_fn("[SPECTRE Ultra #9 -> Safe Auto-Validator] Shubhali parametrli endpointlarda (Open Redirect, Canary Reflection) xavfsiz PoC validatsiya bajarilmoqda...")
-    redir_params = {"url", "redirect", "redirect_uri", "next", "return", "returnurl", "return_to", "goto", "dest", "destination"}
-
-    def _set_url_param(orig_url: str, key: str, val: str) -> str:
-        p = urllib.parse.urlparse(orig_url)
-        qs = urllib.parse.parse_qs(p.query, keep_blank_values=True)
-        qs[key] = [val]
-        return urllib.parse.urlunparse(p._replace(query=urllib.parse.urlencode(qs, doseq=True)))
-
-    for ep in endpoints[:40]:
-        u = ep["url"]
-        params = json.loads(ep.get("params_json") or "[]")
-        if not params and "?" not in u:
-            continue
-
-        matched_r_params = [p for p in params if p.lower() in redir_params]
-        for rp_name in matched_r_params[:2]:
-            test_u = _set_url_param(u, rp_name, "https://example.org/spectre_check")
-            try:
-                r = session.get(test_u, timeout=4.0, verify=False, allow_redirects=False)
-                loc = r.headers.get("Location", "")
-                if r.status_code in (301, 302, 303, 307, 308) and urllib.parse.urlparse(loc).hostname == "example.org":
-                    log_fn(f"  [✅ CONFIRMED OPEN REDIRECT] {test_u} -> Location: {loc}")
-                    db.upsert_finding(
-                        project_id, "SPECTRE-Agent1 (Auto-Validator)", f"[CONFIRMED] Verified Open Redirect via '{rp_name}' Parameter",
-                        "Open Redirect (Validated PoC)", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
-                        "CWE-601", "A01:2021 - Broken Access Control", u,
-                        f"PoC URL: {test_u}\nResponse: HTTP {r.status_code} | Location: {loc}",
-                        f"'{rp_name}' parametri tashqi domenga (https://example.org) tekshiruvsiz yo'naltirishi amalda tasdiqlandi.",
-                        "Yo'naltirish manzillarini faqat ruxsat etilgan ichki yo'llar (allowlist) bilan cheklang.",
-                        confidence="Confirmed-PoC (QoD: 99%)",
-                    )
-            except Exception:
-                pass
-
-        for p_name in params[:2]:
-            if p_name.lower() in redir_params:
-                continue
-            canary = 'sp7x"<>'
-            test_u = _set_url_param(u, p_name, canary)
-            try:
-                r = session.get(test_u, timeout=4.0, verify=False)
-                if r.status_code == 200 and canary in r.text and "text/html" in r.headers.get("Content-Type", "").lower():
-                    log_fn(f"  [🔎 REFLECTION CONFIRMED] Parameter '{p_name}' reflects unencoded HTML chars in body: {u}")
-                    db.upsert_finding(
-                        project_id, "SPECTRE-Agent1 (Auto-Validator)", f"[CONFIRMED] Unencoded HTML Output Reflection via '{p_name}' Parameter",
-                        "Output Encoding / XSS Verification", "High", 7.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
-                        "CWE-79", "A03:2021 - Injection", u,
-                        f"Probe URL: {test_u} -> Unencoded HTML chars '{canary}' reflected directly in text/html response.",
-                        f"'{p_name}' parametriga yuborilgan maxsus HTML belgilar kodlanmasdan sahifada aks etishi tasdiqlandi.",
-                        "Foydalanuvchi kiritgan barcha parametrlarni HTML kontekstida chiqarishdan oldin kontekstli encoding qiling.",
-                        confidence="Confirmed-PoC (QoD: 99%)",
-                    )
-            except Exception:
-                pass
-
 
 
 

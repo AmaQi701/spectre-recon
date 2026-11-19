@@ -587,6 +587,90 @@ def extract_client_storage_keys_and_checks(db, session, project_id: int, base_ur
     return sorted(keys)
 
 
+CLOUD_CNAME_SIGNATURES: tuple[tuple[str, str], ...] = (
+    ("github.io", "There isn't a GitHub Pages site here."),
+    ("herokuapp.com", "No such app"),
+    ("s3.amazonaws.com", "NoSuchBucket"),
+    ("azurewebsites.net", "404 Web Site not found"),
+    ("pantheonsite.io", "404 error unknown site"),
+    ("fastly.net", "Fastly error: unknown domain:"),
+    ("myshopify.com", "Sorry, this shop is currently unavailable."),
+    ("surge.sh", "project not found"),
+    ("ghost.io", "The thing you were looking for is no longer here"),
+    ("zendesk.com", "Help Center Closed"),
+)
+
+
+def audit_dangling_cname_and_dns_caa(db, session, project_id: int, apex_domain: str, log_fn) -> int:
+    bundle = db.get_project_bundle(project_id)
+    resolver = dns.resolver.Resolver()
+    resolver.timeout = 2.0
+    resolver.lifetime = 2.5
+    hits = 0
+
+    for d in bundle.get("domains", [])[:80]:
+        dom = str(d.get("domain") or "").strip().lower()
+        cn = str(d.get("cname") or "").strip().lower().rstrip(".")
+        if not dom or not cn or cn == dom or cn.startswith("loopback:"):
+            continue
+        try:
+            resolver.resolve(cn, "A")
+        except dns.resolver.NXDOMAIN:
+            hits += 1
+            db.upsert_finding(
+                project_id, "SPECTRE-Protocol (DNS-CNAME)",
+                f"[CONFIRMED] Dangling DNS CNAME Pointing to NXDOMAIN ({dom})",
+                "Subdomain CNAME Misconfiguration", "High", 8.1,
+                "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:N", "CWE-350", "A05:2021 - Security Misconfiguration",
+                dom, f"CNAME: {dom} -> {cn} (DNS NXDOMAIN)",
+                "Subdomen CNAME yozuvi ro'yxatdan o'chgan (NXDOMAIN) tashqi domenga yo'naltirilgan.",
+                f"DNS zonasidan eskirgan `{dom}` CNAME yozuvini darhol olib tashlang.",
+                confidence="Confirmed-PoC (QoD: 99%)",
+            )
+            continue
+        except Exception:
+            pass
+
+        for prov_sfx, body_sig in CLOUD_CNAME_SIGNATURES:
+            if cn.endswith(prov_sfx):
+                for sch in ("http", "https"):
+                    try:
+                        rp = session.get(f"{sch}://{dom}", timeout=4.0, verify=False, allow_redirects=False)
+                        if body_sig.lower() in (rp.text or "")[:16384].lower():
+                            hits += 1
+                            db.upsert_finding(
+                                project_id, "SPECTRE-Protocol (DNS-CNAME)",
+                                f"[CONFIRMED] Unclaimed Cloud CNAME Resource ({dom})",
+                                "Subdomain CNAME Misconfiguration", "High", 8.6,
+                                "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:N", "CWE-350", "A05:2021 - Security Misconfiguration",
+                                f"{sch}://{dom}", f"CNAME: {dom} -> {cn} | Matched Provider Signature: '{body_sig}'",
+                                "Subdomen CNAME yozuvi bulutli provayderdagi band qilinmagan resursga ulangan.",
+                                f"DNS zonasidan `{dom}` CNAME yozuvini o'chiring yoki provayder panelida resursni qayta biriktiring.",
+                                confidence="Confirmed-PoC (QoD: 99%)",
+                            )
+                            break
+                    except Exception:
+                        pass
+
+    caa_vals: list[str] = []
+    has_dnssec = False
+    try:
+        for rdata in resolver.resolve(apex_domain, "CAA"):
+            caa_vals.append(rdata.to_text())
+    except Exception:
+        pass
+    try:
+        if resolver.resolve(apex_domain, "DNSKEY"):
+            has_dnssec = True
+    except Exception:
+        pass
+    db.log_task(
+        project_id, "SPECTRE-Intel", "dns_caa_dnssec", "COMPLETED", apex_domain,
+        f"CAA: {', '.join(caa_vals[:4]) or 'Not Configured'} | DNSSEC: {'Enabled' if has_dnssec else 'Unsigned'}",
+    )
+    return hits
+
+
 def run_protocol_client_suite(agent, project_id: int, apex_domain: str, base_url: str, js_urls: list[str], log_fn) -> None:
     from core.plugin_runner import ScanPhase, run_plugin_safely
 
@@ -608,6 +692,7 @@ def run_protocol_client_suite(agent, project_id: int, apex_domain: str, base_url
     if "spf_dmarc_audit" not in proj_done:
         proj_done.add("spf_dmarc_audit")
         run_plugin_safely(db, project_id, "pc_spf_dmarc", validate_spf_dmarc_recursive, db, project_id, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+        run_plugin_safely(db, project_id, "pc_cname_caa", audit_dangling_cname_and_dns_caa, db, session, project_id, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
     run_plugin_safely(db, project_id, "pc_service_worker", parse_service_worker_manifests, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
     run_plugin_safely(db, project_id, "pc_proxy_topology", inspect_http_protocol_and_proxy_topology, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
     run_plugin_safely(db, project_id, "pc_oauth_oidc", audit_oauth_oidc_parameters, db, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)

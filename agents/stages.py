@@ -81,7 +81,6 @@ STAGE6_CLOUD_AND_CORRELATION_ENGINES = (
     origin_and_spa.hunt_deep_secrets_and_uz_ecosystem,
     origin_and_spa.mine_well_known_and_mobile_links,
     origin_and_spa.trace_redirect_chains_and_oauth_flows,
-    origin_and_spa.run_safe_auto_validator,
     origin_and_spa.extract_document_metadata_osint,
     active_web_auditor.enumerate_multicloud_and_containers,
     protocol_and_client.correlate_analytics_and_tag_ids,
