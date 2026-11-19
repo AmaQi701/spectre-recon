@@ -130,46 +130,46 @@ def _audit_cms_paths(db: Any, http_engine: Any, project_id: int, base_url: str, 
     return hits
 
 
-def _audit_enterprise_panels(db: Any, http_engine: Any, project_id: int, base_url: str, cal: tuple[int, int, str]) -> int:
+def _audit_enterprise_panels(db: Any, http_engine: Any, project_id: int, base_url: str, tech_blob: str, cal: tuple[int, int, str]) -> int:
     hits = 0
     cal_st, cal_ln, cal_sg = cal
-    host_lbl = urllib.parse.urlparse(base_url).node if hasattr(urllib.parse.urlparse(base_url), "node") else (urllib.parse.urlparse(base_url).netloc or base_url)
+    host_lbl = urllib.parse.urlparse(base_url).netloc or base_url
 
-    # Spring Boot Actuator /env & /mappings
-    for act_p in ("/actuator/env", "/env"):
+    if any(k in tech_blob for k in ("spring", "java", "tomcat", "jetty")) or any(p in base_url for p in (":808", ":809", ":8443", ":900")):
+        for act_p in ("/actuator/env", "/env"):
+            try:
+                r_ac = http_engine.request("GET", f"{base_url}{act_p}", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=32768)
+                if not _is_soft_200(r_ac, cal_st, cal_ln, cal_sg) and ("propertySources" in r_ac.text or "activeProfiles" in r_ac.text):
+                    db.upsert_finding(
+                        project_id, "Agent-2 (Enterprise-NVT)", f"[CONFIRMED] Unauthenticated Spring Boot Actuator Environment ({host_lbl})",
+                        "Sensitive Data Exposure", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                        "CWE-200", "A05:2021 - Security Misconfiguration", f"{base_url}{act_p}",
+                        f"Actuator JSON keys confirmed ({len(r_ac.text)}B)",
+                        "Spring Boot Actuator `/actuator/env` tizim o'zgaruvchilari va konfiguratsiyani parolsiz qaytarmoqda.",
+                        "`management.endpoints.web.exposure.include=health` bilan cheklang va Actuator portini tashqi tarmoqdan yoping.",
+                        confidence=QoD.ACTIVE_VERIFIED,
+                    )
+                    hits += 1
+                    break
+            except Exception:
+                pass
+
+    if "laravel" in tech_blob or "php" in tech_blob:
         try:
-            r_ac = http_engine.request("GET", f"{base_url}{act_p}", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=32768)
-            if not _is_soft_200(r_ac, cal_st, cal_ln, cal_sg) and ("propertySources" in r_ac.text or "activeProfiles" in r_ac.text):
+            r_ig = http_engine.request("GET", f"{base_url}/_ignition/health-check", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=8192)
+            if not _is_soft_200(r_ig, cal_st, cal_ln, cal_sg) and '"can_execute_commands"' in r_ig.text:
                 db.upsert_finding(
-                    project_id, "Agent-2 (Enterprise-NVT)", f"[CONFIRMED] Unauthenticated Spring Boot Actuator Environment ({host_lbl})",
-                    "Sensitive Data Exposure", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
-                    "CWE-200", "A05:2021 - Security Misconfiguration", f"{base_url}{act_p}",
-                    f"Actuator JSON keys confirmed ({len(r_ac.text)}B)",
-                    "Spring Boot Actuator `/actuator/env` tizim o'zgaruvchilari va konfiguratsiyani parolsiz qaytarmoqda.",
-                    "`management.endpoints.web.exposure.include=health` bilan cheklang va Actuator portini tashqi tarmoqdan yoping.",
+                    project_id, "Agent-2 (Enterprise-NVT)", f"[CONFIRMED] Exposed Laravel Ignition Debug Endpoint ({host_lbl})",
+                    "Debug Mode Exposure", "High", 8.6, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                    "CWE-489", "A05:2021 - Security Misconfiguration", f"{base_url}/_ignition/health-check",
+                    f"Ignition JSON: {r_ig.text[:120]}",
+                    "Production serverda Laravel Ignition debug endpointi yoqib qoldirilgan.",
+                    "`.env` faylida `APP_DEBUG=false` o'rnating va Ignition paketini productiondan chiqaring.",
                     confidence=QoD.ACTIVE_VERIFIED,
                 )
                 hits += 1
-                break
         except Exception:
             pass
-
-    # Laravel Ignition & Telescope
-    try:
-        r_ig = http_engine.request("GET", f"{base_url}/_ignition/health-check", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=8192)
-        if not _is_soft_200(r_ig, cal_st, cal_ln, cal_sg) and '"can_execute_commands"' in r_ig.text:
-            db.upsert_finding(
-                project_id, "Agent-2 (Enterprise-NVT)", f"[CONFIRMED] Exposed Laravel Ignition Debug Endpoint ({host_lbl})",
-                "Debug Mode Exposure", "High", 8.6, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
-                "CWE-489", "A05:2021 - Security Misconfiguration", f"{base_url}/_ignition/health-check",
-                f"Ignition JSON: {r_ig.text[:120]}",
-                "Production serverda Laravel Ignition debug endpointi yoqib qoldirilgan.",
-                "`.env` faylida `APP_DEBUG=false` o'rnating va Ignition paketini productiondan chiqaring.",
-                confidence=QoD.ACTIVE_VERIFIED,
-            )
-            hits += 1
-    except Exception:
-        pass
 
     # Grafana /api/health (version feed) & /api/datasources
     try:
@@ -194,20 +194,31 @@ def _audit_enterprise_panels(db: Any, http_engine: Any, project_id: int, base_ur
     except Exception:
         pass
 
-    # MinIO Cluster Metrics & Jenkins Unauthenticated API
+    # MinIO Cluster Metrics, Jenkins Unauthenticated API, Zabbix Guest Mode, ASP.NET ELMAH/Trace & Debug Logs
     for ep_u, sig_s, f_title, sev_s, cvss_f, rem_s in (
         ("/minio/v2/metrics/cluster", "minio_cluster_", "Exposed MinIO Cluster Prometheus Metrics", "Medium", 5.8, "MinIO metrikalarini `MINIO_PROMETHEUS_AUTH_TYPE=jwt` rejimiga o'tkazing."),
         ("/api/json", '"jobs":[', "Unauthenticated Jenkins Dashboard API", "High", 8.2, "Jenkins Global Security bo'limida anonim o'qish huquqini o'chiring."),
+        ("/zabbix.php?action=dashboard.view", "zabbix", "Zabbix Guest Dashboard Access Enabled", "High", 7.8, "Zabbix Users -> Guest guruhini o'chiring."),
+        ("/elmah.axd", "errorlogfor", "Exposed ASP.NET ELMAH Error Log Interface", "High", 7.5, "`web.config` ichida `elmah.axd` ga masofaviy kirishni (`allowRemoteAccess=false`) o'chiring."),
+        ("/trace.axd", "applicationtrace", "Exposed ASP.NET Application Trace (`trace.axd`)", "High", 7.5, "`web.config` ichida `<trace enabled=\"false\" />` o'rnating."),
+        ("/wp-content/debug.log", "php", "Exposed WordPress PHP Debug Log (`debug.log`)", "High", 7.5, "`wp-config.php` da `WP_DEBUG_LOG` ni o'chiring va `debug.log` faylini o'chiring."),
+        ("/storage/logs/laravel.log", ".error:", "Exposed Laravel Application Log (`laravel.log`)", "High", 8.1, "Veb-server ildizini faqat `/public` katalogiga yo'naltiring va `/storage` kirishini bloklang."),
+        ("/telescope/requests", "telescope", "Exposed Laravel Telescope Debug Dashboard", "High", 8.2, "`TelescopeServiceProvider::gate()` orqali production kirishni cheklang."),
     ):
         try:
             r_ep = http_engine.request("GET", f"{base_url}{ep_u}", timeout=(2.0, 2.8), allow_redirects=False, max_bytes=24576)
-            if not _is_soft_200(r_ep, cal_st, cal_ln, cal_sg) and sig_s in r_ep.text.replace(" ", ""):
+            norm_b = r_ep.text.lower().replace(" ", "")
+            if not _is_soft_200(r_ep, cal_st, cal_ln, cal_sg) and sig_s in norm_b:
+                if ep_u.startswith("/zabbix") and ("sign-in" in norm_b or "name=\"password\"" in norm_b):
+                    continue
+                if ep_u.endswith("debug.log") and not any(k in r_ep.text for k in ("PHP Notice", "PHP Warning", "PHP Fatal", "Stack trace:")):
+                    continue
                 db.upsert_finding(
                     project_id, "Agent-2 (Enterprise-NVT)", f"[CONFIRMED] {f_title} ({host_lbl})",
                     "Broken Access Control / Information Disclosure", sev_s, cvss_f, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
-                    "CWE-306", "A01:2021 - Broken Access Control", f"{base_url}{ep_u}",
-                    f"Signature `{sig_s}` confirmed on {ep_u}",
-                    f"`{ep_u}` boshqaruv/monitoring interfeysi autentifikatsiyasiz javob qaytarmoqda.",
+                    "CWE-200", "A05:2021 - Security Misconfiguration", f"{base_url}{ep_u}",
+                    f"Signature `{sig_s}` confirmed on {ep_u} ({len(r_ep.text)}B)",
+                    f"`{ep_u}` diagnostika yoki log manzili autentifikatsiyasiz ochiq qoldirilgan.",
                     rem_s,
                     confidence=QoD.ACTIVE_VERIFIED,
                 )
@@ -251,7 +262,7 @@ def run_cms_and_enterprise_nvts(
             cal = (rc.status_code, len(rc.text), _body_sig(rc.text))
         except Exception:
             return 0
-        return _audit_cms_paths(db, http_engine, project_id, b_url, tb, cal) + _audit_enterprise_panels(db, http_engine, project_id, b_url, cal)
+        return _audit_cms_paths(db, http_engine, project_id, b_url, tb, cal) + _audit_enterprise_panels(db, http_engine, project_id, b_url, tb, cal)
 
     total_hits = 0
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(candidates)))

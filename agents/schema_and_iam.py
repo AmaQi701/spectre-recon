@@ -100,12 +100,16 @@ def resolve_openapi_schema_refs(db, session, project_id: int, base_url: str, log
             paths = spec.get("paths") or {}
             if not isinstance(paths, dict) or not paths:
                 continue
+            global_sec = spec.get("security")
             all_dto_fields: set[str] = set()
+            unauth_mutations: list[str] = []
+            auth_skip_paths = ("/login", "/signin", "/auth", "/register", "/signup", "/token", "/refresh", "/forgot", "/reset", "/public", "/webhook")
             for p_str, methods in paths.items():
                 if not isinstance(methods, dict):
                     continue
                 for verb, op in methods.items():
-                    if verb.upper() not in ("GET", "POST", "PUT", "DELETE", "PATCH") or not isinstance(op, dict):
+                    v_up = verb.upper()
+                    if v_up not in ("GET", "POST", "PUT", "DELETE", "PATCH") or not isinstance(op, dict):
                         continue
                     p_names = []
                     for param in op.get("parameters") or []:
@@ -122,8 +126,23 @@ def resolve_openapi_schema_refs(db, session, project_id: int, base_url: str, log
                             all_dto_fields.update(body_props)
                     clean_params = sorted(set(p_names))[:20]
                     full_ep = urllib.parse.urljoin(base_url, p_str)
-                    db.upsert_endpoint(project_id, full_ep, method=verb.upper(), params=clean_params, category="api_endpoint", risk_tags=["openapi_ref_resolved"], source="openapi_v11")
+                    r_tags = ["openapi_ref_resolved"]
+                    op_sec = op.get("security", global_sec)
+                    if v_up in ("POST", "PUT", "DELETE", "PATCH") and not op_sec and not any(ak in p_str.lower() for ak in auth_skip_paths):
+                        unauth_mutations.append(f"{v_up} {p_str}")
+                        r_tags.append("Unauthenticated_Mutation_Schema")
+                    db.upsert_endpoint(project_id, full_ep, method=v_up, params=clean_params, category="api_endpoint", risk_tags=r_tags, source="openapi_v11")
                     synthesized += 1
+            if unauth_mutations:
+                db.upsert_finding(
+                    project_id, "SPECTRE-Schema (OpenAPI-Audit)",
+                    f"OpenAPI State-Changing Routes Declared Without Security Scheme ({len(unauth_mutations)} routes)",
+                    "API Schema Security Review", "Medium", 5.8,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N", "CWE-306", "A01:2021 - Broken Access Control",
+                    u, f"Unprotected Schema Mutations: {', '.join(unauth_mutations[:10])}",
+                    "OpenAPI/Swagger spetsifikatsiyasida POST/PUT/DELETE operatsiyalari uchun `security` talabi belgilanmagan.",
+                    "Ushbu endpointlarda server tomonida real autentifikatsiya mavjudligini tekshiring va OpenAPI `securitySchemes` ni to'ldiring.",
+                )
             if synthesized:
                 db.upsert_finding(
                     project_id, "SPECTRE-v11 (OpenAPI-Synthesizer)",

@@ -95,18 +95,22 @@ class RateLimitedHttpEngine:
         try:
             resp = self.session.request(method.upper(), url, **kwargs)
             if not caller_stream:
-                buf = bytearray()
-                t0 = time.monotonic()
-                try:
-                    for chunk in resp.iter_content(chunk_size=16384):
-                        if not chunk:
-                            break
-                        buf.extend(chunk)
-                        if len(buf) >= max_bytes or (time.monotonic() - t0) > 7.5:
-                            break
-                finally:
+                if resp.status_code in (204, 301, 302, 303, 304, 307, 308):
                     resp.close()
-                resp._content = bytes(buf[:max_bytes])
+                    resp._content = b""
+                else:
+                    buf = bytearray()
+                    t0 = time.monotonic()
+                    try:
+                        for chunk in resp.iter_content(chunk_size=16384):
+                            if not chunk:
+                                break
+                            buf.extend(chunk)
+                            if len(buf) >= max_bytes or (time.monotonic() - t0) > 7.5:
+                                break
+                    finally:
+                        resp.close()
+                    resp._content = bytes(buf[:max_bytes])
                 if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
                     resp.encoding = "utf-8"
             if orig:
