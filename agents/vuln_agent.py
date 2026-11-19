@@ -128,8 +128,30 @@ class VulnAssessmentSuperAgent:
             "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
             "cwe": "CWE-79",
             "owasp": "A03:2021 - Injection",
-            "pattern": re.compile(r"""(?i)(\.innerHTML\s*=|\.outerHTML\s*=|dangerouslySetInnerHTML|document\.write\s*\(|v-html\s*=)"""),
+            "pattern": re.compile(r"""(?i)(\.innerHTML\s*=|\.outerHTML\s*=|dangerouslySetInnerHTML|document\.write\s*\(|v-html\s*=|bypassSecurityTrust(?:Html|Script|ResourceUrl))"""),
             "remediation": "innerHTML o'rniga textContent ishlating yoki DOMPurify orqali HTML kiritmani sanitizatsiya qiling.",
+        },
+        {
+            "title": "Disabled TLS Certificate Verification in Application Code",
+            "category": "Cryptographic Failure (SAST)",
+            "severity": "Medium",
+            "cvss": 5.9,
+            "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N",
+            "cwe": "CWE-295",
+            "owasp": "A02:2021 - Cryptographic Failures",
+            "pattern": re.compile(r"""(?i)(InsecureSkipVerify\s*:\s*true|NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['"]0['"]|CURLOPT_SSL_VERIFYPEER\s*,\s*(?:false|0))"""),
+            "remediation": "Chiquvchi HTTPS ulanishlarda sertifikat tekshiruvini o'chirmang; xususiy CA sertifikat zanjirini yuklang.",
+        },
+        {
+            "title": "Unsafe XML External Entity (XXE) Parser Configuration",
+            "category": "XXE / Parser Configuration (SAST)",
+            "severity": "High",
+            "cvss": 7.5,
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+            "cwe": "CWE-611",
+            "owasp": "A05:2021 - Security Misconfiguration",
+            "pattern": re.compile(r"""(?i)(resolve_entities\s*=\s*True|LIBXML_NOENT|setFeature\([^)]*disallow-doctype-decl[^)]*false)"""),
+            "remediation": "XML parserda tashqi entity (`resolve_entities=False`) va DTD yuklashni o'chiring (`defusedxml` ishlating).",
         },
     ]
 
@@ -860,9 +882,14 @@ class VulnAssessmentSuperAgent:
             return
         log_fn(f"[SAST] White-box Source Code tahlili boshlandi: {root}")
         exts = {".py", ".php", ".js", ".ts", ".tsx", ".jsx", ".vue", ".go", ".java", ".rb", ".env"}
-        files = [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in exts and "node_modules" not in str(p) and ".git" not in str(p)]
+        skip_dirs = ("node_modules", ".git", "__pycache__", "/tests/", "/test/", "/__tests__/", "/mocks/", ".spec.", ".test.")
+        files = [
+            p for p in root.rglob("*")
+            if p.is_file() and p.suffix.lower() in exts and not any(sd in str(p).replace("\\", "/") for sd in skip_dirs)
+        ]
         hits = 0
-        for fpath in files[:150]:
+        rule_counts: dict[str, int] = {}
+        for fpath in files[:180]:
             try:
                 lines = fpath.read_text(encoding="utf-8", errors="ignore").splitlines()
                 for idx, line in enumerate(lines, start=1):
@@ -870,9 +897,13 @@ class VulnAssessmentSuperAgent:
                     if not s_line or len(s_line) > 900 or s_line.startswith(("//", "#", "/*", "*")):
                         continue
                     for rule in self.SAST_RULES:
+                        r_title = rule["title"]
+                        if rule_counts.get(r_title, 0) >= 5:
+                            continue
                         if rule["pattern"].search(line):
+                            rule_counts[r_title] = rule_counts.get(r_title, 0) + 1
                             self.db.upsert_finding(
-                                project_id, "Agent-2 (WhiteBox-SAST)", rule["title"],
+                                project_id, "Agent-2 (WhiteBox-SAST)", r_title,
                                 rule["category"], rule["severity"], rule["cvss"], rule["vector"],
                                 rule["cwe"], rule["owasp"], f"{fpath}:{idx}",
                                 f"Line {idx}: {line.strip()[:160]}",
