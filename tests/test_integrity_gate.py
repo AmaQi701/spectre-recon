@@ -442,6 +442,11 @@ def run_integrity_gate() -> list[str]:
             errors.append(f"[106-PRODUCT ENTERPRISE CPE MATCHING BROKEN] {ext_prods}")
         if surface_prober.murmur3_32(b"spectre_favicon_check") != active_web_auditor.murmurhash3_32_signed(b"spectre_favicon_check"):
             errors.append("[C++17 MURMUR3 UNIFICATION MISMATCH]")
+        from core.sca_engine import match_dependencies_advisories, parse_manifest_dependencies
+        _sca_deps = parse_manifest_dependencies("package.json", '{"dependencies": {"lodash": "^4.17.15", "express": "4.18.2"}}')
+        _sca_hits = match_dependencies_advisories(_sca_deps, allow_online_osv=False)
+        if len(_sca_hits) < 2:
+            errors.append(f"[SCA DEPENDENCY ENGINE BROKEN] {_sca_hits}")
 
     return errors
 

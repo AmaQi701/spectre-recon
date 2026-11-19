@@ -22,6 +22,7 @@ from core.http_engine import RateLimitedHttpEngine
 from core.nvt_declarative_engine import run_declarative_nvt_catalog
 from core.plugin_runner import PhaseOrchestrator, QoD, ScanContextKB, ScanPhase
 from core.protocol_verifiers import run_active_protocol_verifiers
+from core.sca_engine import run_sca_dependency_audit
 
 
 class VulnAssessmentSuperAgent:
@@ -1514,6 +1515,10 @@ class VulnAssessmentSuperAgent:
         if smap_dir.is_dir() and any(smap_dir.rglob("*")):
             log_fn(f"  [SOURCEMAP->SAST] 1-SuperAgent tiklagan asl manba kodlari ({smap_dir.name}) White-Box SAST orqali tekshirilmoqda...")
             self._run_sast_scan(project_id, str(smap_dir), log_fn)
+
+        sca_dirs = [p_s for p_s in (proj.get("source_code_path", ""), str(smap_dir) if smap_dir.is_dir() else "") if p_s]
+        if sca_dirs:
+            run_sca_dependency_audit(self.db, project_id, sca_dirs, log_fn, allow_online_osv=enable_cli)
 
         enrich_project_findings_with_kev(self.db, project_id, log_fn)
         cpe_cnt = len(kb.get_facts("CPE/inventory"))

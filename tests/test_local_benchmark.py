@@ -192,6 +192,7 @@ def run_benchmark() -> None:
                 "    cursor.execute(f'SELECT * FROM orders WHERE id = {uid}')\n",
                 encoding="utf-8",
             )
+            (sast_dir / "requirements.txt").write_text("pyyaml==5.3.1\nrequests==2.25.0\n", encoding="utf-8")
 
             db = DatabaseManager(str(tmp_path / "bench.db"))
             base_url = f"http://127.0.0.1:{port}"
@@ -255,6 +256,7 @@ def run_benchmark() -> None:
             assert any("Unencoded HTML Output Reflection via 'q'" in t for t in titles), f"Encoding verifier missed unencoded q: {titles}"
             assert any("Unencoded HTML Output Reflection via POST 'role'" in t for t in titles), f"POST form encoding verifier missed role: {titles}"
             assert any("Nginx Stub-Status" in t for t in titles), f"Declarative NVT engine missed /nginx_status: {titles}"
+            assert any("Vulnerable Open-Source Dependencies in requirements.txt" in t for t in titles), f"SCA engine missed requirements.txt: {titles}"
             assert not any("safe_q" in t for t in titles), f"False positive on properly HTML-escaped safe_q: {titles}"
             assert any("Unvalidated X-Forwarded-Host" in t for t in titles), f"XFH verifier missed flaw: {titles}"
             assert any("Verbose Python Stack Trace Disclosed" in t for t in titles), f"Debug stack-trace detector missed 500 trace: {titles}"
