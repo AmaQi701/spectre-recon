@@ -329,6 +329,19 @@ def run_integrity_gate() -> list[str]:
         if "CVE-2021-43798" not in found_cves.get("grafana", "") or "CVE-2024-43425" not in found_cves.get("moodle", "") or "CVE-2023-7028" not in found_cves.get("gitlab", ""):
             errors.append(f"[EXPANDED CVE CATALOG BROKEN] {found_cves}")
 
+        # CISA KEV Enrichment & JWT HMAC Key Posture Gate
+        from core.feed_updater import enrich_project_findings_with_kev
+        db.upsert_finding(pid_scale, "A2", "GitLab (< 16.7.2) Advisory [CVE-2023-7028]", "Vulnerable & Outdated Components", "Critical", 10.0, "", "CWE-640", "A07", "https://example.org", "CPE: gitlab", "rc", "rem")
+        kev_cnt = enrich_project_findings_with_kev(db, pid_scale)
+        if kev_cnt < 1:
+            errors.append("[CISA KEV ENRICHMENT BROKEN]")
+        import base64 as _b64, hashlib as _hl, hmac as _hm
+        _hdr_pl = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0"
+        _sig_b64 = _b64.urlsafe_b64encode(_hm.new(b"secret", _hdr_pl.encode(), _hl.sha256).digest()).decode().rstrip("=")
+        jwt_res = va.audit_jwt_token(f"{_hdr_pl}.{_sig_b64}")
+        if not any("secret" in x and "CRITICAL" in x for x in jwt_res.get("issues", [])):
+            errors.append(f"[JWT HMAC KEY CHECK BROKEN] {jwt_res}")
+
     return errors
 
 

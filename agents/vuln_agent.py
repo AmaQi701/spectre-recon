@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -14,6 +15,7 @@ import requests
 from core.advisory_kb import extract_cpe_inventory, match_version_advisories
 from core.cms_enterprise_nvts import run_cms_and_enterprise_nvts
 from core.database import DatabaseManager
+from core.feed_updater import enrich_project_findings_with_kev
 from core.http_engine import RateLimitedHttpEngine
 from core.plugin_runner import PhaseOrchestrator, QoD, ScanContextKB, ScanPhase
 from core.protocol_verifiers import run_active_protocol_verifiers
@@ -172,6 +174,16 @@ class VulnAssessmentSuperAgent:
                 issues.append("CRITICAL: 'alg: none' ruxsat etilgan bo'lishi mumkin (Authentication Bypass xavfi).")
             if alg in ("hs256", "hs384", "hs512"):
                 issues.append("MEDIUM: Simmetrik HMAC algoritmi ('" + alg.upper() + "') ishlatilgan — zaif JWT secret kalitga sezgir.")
+                if len(parts) == 3 and parts[2]:
+                    sig_input = f"{parts[0]}.{parts[1]}".encode("utf-8")
+                    pad_s = "=" * ((4 - len(parts[2]) % 4) % 4)
+                    raw_sig = base64.urlsafe_b64decode(parts[2] + pad_s)
+                    digest_fn = {"hs256": hashlib.sha256, "hs384": hashlib.sha384, "hs512": hashlib.sha512}[alg]
+                    default_keys = ("secret", "password", "123456", "jwt_secret", "changeme", "admin", "secretkey", "mysecret", "key", "token")
+                    for cand_k in default_keys:
+                        if hmac.compare_digest(hmac.new(cand_k.encode("utf-8"), sig_input, digest_fn).digest(), raw_sig):
+                            issues.insert(0, f"CRITICAL [QoD: 99%]: JWT imzosi standart zaif kalit ('{cand_k}') bilan tasdiqlandi!")
+                            break
             if "exp" not in payload:
                 issues.append("MEDIUM: Token muddati ('exp' claim) belgilanmagan — token doimiy amal qilishi mumkin.")
             if any(k in str(payload).lower() for k in ("password", "secret", "ssn", "private")):
@@ -1255,6 +1267,7 @@ class VulnAssessmentSuperAgent:
             log_fn(f"  [SOURCEMAP->SAST] 1-SuperAgent tiklagan asl manba kodlari ({smap_dir.name}) White-Box SAST orqali tekshirilmoqda...")
             self._run_sast_scan(project_id, str(smap_dir), log_fn)
 
+        enrich_project_findings_with_kev(self.db, project_id, log_fn)
         cpe_cnt = len(kb.get_facts("CPE/inventory"))
         log_fn(f"  [KB-GATEKEEPER] Executed: {kb.executed_plugins} | Skipped (0 ms): {kb.skipped_plugins} | CPE 2.3 Inventory: {cpe_cnt}")
         self.db.update_project_status(project_id, "VULN_AUDIT_COMPLETED")

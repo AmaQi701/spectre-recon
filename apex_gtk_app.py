@@ -621,6 +621,7 @@ class ApexNativeWindow(Gtk.Window):
         jwt_row.pack_start(self.ent_jwt, True, True, 6)
         jwt_row.pack_start(self._make_btn("Audit JWT", "act-btn", self.on_audit_jwt), False, False, 4)
         jwt_row.pack_start(self._make_btn("Toggle Selected Tool", "btn-amber", self.on_toggle_tool), False, False, 4)
+        jwt_row.pack_start(self._make_btn("Sync CISA KEV Feed", "btn-green", self.on_sync_kev_feed), False, False, 4)
         tab6.pack_start(jwt_row, False, False, 4)
         sc_tools, self.store_tools, self.tree_tools = self._make_tree([
             ("ID", str), ("ENABLED", str), ("TOOL NAME", str), ("STAGE", str),
@@ -643,7 +644,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v3.0.0 Workstation] 49/49 CLI, PhaseOrchestrator & 27-Product CPE Engine initialized.\n")
+        self.term_buf.set_text("[SPECTRE v3.2.0 Workstation] 49/49 CLI, Active Socket/CMS NVT Engine & 45-Product CPE/KEV Catalog initialized.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)
@@ -1259,6 +1260,22 @@ class ApexNativeWindow(Gtk.Window):
 
         threading.Thread(target=_req_worker, daemon=True).start()
 
+
+    def on_sync_kev_feed(self, _btn):
+        self.log_msg("[CISA-KEV] Rasmiy CISA Known Exploited Vulnerabilities katalogi yangilanmoqda...")
+
+        def _kev_worker():
+            from core.feed_updater import sync_cisa_kev_feed, enrich_project_findings_with_kev
+            res = sync_cisa_kev_feed()
+            if res.get("ok"):
+                if self.current_project_id:
+                    enrich_project_findings_with_kev(self.db, self.current_project_id, self.log_msg)
+                    GLib.idle_add(lambda: self.load_bundle() or False)
+                self.log_msg(f"[CISA-KEV] Katalog muvaffaqiyatli yangilandi: {res.get('count')} ta KEV yozuvi ({res.get('catalog_version')}) -> {res.get('path')}")
+            else:
+                self.log_msg(f"[CISA-KEV] Lokal kesh faol ({res.get('count')} ta KEV): {res.get('error')}")
+
+        threading.Thread(target=_kev_worker, daemon=True).start()
 
     def on_export_artifacts(self, _btn):
         if not self.current_project_id:
