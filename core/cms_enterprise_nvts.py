@@ -127,6 +127,24 @@ def _audit_cms_paths(db: Any, http_engine: Any, project_id: int, base_url: str, 
                 hits += 1
         except Exception:
             pass
+        try:
+            r_adm = http_engine.request("GET", f"{base_url}/admin.php", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=24576)
+            adm_low = r_adm.text.lower()
+            if not _is_soft_200(r_adm, cal_st, cal_ln, cal_sg) and "<form" in adm_low and ("password" in adm_low or "datalife" in adm_low or "username" in adm_low):
+                has_rl = any(k.lower() in ("x-ratelimit-limit", "ratelimit-limit", "retry-after") for k in r_adm.headers.keys())
+                rl_note = "Rate-Limit Headers: Present" if has_rl else "Rate-Limit Headers: Absent"
+                db.upsert_finding(
+                    project_id, "Agent-2 (CMS-NVT)", f"Exposed DataLife Engine Administrative Interface ({host_lbl}/admin.php)",
+                    "Administrative Interface Exposure", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                    "CWE-284", "A05:2021 - Security Misconfiguration", f"{base_url}/admin.php",
+                    f"HTTP 200 Login Interface ({len(r_adm.text)}B) | {rl_note}",
+                    "CMS ma'muriy boshqaruv kirish sahifasi (`/admin.php`) standart nom bilan tashqi tarmoq uchun ochiq qoldirilgan.",
+                    "CMS sozlamalarida `admin.php` fayl nomini o'zgartiring va Nginx/Apache orqali faqat ishonchli IP manzillarga ruxsat bering.",
+                    confidence=QoD.PROTOCOL_VERIFIED,
+                )
+                hits += 1
+        except Exception:
+            pass
     return hits
 
 

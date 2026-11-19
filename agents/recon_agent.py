@@ -119,11 +119,37 @@ class ReconSuperAgent:
             with self._cache_lock:
                 if h_key and (h_key in self._dead_hosts or h_only in self._dead_hosts or (ip_key and ip_key in self._dead_hosts)):
                     raise requests.exceptions.ConnectTimeout(f"Circuit-Breaker: {h_key} unreachable")
+            caller_stream = bool(kwargs.get("stream", False))
+            use_cap = (fn is _orig_get) and not caller_stream and hasattr(_orig_get, "__call__")
+            if use_cap:
+                kwargs["stream"] = True
             try:
                 resp = fn(url, **kwargs)
+                if use_cap and hasattr(resp, "iter_content"):
+                    path_l = (p_u.path or "").lower()
+                    cap_b = 1800000 if path_l.endswith((".js", ".map", ".json", ".wasm", ".xml")) else 655360
+                    if getattr(resp, "status_code", 200) in (204, 301, 302, 303, 304, 307, 308):
+                        resp.close()
+                        resp._content = b""
+                    else:
+                        buf = bytearray()
+                        t_s = time.monotonic()
+                        try:
+                            for chunk in resp.iter_content(chunk_size=16384):
+                                if not chunk:
+                                    break
+                                buf.extend(chunk)
+                                if len(buf) >= cap_b or (time.monotonic() - t_s) > 7.5:
+                                    break
+                        finally:
+                            resp.close()
+                        resp._content = bytes(buf[:cap_b])
                 if h_key:
                     with self._cache_lock:
                         self._host_fail_counts[h_key] = 0
+                if getattr(resp, "status_code", 0) in (429, 503):
+                    ra_h = (getattr(resp, "headers", {}) or {}).get("Retry-After", "")
+                    time.sleep(min(float(ra_h) if str(ra_h).isdigit() else 1.0, 2.5))
                 return resp
             except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
                 if h_key:
@@ -685,12 +711,13 @@ class ReconSuperAgent:
                         self.db.upsert_domain(project_id, hn, ip=ip, source="shodan_rdns")
                 if vulns:
                     self.db.upsert_finding(
-                        project_id, "SPECTRE-Agent1 (ShodanCVE)", f"Known CVEs on Host IP {ip} ({len(vulns)} CVEs)",
-                        "Vulnerable Components (CVE)", "High", 8.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+                        project_id, "SPECTRE-Agent1 (ShodanCVE)", f"Passive Host IP CVE Inventory on {ip} ({len(vulns)} Advisories)",
+                        "Vulnerable Components (CVE)", "Medium", 6.5, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L",
                         "CWE-1104", "A06:2021 - Vulnerable and Outdated Components", f"{primary_h} ({ip})",
                         f"CVEs: {', '.join(vulns[:10])} | CPEs: {', '.join(cpes[:4])}",
-                        "Shodan InternetDB ma'lumotlariga ko'ra ushbu IP dagi servis versiyalarida ma'lum CVE zaifliklar mavjud.",
-                        "Servis versiyalarini yangilang va tashqi portlarni Firewall orqali cheklang.",
+                        "Shodan InternetDB passiv indeksiga ko'ra ushbu IP dagi xizmat versiyalarida ehtimoliy CVE yozuvlari qayd etilgan (jonli xizmat banneri bilan solishtirish tavsiya etiladi).",
+                        "Servis versiyalarini tekshiring, xavfsizlik yamoqlarini o'rnating va keraksiz tashqi portlarni Firewall orqali cheklang.",
+                        confidence="Manual-Review (QoD: 60% [Passive Shodan Cache])",
                     )
                 log_fn(f"  [+] Shodan InternetDB ({ip} -> {primary_h}): Ports={ports} | CPEs={len(cpes)} | CVEs={len(vulns)}")
             except Exception:
@@ -1698,14 +1725,15 @@ class ReconSuperAgent:
                 self._stage2_shodan_internetdb(project_id, scope, log_fn)
                 cli_orchestrator.enrich_asn_and_isp_intel(self.db, project_id, log_fn)
                 self.db.log_task(project_id, "SPECTRE-Agent1", "tls_inspector_builtin", "COMPLETED", f"tls_shodan_asn {primary_host}", f"TLS SAN + Shodan InternetDB + ASN/ISP completed")
-            _prog(0.55, f"Stage 2/6: Nmap Deep NSE, Naabu & NetExec ({primary_host})...")
+            _prog(0.55, f"Stage 2/6: Nmap Deep NSE, C++17 Epoll & Network Suite ({primary_host})...")
+            from core.plugin_runner import ScanPhase, run_plugin_safely
             cli_orchestrator.run_deep_network_and_ad_tools(self, project_id, primary_host, active_ids, log_fn)
-            origin_and_spa.sweep_subnet_neighbors_and_ptr(self.db, project_id, apex_domain, scope, log_fn)
-            origin_and_spa.unmask_cloudflare_origin_ips(self.db, self.session, project_id, apex_domain, primary_host, log_fn)
-            surface_prober.probe_nonstandard_web_ports(self.db, self.session, project_id, log_fn)
-            surface_prober.hunt_virtual_hosts(self.db, self.session, project_id, apex_domain, log_fn)
-            runtime_and_network.resolve_and_probe_ipv6_dual_stack(self.db, self.session, project_id, apex_domain, primary_host, log_fn)
-            runtime_and_network.probe_udp_services_safe(self.db, project_id, log_fn)
+            run_plugin_safely(self.db, project_id, "r1_subnet_ptr", origin_and_spa.sweep_subnet_neighbors_and_ptr, self.db, project_id, apex_domain, scope, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+            run_plugin_safely(self.db, project_id, "r1_origin_unmask", origin_and_spa.unmask_cloudflare_origin_ips, self.db, self.session, project_id, apex_domain, primary_host, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+            run_plugin_safely(self.db, project_id, "r1_custom_web_ports", surface_prober.probe_nonstandard_web_ports, self.db, self.session, project_id, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_SCANNER)
+            run_plugin_safely(self.db, project_id, "r1_vhost_hunter", surface_prober.hunt_virtual_hosts, self.db, self.session, project_id, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_SCANNER)
+            run_plugin_safely(self.db, project_id, "r1_ipv6_dual_stack", runtime_and_network.resolve_and_probe_ipv6_dual_stack, self.db, self.session, project_id, apex_domain, primary_host, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+            run_plugin_safely(self.db, project_id, "r1_udp_prober", runtime_and_network.probe_udp_services_safe, self.db, project_id, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_SCANNER)
 
 
 

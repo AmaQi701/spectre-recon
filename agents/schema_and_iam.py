@@ -49,17 +49,22 @@ def map_iam_and_keycloak_realms(db, session, project_id: int, base_url: str, log
                 mapped += 1
                 has_reg = "registration_endpoint" in data
                 has_direct_grant = "password" in grants
-                db.upsert_finding(
-                    project_id, "SPECTRE-v11 (IAM-Mapper)",
-                    f"Keycloak / OIDC Realm Intelligence Mapped ({realm_name})",
-                    "IAM & SSO Architecture", "Medium" if (has_reg or has_direct_grant) else "Info",
-                    5.3 if (has_reg or has_direct_grant) else 0.0,
-                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A07:2021 - Identification and Authentication Failures",
-                    oidc_url,
-                    f"Realm: {realm_name} | Grants: {', '.join(grants[:6])} | Registration Endpoint: {'Yes' if has_reg else 'No'}",
-                    "Keycloak/OIDC realm konfiguratsiyasi, token endpointlari va ruxsat etilgan grant turlari xaritasi tuzildi.",
-                    "Production realm'larda 'Direct Access Grants (password)' va ochiq ro'yxatdan o'tishni faqat zarur bo'lgandagina yoqing.",
-                )
+                if has_reg or has_direct_grant:
+                    db.upsert_finding(
+                        project_id, "SPECTRE-v11 (IAM-Mapper)",
+                        f"Keycloak / OIDC Realm Configuration Weakness ({realm_name})",
+                        "IAM & SSO Architecture", "Medium", 5.3,
+                        "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A07:2021 - Identification and Authentication Failures",
+                        oidc_url,
+                        f"Realm: {realm_name} | Grants: {', '.join(grants[:6])} | Registration Endpoint: {'Yes' if has_reg else 'No'}",
+                        "Keycloak/OIDC realm konfiguratsiyasida ochiq ro'yxatdan o'tish yoki Direct Access Grants ('password') yoqilgan.",
+                        "Production realm'larda 'Direct Access Grants (password)' va ochiq ro'yxatdan o'tishni faqat zarur bo'lgandagina yoqing.",
+                    )
+                else:
+                    db.log_task(
+                        project_id, "SPECTRE-Intel", "keycloak_realm", "COMPLETED", oidc_url,
+                        f"Realm '{realm_name}' | Grants: {', '.join(grants[:5])}",
+                    )
                 log_fn(f"  [🔐 IAM MAPPER] Realm '{realm_name}' ({oidc_url}) -> Grants: {', '.join(grants[:5])}")
         except Exception:
             pass

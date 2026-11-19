@@ -1047,20 +1047,46 @@ class VulnAssessmentSuperAgent:
         seen_auth_cache_hosts: set[str] = set()
         seen_debug_hosts: set[tuple[str, str]] = set()
 
-        for ep in endpoints[:35]:
-            u = ep["url"]
+        def _ep_prio(item: dict) -> tuple[int, int]:
+            cat_s = str(item.get("category") or "")
+            m_s = str(item.get("method") or "GET").upper()
+            p_rank = 0 if cat_s in ("api_endpoint", "high_value_endpoint") else (1 if m_s != "GET" else 2)
+            return (p_rank, len(str(item.get("url") or "")))
+
+        cand_eps = sorted(
+            [
+                e for e in endpoints
+                if json.loads(e.get("params_json") or "[]") or "{param}" in str(e.get("url") or "")
+            ],
+            key=_ep_prio,
+        )
+
+        for ep in cand_eps[:45]:
+            raw_u = ep["url"]
+            u = raw_u.replace("{param}", "1")
             if self.http_engine.is_host_dead(u):
                 continue
             params = json.loads(ep.get("params_json") or "[]")
+            if not params and "{param}" in raw_u:
+                params = ["id"]
             if not params:
                 continue
+            method_ep = str(ep.get("method") or "GET").upper()
+            is_api_ep = str(ep.get("category") or "") == "api_endpoint"
             p_parsed = urllib.parse.urlparse(u)
             host_k = (p_parsed.hostname or "").lower()
 
             base_text = ""
             base_loc = ""
             try:
-                r_base = self.http_engine.request("GET", u, headers=self.role_a_headers or None, allow_redirects=False)
+                if method_ep in ("POST", "PUT", "PATCH"):
+                    base_payload = {pk: "spectrebase1" for pk in params[:6]}
+                    if is_api_ep:
+                        r_base = self.http_engine.request(method_ep, u, json=base_payload, headers=self.role_a_headers or None, allow_redirects=False)
+                    else:
+                        r_base = self.http_engine.request(method_ep, u, data=base_payload, headers=self.role_a_headers or None, allow_redirects=False)
+                else:
+                    r_base = self.http_engine.request("GET", u, headers=self.role_a_headers or None, allow_redirects=False)
                 base_text = r_base.text or ""
                 self._inspect_verbose_debug_trace(project_id, u, host_k, r_base.status_code, base_text, seen_debug_hosts, log_fn)
                 if r_base.status_code >= 500:
@@ -1081,6 +1107,30 @@ class VulnAssessmentSuperAgent:
                             confidence=QoD.HEADER_CONFIG,
                         )
             except Exception:
+                continue
+
+            if method_ep in ("POST", "PUT", "PATCH"):
+                try:
+                    diag_body = {pk: ('sp7x"<>' if i == 0 else "spectrediag1") for i, pk in enumerate(params[:6])}
+                    r_post = (
+                        self.http_engine.request(method_ep, u, json=diag_body, headers=self.role_a_headers or None, allow_redirects=False)
+                        if is_api_ep
+                        else self.http_engine.request(method_ep, u, data=diag_body, headers=self.role_a_headers or None, allow_redirects=False)
+                    )
+                    self._inspect_verbose_debug_trace(project_id, u, host_k, r_post.status_code, r_post.text or "", seen_debug_hosts, log_fn)
+                    if r_post.status_code == 200 and "text/html" in r_post.headers.get("Content-Type", "").lower() and 'sp7x"<>' in (r_post.text or "") and 'sp7x"<>' not in base_text:
+                        p0 = params[0]
+                        self.db.upsert_finding(
+                            project_id, "Agent-2 (Differential-Verifier)", f"[CONFIRMED] Unencoded HTML Output Reflection via POST '{p0}' Parameter",
+                            "Output Encoding / XSS Verification", "High", 7.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                            "CWE-79", "A03:2021 - Injection", u,
+                            f"Diagnostic marker reflected unencoded in POST text/html body via '{p0}'.",
+                            f"POST '{p0}' parametriga berilgan HTML ajratuvchi belgilar entity-encoding qilinmasdan qaytarilmoqda.",
+                            "Barcha chiqish nuqtalarida kontekstli HTML/JS encoding qo'llang va qat'iy CSP o'rnating.",
+                            confidence=QoD.ACTIVE_VERIFIED,
+                        )
+                except Exception:
+                    pass
                 continue
 
             for p_name in params[:3]:
@@ -1163,6 +1213,8 @@ class VulnAssessmentSuperAgent:
         public_ignore = ("/health", "/ping", "/version", "/config", "/public", "/openapi", "/swagger", "/i18n", "/locale")
         priv_keywords = ("/admin", "/internal", "/users", "/account", "/orders", "/profile", "/me", "/settings", "/logs", "/baza/", "/sites", "/jobs", "/export", "/backup")
 
+        guest_strip_hdrs: dict[str, str | None] = {k: None for k in ("Authorization", "Cookie", "X-API-Key", *self.role_a_headers.keys())}
+
         if not self.role_a_headers:
             priv_cands = [e for e in api_cands if any(pk in e["url"].lower() for pk in priv_keywords)][:16]
             if not priv_cands:
@@ -1177,13 +1229,13 @@ class VulnAssessmentSuperAgent:
                 orig = f"{pu.scheme}://{pu.netloc}"
                 if orig not in cal_by_origin:
                     try:
-                        rc = self.http_engine.request("GET", f"{orig}/api/spectre-nonexistent-authz-99182", headers={}, allow_redirects=False)
+                        rc = self.http_engine.request("GET", f"{orig}/api/spectre-nonexistent-authz-99182", headers=guest_strip_hdrs, allow_redirects=False)
                         cal_by_origin[orig] = (rc.status_code, len(rc.text))
                     except Exception:
                         cal_by_origin[orig] = (-1, -1)
                 cal_st, cal_ln = cal_by_origin[orig]
                 try:
-                    r_guest = self.http_engine.request("GET", u, headers={}, allow_redirects=False)
+                    r_guest = self.http_engine.request("GET", u, headers=guest_strip_hdrs, allow_redirects=False)
                     if r_guest.status_code != 200 or "application/json" not in r_guest.headers.get("Content-Type", "").lower() or len(r_guest.text) < 25:
                         continue
                     if cal_st == 200 and abs(len(r_guest.text) - cal_ln) < 40:
@@ -1222,7 +1274,7 @@ class VulnAssessmentSuperAgent:
                 obj_a = r_a.json()
                 keys_a = sorted(obj_a.keys()) if isinstance(obj_a, dict) else ["_list"]
 
-                r_guest = self.http_engine.request("GET", u, headers={}, allow_redirects=False)
+                r_guest = self.http_engine.request("GET", u, headers=guest_strip_hdrs, allow_redirects=False)
                 if r_guest.status_code == 200 and "application/json" in r_guest.headers.get("Content-Type", "").lower():
                     if abs(len(r_guest.text) - len(r_a.text)) < 40 and not any(em in r_guest.text.lower() for em in err_markers):
                         if any(priv_k in u.lower() for priv_k in ("/admin", "/internal", "/users", "/account", "/orders", "/profile", "/me")):
@@ -1239,7 +1291,8 @@ class VulnAssessmentSuperAgent:
                             continue
 
                 if self.role_b_headers and r_guest.status_code in (401, 403):
-                    r_b = self.http_engine.request("GET", u, headers=self.role_b_headers, allow_redirects=False)
+                    role_b_eff = {**guest_strip_hdrs, **self.role_b_headers}
+                    r_b = self.http_engine.request("GET", u, headers=role_b_eff, allow_redirects=False)
                     if r_b.status_code == 200 and "application/json" in r_b.headers.get("Content-Type", "").lower() and not any(em in r_b.text.lower() for em in err_markers):
                         obj_b = r_b.json()
                         keys_b = sorted(obj_b.keys()) if isinstance(obj_b, dict) else ["_list"]

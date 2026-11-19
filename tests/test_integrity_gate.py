@@ -414,6 +414,9 @@ def run_integrity_gate() -> list[str]:
         _, c_tags = ra._classify_endpoint_risk("https://example.org/kino/55-film.html", ["comments", "post_id", "subaction"])
         if "IDOR_Candidate" in c_tags:
             errors.append("[DLE ARTICLE COMMENT FORM FALSELY FLAGGED AS IDOR]")
+        from core.protocol_verifiers import SUPPORTED_ACTIVE_PORTS
+        if not {636, 2379, 6380, 8500, 15672}.issubset(SUPPORTED_ACTIVE_PORTS):
+            errors.append(f"[EXTENDED SOCKET NVT PORTS MISSING] {SUPPORTED_ACTIVE_PORTS}")
 
     return errors
 

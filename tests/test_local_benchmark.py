@@ -35,6 +35,21 @@ class _BenchmarkHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Allow", "GET, POST, PUT, DELETE, OPTIONS")
         self.end_headers()
 
+    def do_POST(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        clen = int(self.headers.get("Content-Length") or 0)
+        raw_b = self.rfile.read(clen).decode("utf-8", errors="ignore") if clen > 0 else ""
+        form_qs = urllib.parse.parse_qs(raw_b)
+        if parsed.path == "/portal/update_role":
+            r_val = (form_qs.get("role") or [""])[0]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(f"<html><body>Updated role: {r_val}</body></html>".encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         qs = urllib.parse.parse_qs(parsed.query)
@@ -207,6 +222,7 @@ def run_benchmark() -> None:
             assert kb_check.check_gate(require_ports=[6379])[0] is True, "KB Gate failed to detect port 6379"
             assert kb_check.check_gate(require_ports=[27017])[0] is False, "KB Gate failed to block closed port 27017"
 
+            recon.session.headers["Authorization"] = "Bearer token_user_a"
             vuln = VulnAssessmentSuperAgent(db, shared_session=recon.session)
             vuln.configure_context(
                 primary_auth="Authorization: Bearer token_user_a",
@@ -232,6 +248,7 @@ def run_benchmark() -> None:
             assert any("Arbitrary CORS Origin Reflection" in t for t in titles), f"CORS audit missed flaw: {titles}"
             assert any("Verified Open Redirect" in t for t in titles), f"Redirect verifier missed flaw: {titles}"
             assert any("Unencoded HTML Output Reflection via 'q'" in t for t in titles), f"Encoding verifier missed unencoded q: {titles}"
+            assert any("Unencoded HTML Output Reflection via POST 'role'" in t for t in titles), f"POST form encoding verifier missed role: {titles}"
             assert not any("safe_q" in t for t in titles), f"False positive on properly HTML-escaped safe_q: {titles}"
             assert any("Unvalidated X-Forwarded-Host" in t for t in titles), f"XFH verifier missed flaw: {titles}"
             assert any("Verbose Python Stack Trace Disclosed" in t for t in titles), f"Debug stack-trace detector missed 500 trace: {titles}"

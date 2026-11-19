@@ -109,9 +109,25 @@ WEB_CANDIDATE_PORTS = {
 
 
 def probe_nonstandard_web_ports(db, session, project_id: int, log_fn):
-    ports = db.get_project_bundle(project_id).get("ports", [])
+    from core.native_bridge import fast_epoll_tcp_probe
+
+    bundle = db.get_project_bundle(project_id)
+    ports = bundle.get("ports", [])
+    domains = bundle.get("domains", [])
     targets = []
     seen_ip_port = set()
+
+    sorted_doms = sorted(
+        domains,
+        key=lambda d: (1 if str(d.get("domain") or "").lower().startswith("www.") else 0, len(str(d.get("domain") or ""))),
+    )
+    ip_to_canon_host: dict[str, str] = {}
+    for d in sorted_doms:
+        dip = str(d.get("ip") or "").strip()
+        dom = str(d.get("domain") or "").strip()
+        if dip and dom and not str(d.get("cdn_waf") or "").strip():
+            ip_to_canon_host.setdefault(dip, dom)
+
     for pt in ports:
         pnum = int(pt.get("port", 0))
         host = (pt.get("host") or pt.get("ip") or "").strip()
@@ -119,6 +135,19 @@ def probe_nonstandard_web_ports(db, session, project_id: int, log_fn):
         if pnum in WEB_CANDIDATE_PORTS and host and (ip_key, pnum) not in seen_ip_port:
             seen_ip_port.add((ip_key, pnum))
             targets.append((host, pnum))
+
+    cand_port_list = sorted(WEB_CANDIDATE_PORTS)
+    for dip, canon_h in list(ip_to_canon_host.items())[:6]:
+        missing_pts = [p for p in cand_port_list if (dip, p) not in seen_ip_port]
+        if not missing_pts:
+            continue
+        epoll_open = fast_epoll_tcp_probe(dip, missing_pts, timeout_ms=650)
+        for op_p, raw_ban in epoll_open.items():
+            if (dip, op_p) not in seen_ip_port:
+                seen_ip_port.add((dip, op_p))
+                ban_s = raw_ban.decode("utf-8", errors="ignore").strip()[:120] if raw_ban else ""
+                db.upsert_port(project_id, canon_h, op_p, "tcp", ip=dip, service="http-alt", banner=ban_s, source="cpp_epoll")
+                targets.append((canon_h, op_p))
 
     if not targets:
         return

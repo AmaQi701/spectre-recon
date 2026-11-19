@@ -12,17 +12,26 @@ import concurrent.futures
 import json
 import re
 import socket
+import ssl
 import struct
 from typing import Any
 
 from core.plugin_runner import QoD
 
-SUPPORTED_ACTIVE_PORTS = {21, 25, 389, 587, 873, 2375, 2376, 3306, 5432, 6379, 6443, 9100, 9200, 10250, 11211, 27017}
+SUPPORTED_ACTIVE_PORTS = {21, 25, 389, 587, 636, 873, 2375, 2376, 2379, 3306, 5432, 6379, 6380, 6443, 8500, 9100, 9200, 10250, 11211, 15672, 27017}
 
 
-def _tcp_exchange(host: str, port: int, payloads: list[bytes], timeout: float = 2.6, read_initial: bool = False) -> str:
+def _tcp_exchange(host: str, port: int, payloads: list[bytes], timeout: float = 2.6, read_initial: bool = False, use_tls: bool = False) -> str:
     chunks: list[bytes] = []
-    with socket.create_connection((host, port), timeout=timeout) as sock:
+    with socket.create_connection((host, port), timeout=timeout) as raw_sock:
+        raw_sock.settimeout(timeout)
+        if use_tls:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            sock: socket.socket = ctx.wrap_socket(raw_sock, server_hostname=host)
+        else:
+            sock = raw_sock
         sock.settimeout(timeout)
         if read_initial:
             try:
@@ -42,22 +51,22 @@ def _tcp_exchange(host: str, port: int, payloads: list[bytes], timeout: float = 
 
 def _probe_data_and_metrics(db: Any, http_engine: Any, project_id: int, connect_target: str, target_ip: str, disp_host: str, port: int, log_fn: Any) -> int:
     hits = 0
-    if port == 6379:
-        out = _tcp_exchange(connect_target, 6379, [b"PING\r\n", b"INFO server\r\n"], timeout=2.5)
+    if port in (6379, 6380):
+        out = _tcp_exchange(connect_target, port, [b"PING\r\n", b"INFO server\r\n"], timeout=2.5, use_tls=(port == 6380))
         if "+PONG" in out or "redis_version:" in out:
             m_ver = re.search(r"redis_version:([0-9]+\.[0-9]+\.[0-9]+)", out)
             ver_s = f"Redis {m_ver.group(1)}" if m_ver else "Redis"
-            db.upsert_port(project_id, disp_host, 6379, "tcp", ip=target_ip, service="redis", version=ver_s, banner=out[:240], source="socket_nvt")
+            db.upsert_port(project_id, disp_host, port, "tcp", ip=target_ip, service="redis", version=ver_s, banner=out[:240], source="socket_nvt")
             db.upsert_finding(
-                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated Backend Data Store Access (Redis on {disp_host}:6379)",
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated Backend Data Store Access (Redis on {disp_host}:{port})",
                 "Database / Cache Exposure", "Critical", 9.4, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
-                "CWE-306", "A05:2021 - Security Misconfiguration", f"{disp_host}:6379",
-                f"Direct TCP PING/INFO succeeded ({ver_s})",
+                "CWE-306", "A05:2021 - Security Misconfiguration", f"{disp_host}:{port}",
+                f"Direct {'TLS' if port == 6380 else 'TCP'} PING/INFO succeeded ({ver_s})",
                 "Redis xizmati parolsiz tashqi tarmoqdan buyruqlarni qabul qilmoqda.",
                 "redis.conf ichida `bind 127.0.0.1` va kuchli `requirepass` / ACL o'rnating.",
                 confidence=QoD.ACTIVE_VERIFIED,
             )
-            log_fn(f"  [SOCKET-NVT] {disp_host}:6379 -> Unauthenticated {ver_s} tasdiqlandi!")
+            log_fn(f"  [SOCKET-NVT] {disp_host}:{port} -> Unauthenticated {ver_s} tasdiqlandi!")
             hits += 1
     elif port == 11211:
         out = _tcp_exchange(connect_target, 11211, [b"stats\r\n", b"quit\r\n"], timeout=2.5)
@@ -142,6 +151,52 @@ def _probe_data_and_metrics(db: Any, http_engine: Any, project_id: int, connect_
                 confidence=QoD.ACTIVE_VERIFIED,
             )
             hits += 1
+    elif port == 2379:
+        r = http_engine.request("GET", f"http://{connect_target}:2379/version", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=16384)
+        if r.status_code == 200 and '"etcdserver"' in r.text:
+            j = json.loads(r.text)
+            et_v = str(j.get("etcdserver") or "")
+            db.upsert_port(project_id, disp_host, 2379, "tcp", ip=target_ip, service="etcd", version=f"etcd {et_v}".strip(), banner=r.text[:160], source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated etcd Cluster Endpoint ({disp_host}:2379)",
+                "Container / Cluster Exposure", "Critical", 9.4, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                "CWE-306", "A05:2021 - Security Misconfiguration", f"http://{disp_host}:2379/version",
+                f"etcdserver: {et_v} | etcdcluster: {j.get('etcdcluster', '')}",
+                "etcd kalit-qiymat klasteri mijoz TLS sertifikatisiz tashqi tarmoqqa ochiq qoldirilgan.",
+                "`--client-cert-auth=true` yoqing va 2379-portni faqat klaster control-plane tugunlariga cheklang.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
+    elif port == 8500:
+        r = http_engine.request("GET", f"http://{connect_target}:8500/v1/agent/self", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=32768)
+        if r.status_code == 200 and '"Config"' in r.text and '"Datacenter"' in r.text:
+            db.upsert_port(project_id, disp_host, 8500, "tcp", ip=target_ip, service="consul", version="HashiCorp Consul", banner=r.text[:160], source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated HashiCorp Consul Agent API ({disp_host}:8500)",
+                "Infrastructure / Service Mesh Exposure", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                "CWE-306", "A05:2021 - Security Misconfiguration", f"http://{disp_host}:8500/v1/agent/self",
+                f"HTTP 200 Consul /v1/agent/self ({len(r.text)}B)",
+                "HashiCorp Consul API ACL tokensiz tashqi so'rovlarga klaster ma'lumotlarini qaytarmoqda.",
+                "Consul konfiguratsiyasida `acl.enabled = true` va `default_policy = \"deny\"` o'rnating.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
+    elif port == 15672:
+        r = http_engine.request("GET", f"http://{connect_target}:15672/api/overview", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=24576)
+        if r.status_code == 200 and '"rabbitmq_version"' in r.text:
+            j = json.loads(r.text)
+            rmq_v = str(j.get("rabbitmq_version") or "")
+            db.upsert_port(project_id, disp_host, 15672, "tcp", ip=target_ip, service="rabbitmq-mgmt", version=f"RabbitMQ {rmq_v}".strip(), banner=r.text[:160], source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated RabbitMQ Management API ({disp_host}:15672)",
+                "Message Broker Exposure", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                "CWE-306", "A05:2021 - Security Misconfiguration", f"http://{disp_host}:15672/api/overview",
+                f"RabbitMQ Version: {rmq_v}",
+                "RabbitMQ Management API autentifikatsiyasiz xabar brokeri ma'lumotlarini qaytarmoqda.",
+                "15672-portni ichki tarmoqqa cheklang va standart hisob yozuvlarini o'chiring.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
     return hits
 
 
@@ -198,25 +253,32 @@ def _probe_binary_db_and_ldap(db: Any, project_id: int, connect_target: str, tar
         if b"maxWireVersion" in resp or b"ismaster" in resp:
             db.upsert_port(project_id, disp_host, 27017, "tcp", ip=target_ip, service="mongodb", version="MongoDB", banner="MongoDB Wire Handshake OK", source="socket_nvt")
 
-    elif port == 389:
+    elif port in (389, 636):
         # Standard ASN.1 BER LDAPv3 Anonymous Simple BindRequest (messageID=1, version=3, name="", simple="")
         ldap_bind = bytes.fromhex("300c020101600702010304008000")
-        with socket.create_connection((connect_target, 389), timeout=2.5) as s:
+        with socket.create_connection((connect_target, port), timeout=2.5) as raw_s:
+            if port == 636:
+                ctx_l = ssl.create_default_context()
+                ctx_l.check_hostname = False
+                ctx_l.verify_mode = ssl.CERT_NONE
+                s: socket.socket = ctx_l.wrap_socket(raw_s, server_hostname=disp_host)
+            else:
+                s = raw_s
             s.settimeout(2.5)
             s.sendall(ldap_bind)
             resp = s.recv(512)
         if len(resp) >= 7 and b"\x61" in resp[:6] and b"\x0a\x01\x00" in resp[:14]:
-            db.upsert_port(project_id, disp_host, 389, "tcp", ip=target_ip, service="ldap", version="LDAPv3", banner="Anonymous Bind Allowed", source="socket_nvt")
+            db.upsert_port(project_id, disp_host, port, "tcp", ip=target_ip, service="ldaps" if port == 636 else "ldap", version="LDAPv3", banner="Anonymous Bind Allowed", source="socket_nvt")
             db.upsert_finding(
-                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] LDAP Anonymous Bind Permitted ({disp_host}:389)",
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] LDAP Anonymous Bind Permitted ({disp_host}:{port})",
                 "Directory Service Misconfiguration", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
-                "CWE-284", "A01:2021 - Broken Access Control", f"{disp_host}:389",
+                "CWE-284", "A01:2021 - Broken Access Control", f"{disp_host}:{port}",
                 "LDAPv3 Simple BindRequest (empty DN/password) returned resultCode=0 (success)",
                 "LDAP serveri parolsiz (Anonymous Bind) ulanishga ruxsat bermoqda.",
                 "OpenLDAP (`disallow bind_anon`) yoki Active Directory da anonim LDAP so'rovlarini o'chiring.",
                 confidence=QoD.ACTIVE_VERIFIED,
             )
-            log_fn(f"  [SOCKET-NVT] {disp_host}:389 -> LDAP Anonymous Bind tasdiqlandi!")
+            log_fn(f"  [SOCKET-NVT] {disp_host}:{port} -> LDAP Anonymous Bind tasdiqlandi!")
             hits += 1
     return hits
 
@@ -234,9 +296,9 @@ def _probe_single_port(
     hits = 0
     connect_target = target_ip or disp_host
     try:
-        if port in (6379, 11211, 9200, 9100, 2375, 2376, 6443, 10250):
+        if port in (6379, 6380, 11211, 9200, 9100, 2375, 2376, 2379, 6443, 8500, 10250, 15672):
             return _probe_data_and_metrics(db, http_engine, project_id, connect_target, target_ip, disp_host, port, log_fn)
-        if port in (3306, 5432, 27017, 389):
+        if port in (3306, 5432, 27017, 389, 636):
             return _probe_binary_db_and_ldap(db, project_id, connect_target, target_ip, disp_host, port, log_fn)
         if port == 873:
             out = _tcp_exchange(connect_target, 873, [b"\n"], timeout=2.5, read_initial=True)
