@@ -105,7 +105,7 @@ class ApexNativeWindow(Gtk.Window):
         self.db = DatabaseManager(str(BASE_DIR / "workspaces" / "apex_state.db"))
         self.db.reset_stale_running_projects()
         self.recon_agent = ReconSuperAgent(self.db, str(BASE_DIR / "config" / "tools_registry.yaml"))
-        self.vuln_agent = VulnAssessmentSuperAgent(self.db)
+        self.vuln_agent = VulnAssessmentSuperAgent(self.db, shared_session=self.recon_agent.session)
         self.triage_agent = TriageAndChainSuperAgent(self.db, str(BASE_DIR / "reports"))
         self.current_project_id = None
 
@@ -532,12 +532,13 @@ class ApexNativeWindow(Gtk.Window):
         tab3_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         triage_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.finding_filter_combo = Gtk.ComboBoxText()
+        self.finding_filter_combo.append("vulns_only", "Filter: Security Findings Only (Hide Info KB)")
         self.finding_filter_combo.append("qod_80", "Filter: QoD >= 80% (High-Precision Only)")
         self.finding_filter_combo.append("no_noise", "Filter: Medium & Above (No Info/Low)")
         self.finding_filter_combo.append("crit_high", "Filter: Critical & High Only")
         self.finding_filter_combo.append("confirmed", "Filter: Verified / Confirmed Only")
-        self.finding_filter_combo.append("all", "Filter: All Findings (Including Info/Low)")
-        self.finding_filter_combo.set_active_id("all")
+        self.finding_filter_combo.append("all", "Filter: All Records (Including Info OSINT KB)")
+        self.finding_filter_combo.set_active_id("vulns_only")
         self.finding_filter_combo.connect("changed", lambda _: self.load_bundle())
         triage_bar.pack_start(self.finding_filter_combo, False, False, 4)
         lbl_tr = Gtk.Label(label="Set Triage Disposition:", xalign=1.0)
@@ -822,16 +823,17 @@ class ApexNativeWindow(Gtk.Window):
             return
         self._last_data_sig = sig
 
+        actionable_cnt = sum(1 for f in finds if f.get("severity") != "Info" and f.get("triage_status") != "False-Positive")
         self.lbl_stat_dom.set_text(f"{len(doms)} subdomen  •  {ip_cnt} noyob IP")
         self.lbl_stat_http.set_text(f"{len(ports)} port  •  {len(https)} veb-servis")
         self.lbl_stat_ep.set_text(f"{len(eps)} route  •  {len(js_list)} JS paket")
-        self.lbl_stat_find.set_text(f"{len(finds)} topilma  •  {len(chains)} zanjir")
+        self.lbl_stat_find.set_text(f"{actionable_cnt} zaiflik  •  {len(chains)} zanjir")
 
         if hasattr(self, "nav_label_widgets") and len(self.nav_label_widgets) >= 8:
             badge_counts = {
                 1: len(doms),
                 2: len(eps),
-                3: len(finds),
+                3: actionable_cnt,
                 4: len(chains),
             }
             for idx_b, entry_b in enumerate(self.nav_base_labels):
@@ -920,6 +922,8 @@ class ApexNativeWindow(Gtk.Window):
             title_str = str(f.get("title") or "")
             conf_str = str(f.get("confidence") or "")
             triage_str = str(f.get("triage_status") or "")
+            if f_mode == "vulns_only" and sev == "Info":
+                continue
             if f_mode == "crit_high" and sev not in ("Critical", "High"):
                 continue
             if f_mode == "no_noise" and sev in ("Low", "Info"):

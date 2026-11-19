@@ -163,17 +163,27 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
         seen_favs.add(fav_key)
         apex_asset = ScopeGuard.extract_apex_domain(urllib.parse.urlparse(base_url).hostname or base_url)
         desc_extra = f" | Origin IP Match: {', '.join(matched_origins)}" if matched_origins else ""
-        db.upsert_finding(
-            project_id, "SPECTRE-Predator (Favicon-MMH3)",
-            f"Favicon MurmurHash3 Fingerprint ({fav_hash})" + (f" — {matched_tech}" if matched_tech else ""),
-            "Reconnaissance & Shadow Asset Intelligence",
-            "Medium" if matched_origins else "Info", 5.3 if matched_origins else 0.0,
-            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-            used_fav_url if matched_origins else apex_asset,
-            f"Sample Favicon: {used_fav_url} | Shodan: {shodan_dork} | Censys: services.http.response.favicons.shodan_hash:{fav_hash}{desc_extra}",
-            "Favicon MurmurHash3 xeshi orqali internet bo'ylab barcha klon/staging serverlar va CDN ortidagi IP manzillarni qidirish mumkin.",
-            "Origin serverlarda asosiy domen favicon faylini ochiq qoldirmang va IP kirishni faqat CDN subnetlariga cheklang.",
-        )
+        if matched_origins:
+            db.upsert_finding(
+                project_id, "SPECTRE-Predator (Favicon-MMH3)",
+                f"Favicon MurmurHash3 Origin Match ({fav_hash})" + (f" — {matched_tech}" if matched_tech else ""),
+                "Reconnaissance & Shadow Asset Intelligence",
+                "Medium", 5.3,
+                "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
+                used_fav_url,
+                f"Sample Favicon: {used_fav_url} | Shodan: {shodan_dork} | Censys: services.http.response.favicons.shodan_hash:{fav_hash}{desc_extra}",
+                "Favicon MurmurHash3 xeshi orqali CDN ortidagi to'g'ridan-to'g'ri origin IP manzil tasdiqlandi.",
+                "Origin serverlarda asosiy domen favicon faylini ochiq qoldirmang va IP kirishni faqat CDN subnetlariga cheklang.",
+            )
+        else:
+            db.log_task(
+                project_id,
+                "SPECTRE-Intel",
+                "favicon_mmh3",
+                "COMPLETED",
+                base_url,
+                f"Favicon MMH3 ({fav_hash}){' [' + matched_tech + ']' if matched_tech else ''} | {shodan_dork}",
+            )
     return {"hash": fav_hash, "tech": matched_origins and matched_tech or matched_tech, "matched_origins": matched_origins}
 
 
@@ -185,6 +195,8 @@ _SEEN_SOURCEMAPS_BY_PROJ: dict[int, set[str]] = {}
 def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_url: str, log_fn) -> int:
     if not js_urls:
         return 0
+    from core.native_bridge import JS_TOK_ROUTE, JS_TOK_SOURCEMAP, fast_js_token_mask
+
     unpacked_count = 0
     seen_maps = _SEEN_SOURCEMAPS_BY_PROJ.setdefault(project_id, set())
     route_re = re.compile(r"""['"`]((?:/api/v\d+/|/api/|/v1/|/v2/|/internal/|/admin/|/graphql|/auth/)[a-zA-Z0-9_\-/\.?=&{}]+)['"`]""")
@@ -202,7 +214,7 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
         map_candidates = [js_u + ".map"]
         try:
             rj = session.get(js_u, timeout=6, verify=False)
-            if rj.status_code == 200:
+            if rj.status_code == 200 and (fast_js_token_mask(rj.text[-2000:]) & JS_TOK_SOURCEMAP):
                 m_dir = re.search(r"//#\s*sourceMappingURL=([^\s'\"`]+)", rj.text[-2000:])
                 if m_dir:
                     ref_map = m_dir.group(1).strip()
@@ -241,9 +253,10 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
                             saved_files += 1
                         except Exception:
                             pass
-                        for rt in route_re.findall(src_code):
-                            extracted_routes.add(rt)
-                            db.upsert_endpoint(project_id, urllib.parse.urljoin(base_url, rt), method="GET", params=[], category="api_endpoint", source="sourcemap_unpacked")
+                        if fast_js_token_mask(src_code) & JS_TOK_ROUTE:
+                            for rt in route_re.findall(src_code):
+                                extracted_routes.add(rt)
+                                db.upsert_endpoint(project_id, urllib.parse.urljoin(base_url, rt), method="GET", params=[], category="api_endpoint", source="sourcemap_unpacked")
 
                     unpacked_count += 1
                     sample_files = ", ".join(sources[:8])
@@ -761,15 +774,25 @@ def harvest_and_audit_jwt_tokens(db, session, project_id: int, apex_domain: str,
                 )
                 log_fn(f"  [🔐 JWT CRACKED] {base_url} -> JWT kaliti aniqlandi: '{matched_secret or 'alg:none'}'!")
             else:
-                db.upsert_finding(
-                    project_id, "SPECTRE-Predator (JWT-Auditor)",
-                    f"Discovered JWT Token Structure (alg={alg}, exp={'Yes' if has_exp else 'MISSING'})" + (f" [Headers: {','.join(risky_hdrs)}]" if risky_hdrs else ""),
-                    "Authentication Intelligence", "Medium" if (not has_exp or risky_hdrs) else "Info", 5.3 if (not has_exp or risky_hdrs) else 0.0,
-                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-613", "A07:2021 - Identification and Authentication Failures",
-                    base_url, f"Header: {json.dumps(hdr)} | Payload Keys: [{claims_keys}]",
-                    "Sayt/JS ichida JWT token topildi va dekod qilindi." + (" Tokenda 'exp' (muddati tugash) maydoni yo'q!" if not has_exp else "") + (f" Динамик kalit sarlavhalari mavjud: {risky_hdrs}" if risky_hdrs else ""),
-                    "JWT tokenlarda qisqa yashash muddati ('exp') belgilang va jku/x5u/kid sarlavhalarini qat'iy oq ro'yxatdan o'tkazing.",
-                )
+                if not has_exp or risky_hdrs:
+                    db.upsert_finding(
+                        project_id, "SPECTRE-Predator (JWT-Auditor)",
+                        f"Discovered JWT Token Structure (alg={alg}, exp={'Yes' if has_exp else 'MISSING'})" + (f" [Headers: {','.join(risky_hdrs)}]" if risky_hdrs else ""),
+                        "Authentication Intelligence", "Medium", 5.3,
+                        "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-613", "A07:2021 - Identification and Authentication Failures",
+                        base_url, f"Header: {json.dumps(hdr)} | Payload Keys: [{claims_keys}]",
+                        "Sayt/JS ichida JWT token topildi va dekod qilindi." + (" Tokenda 'exp' (muddati tugash) maydoni yo'q!" if not has_exp else "") + (f" Dinamik kalit sarlavhalari mavjud: {risky_hdrs}" if risky_hdrs else ""),
+                        "JWT tokenlarda qisqa yashash muddati ('exp') belgilang va jku/x5u/kid sarlavhalarini qat'iy oq ro'yxatdan o'tkazing.",
+                    )
+                else:
+                    db.log_task(
+                        project_id,
+                        "SPECTRE-Intel",
+                        "jwt_structure",
+                        "COMPLETED",
+                        base_url,
+                        f"JWT Structure (alg={alg}, exp=Yes, keys=[{claims_keys}])",
+                    )
         except Exception:
             pass
     return audited
@@ -879,6 +902,8 @@ def run_active_web_suite(agent, project_id: int, apex_domain: str, base_url: str
     """
     Executes active web surface, API schema, SourceMap, and client-side security modules on a live target.
     """
+    from core.plugin_runner import ScanPhase, run_plugin_safely
+
     log_fn(f"  [Active-Web-Suite] {base_url} ustida 10 ta veb va API tahlil moduli ishga tushirildi...")
     db = agent.db
     session = agent.session
@@ -889,18 +914,18 @@ def run_active_web_suite(agent, project_id: int, apex_domain: str, base_url: str
         ran_apex = agent._ran_apex_suites
     proj_done = ran_apex.setdefault(project_id, set())
 
-    fingerprint_favicon_hash_and_tech(db, session, project_id, base_url, log_fn)
-    unpack_js_sourcemaps(db, session, project_id, js_urls, base_url, log_fn)
-    audit_reverse_proxy_acl_misconfigs(db, session, project_id, base_url, log_fn)
-    mine_hidden_query_parameters(db, session, project_id, base_url, log_fn)
-    audit_websocket_endpoints_and_cswsh(db, session, project_id, base_url, log_fn)
+    run_plugin_safely(db, project_id, "aw_favicon_mmh3", fingerprint_favicon_hash_and_tech, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "aw_sourcemaps", unpack_js_sourcemaps, db, session, project_id, js_urls, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "aw_proxy_acl", audit_reverse_proxy_acl_misconfigs, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+    run_plugin_safely(db, project_id, "aw_hidden_params", mine_hidden_query_parameters, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+    run_plugin_safely(db, project_id, "aw_websocket_cswsh", audit_websocket_endpoints_and_cswsh, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
     if "multicloud_enum" not in proj_done:
         proj_done.add("multicloud_enum")
-        enumerate_multicloud_and_containers(db, session, project_id, apex_domain, base_url, log_fn)
-    introspect_graphql_field_suggestions(db, session, project_id, base_url, log_fn)
-    hunt_dependency_confusion_risks(db, session, project_id, js_urls, base_url, log_fn)
-    harvest_and_audit_jwt_tokens(db, session, project_id, apex_domain, base_url, js_urls, log_fn)
-    hunt_broken_external_links_and_script_hijack(db, session, project_id, base_url, log_fn)
+        run_plugin_safely(db, project_id, "aw_multicloud", enumerate_multicloud_and_containers, db, session, project_id, apex_domain, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "aw_graphql_suggest", introspect_graphql_field_suggestions, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+    run_plugin_safely(db, project_id, "aw_dep_confusion", hunt_dependency_confusion_risks, db, session, project_id, js_urls, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "aw_jwt_audit", harvest_and_audit_jwt_tokens, db, session, project_id, apex_domain, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "aw_broken_links", hunt_broken_external_links_and_script_hijack, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
     db.log_task(project_id, "SPECTRE-ActiveWeb", "active_web_suite", "COMPLETED", f"active_web_suite {base_url}", f"Executed 10 web/API modules on {base_url} ({len(js_urls)} JS bundles)")
 
 

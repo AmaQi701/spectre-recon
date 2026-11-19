@@ -158,6 +158,7 @@ class DatabaseManager:
         self.db_path = Path(db_path) if db_path else default_db
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._bundle_cache: dict[int, tuple[int, dict]] = {}
         self._conn = sqlite3.connect(str(self.db_path), timeout=60, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL;")
@@ -449,17 +450,32 @@ class DatabaseManager:
 
 
     def get_project_bundle(self, project_id: int) -> dict:
-        with self._get_conn() as conn:
-            proj = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
-            domains = [dict(r) for r in conn.execute("SELECT * FROM domains WHERE project_id = ? ORDER BY id DESC", (project_id,)).fetchall()]
-            ports = [dict(r) for r in conn.execute("SELECT * FROM ports WHERE project_id = ? ORDER BY port ASC", (project_id,)).fetchall()]
-            http_svcs = [dict(r) for r in conn.execute("SELECT * FROM http_services WHERE project_id = ? ORDER BY priority_score DESC, id DESC", (project_id,)).fetchall()]
-            endpoints = [dict(r) for r in conn.execute("SELECT * FROM endpoints WHERE project_id = ? ORDER BY id DESC", (project_id,)).fetchall()]
-            js_assets = [dict(r) for r in conn.execute("SELECT * FROM js_assets WHERE project_id = ? ORDER BY id DESC", (project_id,)).fetchall()]
-            findings = [dict(r) for r in conn.execute("SELECT * FROM findings WHERE project_id = ? ORDER BY cvss_score DESC, id DESC", (project_id,)).fetchall()]
-            chains = [dict(r) for r in conn.execute("SELECT * FROM bug_chains WHERE project_id = ? ORDER BY cvss_score DESC", (project_id,)).fetchall()]
-            logs = [dict(r) for r in conn.execute("SELECT * FROM task_logs WHERE project_id = ? ORDER BY id DESC LIMIT 100", (project_id,)).fetchall()]
-            return {
+        with self._lock:
+            cur_changes = self._conn.total_changes
+            cached = self._bundle_cache.get(project_id)
+            if cached is not None and cached[0] == cur_changes:
+                b_c = cached[1]
+                return {
+                    "project": dict(b_c["project"]),
+                    "domains": list(b_c["domains"]),
+                    "ports": list(b_c["ports"]),
+                    "http_services": list(b_c["http_services"]),
+                    "endpoints": list(b_c["endpoints"]),
+                    "js_assets": list(b_c["js_assets"]),
+                    "findings": list(b_c["findings"]),
+                    "bug_chains": list(b_c["bug_chains"]),
+                    "task_logs": list(b_c["task_logs"]),
+                }
+            proj = self._conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+            domains = [dict(r) for r in self._conn.execute("SELECT * FROM domains WHERE project_id = ? ORDER BY id DESC", (project_id,)).fetchall()]
+            ports = [dict(r) for r in self._conn.execute("SELECT * FROM ports WHERE project_id = ? ORDER BY port ASC", (project_id,)).fetchall()]
+            http_svcs = [dict(r) for r in self._conn.execute("SELECT * FROM http_services WHERE project_id = ? ORDER BY priority_score DESC, id DESC", (project_id,)).fetchall()]
+            endpoints = [dict(r) for r in self._conn.execute("SELECT * FROM endpoints WHERE project_id = ? ORDER BY id DESC", (project_id,)).fetchall()]
+            js_assets = [dict(r) for r in self._conn.execute("SELECT * FROM js_assets WHERE project_id = ? ORDER BY id DESC", (project_id,)).fetchall()]
+            findings = [dict(r) for r in self._conn.execute("SELECT * FROM findings WHERE project_id = ? ORDER BY cvss_score DESC, id DESC", (project_id,)).fetchall()]
+            chains = [dict(r) for r in self._conn.execute("SELECT * FROM bug_chains WHERE project_id = ? ORDER BY cvss_score DESC", (project_id,)).fetchall()]
+            logs = [dict(r) for r in self._conn.execute("SELECT * FROM task_logs WHERE project_id = ? ORDER BY id DESC LIMIT 250", (project_id,)).fetchall()]
+            res = {
                 "project": dict(proj) if proj else {},
                 "domains": domains,
                 "ports": ports,
@@ -470,4 +486,8 @@ class DatabaseManager:
                 "bug_chains": chains,
                 "task_logs": logs,
             }
+            if len(self._bundle_cache) > 16:
+                self._bundle_cache.clear()
+            self._bundle_cache[project_id] = (self._conn.total_changes, res)
+            return res
 

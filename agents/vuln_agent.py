@@ -1,3 +1,4 @@
+import ast
 import base64
 import hashlib
 import hmac
@@ -8,6 +9,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import threading
 import urllib.parse
 from pathlib import Path
 import requests
@@ -155,10 +157,11 @@ class VulnAssessmentSuperAgent:
         },
     ]
 
-    def __init__(self, db: DatabaseManager):
+    def __init__(self, db: DatabaseManager, shared_session: requests.Session | None = None):
         self.db = db
-        self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "SPECTRE-VulnAgent/13.0"})
+        self.session = shared_session or requests.Session()
+        if shared_session is None:
+            self.session.headers.update({"User-Agent": "SPECTRE-VulnAgent/3.3"})
         self.http_engine = RateLimitedHttpEngine(self.session, max_rps_per_host=10.0, fail_threshold=4)
         self.role_a_headers: dict[str, str] = {}
         self.role_b_headers: dict[str, str] = {}
@@ -225,7 +228,11 @@ class VulnAssessmentSuperAgent:
         seen_cookie_names: set[str] = set()
         seen_cors_templates: set[tuple[str, str, int]] = set()
         cors_dead_hosts: set[str] = set()
-        for svc in http_services:
+        ordered_svcs = sorted(
+            http_services,
+            key=lambda s: (1 if (urllib.parse.urlparse(str(s.get("url") or "")).hostname or "").lower().startswith("www.") else 0),
+        )
+        for svc in ordered_svcs:
             url = svc["url"]
             scode = int(svc.get("status_code") or 0)
             sec = json.loads(svc.get("security_headers_json") or "{}")
@@ -375,7 +382,11 @@ class VulnAssessmentSuperAgent:
     def _audit_open_ports(self, project_id: int, ports: list[dict], log_fn, domains: list[dict] | None = None):
         non_cdn_dom_ip: dict[str, str] = {}
         ip_to_primary_dom: dict[str, str] = {}
-        for d in (domains or []):
+        sorted_doms = sorted(
+            domains or [],
+            key=lambda x: (1 if str(x.get("domain") or "").lower().startswith("www.") else 0, len(str(x.get("domain") or "")), str(x.get("domain") or "")),
+        )
+        for d in sorted_doms:
             dom = str(d.get("domain") or "").strip().lower()
             dip = str(d.get("ip") or "").strip()
             if dom and dip:
@@ -602,7 +613,11 @@ class VulnAssessmentSuperAgent:
             ports = fresh_bundle["ports"]
         non_cdn_dom_ip: dict[str, str] = {}
         ip_to_primary_dom: dict[str, str] = {}
-        for d in (domains or []):
+        sorted_doms = sorted(
+            domains or [],
+            key=lambda x: (1 if str(x.get("domain") or "").lower().startswith("www.") else 0, len(str(x.get("domain") or "")), str(x.get("domain") or "")),
+        )
+        for d in sorted_doms:
             dom = str(d.get("domain") or "").strip().lower()
             dip = str(d.get("ip") or "").strip()
             if dom and dip:
@@ -689,6 +704,9 @@ class VulnAssessmentSuperAgent:
                         by_cve[cve_id]["vhosts"].append(vh)
                 if is_bp:
                     by_cve[cve_id]["is_bp"] = True
+        for item_c in by_cve.values():
+            vh_set = set(item_c["vhosts"])
+            item_c["vhosts"] = [vh for vh in item_c["vhosts"] if not (vh.startswith("www.") and vh[4:] in vh_set)] or item_c["vhosts"]
 
         for cve_id, item in by_cve.items():
             adv = item["adv"]
@@ -873,6 +891,24 @@ class VulnAssessmentSuperAgent:
             )
 
 
+    @staticmethod
+    def _py_ast_dynamic_sink_lines(src_text: str) -> set[int]:
+        """Returns 1-based line numbers in Python source where sink calls receive dynamic (non-constant) arguments."""
+        try:
+            tree = ast.parse(src_text)
+        except Exception:
+            return set(range(1, len(src_text.splitlines()) + 1))
+        dyn_lines: set[int] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if node.args and all(isinstance(a, ast.Constant) for a in node.args):
+                    continue
+                dyn_lines.add(node.lineno)
+            elif isinstance(node, ast.Assign):
+                if not isinstance(node.value, ast.Constant) or isinstance(node.value.value, str) and len(node.value.value) >= 10:
+                    dyn_lines.add(node.lineno)
+        return dyn_lines
+
     def _run_sast_scan(self, project_id: int, code_path_str: str, log_fn):
         if not code_path_str:
             return
@@ -883,6 +919,7 @@ class VulnAssessmentSuperAgent:
         log_fn(f"[SAST] White-box Source Code tahlili boshlandi: {root}")
         exts = {".py", ".php", ".js", ".ts", ".tsx", ".jsx", ".vue", ".go", ".java", ".rb", ".env"}
         skip_dirs = ("node_modules", ".git", "__pycache__", "/tests/", "/test/", "/__tests__/", "/mocks/", ".spec.", ".test.")
+        static_dom_re = re.compile(r"""\.(?:inner|outer)HTML\s*\+?=\s*(?:""|''|``|"[^"$+{]*"|'[^'$+{]*')\s*(?:[;,\)\}\n]|$)""")
         files = [
             p for p in root.rglob("*")
             if p.is_file() and p.suffix.lower() in exts and not any(sd in str(p).replace("\\", "/") for sd in skip_dirs)
@@ -891,14 +928,20 @@ class VulnAssessmentSuperAgent:
         rule_counts: dict[str, int] = {}
         for fpath in files[:180]:
             try:
-                lines = fpath.read_text(encoding="utf-8", errors="ignore").splitlines()
+                raw_src = fpath.read_text(encoding="utf-8", errors="ignore")
+                py_dyn = self._py_ast_dynamic_sink_lines(raw_src) if fpath.suffix.lower() == ".py" else None
+                lines = raw_src.splitlines()
                 for idx, line in enumerate(lines, start=1):
                     s_line = line.strip()
                     if not s_line or len(s_line) > 900 or s_line.startswith(("//", "#", "/*", "*")):
                         continue
+                    if py_dyn is not None and idx not in py_dyn:
+                        continue
                     for rule in self.SAST_RULES:
                         r_title = rule["title"]
                         if rule_counts.get(r_title, 0) >= 5:
+                            continue
+                        if "DOM-Based XSS" in r_title and static_dom_re.search(line):
                             continue
                         if rule["pattern"].search(line):
                             rule_counts[r_title] = rule_counts.get(r_title, 0) + 1
@@ -907,7 +950,7 @@ class VulnAssessmentSuperAgent:
                                 rule["category"], rule["severity"], rule["cvss"], rule["vector"],
                                 rule["cwe"], rule["owasp"], f"{fpath}:{idx}",
                                 f"Line {idx}: {line.strip()[:160]}",
-                                f"Kodning {idx}-qatorida xavfli konstruksiya aniqlandi.",
+                                f"Kodning {idx}-qatorida dinamik o'zgaruvchi qatnashgan xavfli konstruksiya aniqlandi.",
                                 rule["remediation"],
                                 confidence=QoD.STATIC_SAST,
                             )
@@ -1109,20 +1152,64 @@ class VulnAssessmentSuperAgent:
             pass
 
     def _audit_multi_role_access_control(self, project_id: int, endpoints: list[dict], log_fn):
-        if not self.role_a_headers:
-            return
         api_cands = [
             e for e in endpoints
             if e.get("method", "GET") == "GET"
             and (e.get("category") in ("api_endpoint", "high_value_endpoint") or "IDOR_Candidate" in (e.get("risk_tags_json") or ""))
-        ][:16]
+        ][:20]
         if not api_cands:
             return
-        log_fn(f"[Agent-2 -> Multi-Role Authz Matrix] {len(api_cands)} ta API/IDOR route da avtorizatsiya matritsasi solishtirilmoqda...")
-        err_markers = ('"unauthorized"', '"unauthenticated"', '"forbidden"', '"access denied"', '"error":true', '"status":401', '"status":403')
+        err_markers = ('"unauthorized"', '"unauthenticated"', '"forbidden"', '"access denied"', '"error":true', '"status":401', '"status":403', '"login required"')
         public_ignore = ("/health", "/ping", "/version", "/config", "/public", "/openapi", "/swagger", "/i18n", "/locale")
+        priv_keywords = ("/admin", "/internal", "/users", "/account", "/orders", "/profile", "/me", "/settings", "/logs", "/baza/", "/sites", "/jobs", "/export", "/backup")
 
-        for ep in api_cands:
+        if not self.role_a_headers:
+            priv_cands = [e for e in api_cands if any(pk in e["url"].lower() for pk in priv_keywords)][:16]
+            if not priv_cands:
+                return
+            log_fn(f"[Agent-2 -> Guest API Exposure Audit] {len(priv_cands)} ta ichki API yo'li autentifikatsiyasiz ochiq qolganlikka tekshirilmoqda...")
+            cal_by_origin: dict[str, tuple[int, int]] = {}
+            for ep in priv_cands:
+                u = ep["url"].replace("{param}", "1")
+                if any(pi in u.lower() for pi in public_ignore) or self.http_engine.is_host_dead(u):
+                    continue
+                pu = urllib.parse.urlparse(u)
+                orig = f"{pu.scheme}://{pu.netloc}"
+                if orig not in cal_by_origin:
+                    try:
+                        rc = self.http_engine.request("GET", f"{orig}/api/spectre-nonexistent-authz-99182", headers={}, allow_redirects=False)
+                        cal_by_origin[orig] = (rc.status_code, len(rc.text))
+                    except Exception:
+                        cal_by_origin[orig] = (-1, -1)
+                cal_st, cal_ln = cal_by_origin[orig]
+                try:
+                    r_guest = self.http_engine.request("GET", u, headers={}, allow_redirects=False)
+                    if r_guest.status_code != 200 or "application/json" not in r_guest.headers.get("Content-Type", "").lower() or len(r_guest.text) < 25:
+                        continue
+                    if cal_st == 200 and abs(len(r_guest.text) - cal_ln) < 40:
+                        continue
+                    if any(em in r_guest.text.lower() for em in err_markers):
+                        continue
+                    obj_g = r_guest.json()
+                    if not isinstance(obj_g, (dict, list)) or not obj_g:
+                        continue
+                    keys_g = sorted(obj_g.keys()) if isinstance(obj_g, dict) else [f"list[{len(obj_g)}]"]
+                    self.db.upsert_finding(
+                        project_id, "Agent-2 (Authz-Matrix)", f"[CONFIRMED] Unauthenticated Access to Sensitive API Route ({u})",
+                        "Missing Function-Level Access Control", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                        "CWE-306", "A01:2021 - Broken Access Control", u,
+                        f"Guest HTTP 200 JSON ({len(r_guest.text)}B, keys={keys_g[:6]}) without Authorization header",
+                        "Ichki/ma'muriy API yo'li autentifikatsiya sarlavhasisiz (Guest) to'g'ridan-to'g'ri JSON ma'lumot qaytarmoqda.",
+                        "Ushbu route ustiga autentifikatsiya va rol tekshiruvi (RBAC middleware) o'rnating.",
+                        confidence=QoD.ACTIVE_VERIFIED,
+                    )
+                    log_fn(f"  [CONFIRMED GUEST API EXPOSURE] {u} -> HTTP 200 JSON ({len(r_guest.text)}B)")
+                except Exception:
+                    pass
+            return
+
+        log_fn(f"[Agent-2 -> Multi-Role Authz Matrix] {len(api_cands[:16])} ta API/IDOR route da avtorizatsiya matritsasi solishtirilmoqda...")
+        for ep in api_cands[:16]:
             u = ep["url"].replace("{param}", "1")
             if any(pi in u.lower() for pi in public_ignore) or self.http_engine.is_host_dead(u):
                 continue
@@ -1177,19 +1264,38 @@ class VulnAssessmentSuperAgent:
         home_bins = f"{Path.home() / 'go' / 'bin'}:{Path.home() / '.local' / 'bin'}"
         env["PATH"] = f"{home_bins}:/usr/local/bin:/usr/bin:" + env.get("PATH", "")
         nuc_bin = shutil.which("nuclei", path=env["PATH"])
-        svcs = [
-            s["url"] for s in bundle.get("http_services", [])
-            if int(s.get("status_code") or 0) in (200, 401, 403) and not self.http_engine.is_host_dead(s["url"])
-            and urllib.parse.urlparse(s["url"]).hostname not in ("127.0.0.1", "localhost")
-        ][:6]
+        svcs: list[str] = []
+        seen_nuc_origins: set[tuple[str, str, int]] = set()
+        for s in bundle.get("http_services", []):
+            if int(s.get("status_code") or 0) not in (200, 401, 403) or self.http_engine.is_host_dead(s["url"]):
+                continue
+            pu = urllib.parse.urlparse(s["url"])
+            hn = (pu.hostname or "").lower()
+            if not hn or hn in ("127.0.0.1", "localhost"):
+                continue
+            orig_k = (pu.scheme or "https", hn, pu.port or (443 if pu.scheme == "https" else 80))
+            if orig_k not in seen_nuc_origins:
+                seen_nuc_origins.add(orig_k)
+                svcs.append(s["url"])
+            if len(svcs) >= 4:
+                break
         if nuc_bin and svcs:
             nuc_file = f"/tmp/spectre_v13_nuclei_{project_id}.txt"
             Path(nuc_file).write_text("\n".join(svcs) + "\n", encoding="utf-8")
             log_fn(f"[Agent-2 -> Nuclei Audit] {len(svcs)} ta faol veb-servisda miskonfiguratsiya va CVE shablonlari tekshirilmoqda...")
             proc = None
+            timer_nuc = None
             try:
                 proc = subprocess.Popen(
-                    [nuc_bin, "-l", nuc_file, "-tags", "exposure,misconfig,panel,token", "-severity", "low,medium,high,critical", "-silent", "-jsonl", "-timeout", "4", "-c", "20"],
+                    [
+                        nuc_bin, "-l", nuc_file,
+                        "-tags", "exposure,panel,token",
+                        "-etags", "intrusive,fuzz,dos,headless,ssl,network,tech",
+                        "-severity", "medium,high,critical",
+                        "-duc", "-ni", "-nc", "-silent", "-jsonl",
+                        "-timeout", "3", "-retries", "0", "-max-host-error", "8",
+                        "-c", "30", "-bs", "25", "-rl", "120",
+                    ],
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
@@ -1197,10 +1303,26 @@ class VulnAssessmentSuperAgent:
                     env=env,
                     start_new_session=True,
                 )
-                nuc_out, _ = proc.communicate(timeout=45)
-                for nl in (nuc_out or "").splitlines():
-                    if nl.strip().startswith("{"):
-                        nobj = json.loads(nl.strip())
+
+                def _kill_nuc() -> None:
+                    if proc is not None and proc.poll() is None:
+                        try:
+                            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                        except Exception:
+                            pass
+
+                timer_nuc = threading.Timer(18.0, _kill_nuc)
+                timer_nuc.daemon = True
+                timer_nuc.start()
+
+                if proc.stdout is not None:
+                    for nl in proc.stdout:
+                        if not nl.strip().startswith("{"):
+                            continue
+                        try:
+                            nobj = json.loads(nl.strip())
+                        except Exception:
+                            continue
                         t_id = nobj.get("template-id", "nuclei-hit")
                         info = nobj.get("info", {})
                         n_name = info.get("name", t_id)
@@ -1218,19 +1340,17 @@ class VulnAssessmentSuperAgent:
                                 confidence=QoD.ACTIVE_VERIFIED,
                             )
                             log_fn(f"  [NUCLEI HIT] [{n_sev}] {n_name} -> {matched_at}")
+                proc.wait(timeout=2)
                 self.db.log_task(project_id, "SPECTRE-Agent2", "nuclei", "COMPLETED", f"nuclei ({len(svcs)} targets)", "Completed active template verification")
-            except subprocess.TimeoutExpired:
-                if proc is not None and proc.poll() is None:
-                    try:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                    except Exception:
-                        pass
             except Exception:
                 if proc is not None and proc.poll() is None:
                     try:
                         os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
                     except Exception:
                         pass
+            finally:
+                if timer_nuc is not None:
+                    timer_nuc.cancel()
 
     def _audit_cms_and_enterprise_apps(self, project_id: int, log_fn):
         b_cur = self.db.get_project_bundle(project_id)
@@ -1311,7 +1431,7 @@ class VulnAssessmentSuperAgent:
 
         # Phase ACT_VERIFY runs strictly AFTER all ACT_GATHER_INFO plugins finish populating KB!
         orch.register("nvt_http_methods", ScanPhase.ACT_VERIFY, self._audit_http_methods_and_overrides, project_id, http_svcs, log_fn, require_keys=["Services/www"])
-        orch.register("nvt_multi_role_bola", ScanPhase.ACT_VERIFY, self._audit_multi_role_access_control, project_id, eps, log_fn, require_keys=["Auth/role_a", "Endpoints/api"])
+        orch.register("nvt_multi_role_bola", ScanPhase.ACT_VERIFY, self._audit_multi_role_access_control, project_id, eps, log_fn, require_keys=["Endpoints/api"])
         orch.register("nvt_differential_verifier", ScanPhase.ACT_VERIFY, self._audit_safe_differential_verifiers, project_id, eps, log_fn, require_keys=["Endpoints/parameterized"])
         orch.register("nvt_cli_scanners", ScanPhase.ACT_VERIFY, self._run_cli_vuln_scanners, project_id, bundle, log_fn, enable_cli=enable_cli, require_keys=["Services/www"])
         orch.execute_all()

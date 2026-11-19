@@ -239,14 +239,13 @@ def build_corporate_org_and_backend_correlation_graph(db, session, project_id: i
     shared_backends = {k: sorted(set(v)) for k, v in backend_groups.items() if len(set(v)) > 1}
     if shared_backends:
         summary_parts = [f"[{sig} -> {', '.join(hosts[:5])} ({len(hosts)} hosts)]" for sig, hosts in list(shared_backends.items())[:5]]
-        db.upsert_finding(
-            project_id, "SPECTRE-v12 (Backend-Correlator)",
-            f"Multi-Signal Shared Backend Infrastructure Graph ({len(shared_backends)} clusters)",
-            "Asset Correlation Intelligence", "Info", 0.0,
-            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-            apex_domain, "Shared Backend Clusters: " + " ; ".join(summary_parts),
-            "Subdomenlarning /24 subneti, Server sarlavhasi va WAF imzolari korrelyatsiya qilinib, bitta fizik/virtual backendda yotgan ilovalar guruhlandi.",
-            "Kritik ichki tizimlarni ommaviy veb-saytlar bilan bitta backend serverda birga joylashtirmang ( Izolyatsiya).",
+        db.log_task(
+            project_id,
+            "SPECTRE-Intel",
+            "shared_backend_graph",
+            "COMPLETED",
+            apex_domain,
+            ("Shared Backend Clusters: " + " ; ".join(summary_parts))[:240],
         )
         log_fn(f"  [🕸️ BACKEND CORRELATOR] {len(shared_backends)} ta umumiy backend klasteri aniqlandi!")
     return shared_backends
@@ -418,14 +417,13 @@ def analyze_wasm_binaries_and_server_timing(db, session, project_id: int, base_u
                 for wep in wasm_eps:
                     db.upsert_endpoint(project_id, urllib.parse.urljoin(base_url, wep), method="GET", params=[], category="api_endpoint", risk_tags=["wasm_binary"], source="wasm_extractor")
                 hits += 1
-                db.upsert_finding(
-                    project_id, "SPECTRE-v12 (WASM-Analyzer)",
-                    f"WebAssembly (.wasm) Binary Deconstructed ({len(wasm_eps)} embedded endpoints)",
-                    "WebAssembly Binary Intelligence", "Info", 0.0,
-                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-                    wu, f"WASM Size: {len(rw.content)}B | Extracted Routes: {', '.join(wasm_eps[:10])}",
-                    "WebAssembly (.wasm) binar fayli data segmentidan ichki API URL manzillari ajratib olindi.",
-                    "WASM modullari ichida maxfiy kalit va ichki endpointlarni ochiq satr sifatida saqlamang.",
+                db.log_task(
+                    project_id,
+                    "SPECTRE-Intel",
+                    "wasm_deconstructed",
+                    "COMPLETED",
+                    wu,
+                    f"WASM ({len(rw.content)}B, {len(wasm_eps)} routes): {', '.join(wasm_eps[:8])}",
                 )
                 log_fn(f"  [🧬 WASM BINARY] {wu} -> {len(wasm_eps)} ta endpoint tiklandi!")
         except Exception:

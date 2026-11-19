@@ -25,6 +25,13 @@ _LIB: ctypes.CDLL | None = None
 _TRIED_LOAD = False
 
 
+JS_TOK_ROUTE = 1
+JS_TOK_SINK = 2
+JS_TOK_SECRET = 4
+JS_TOK_CHUNK = 8
+JS_TOK_SOURCEMAP = 16
+
+
 def get_native_lib() -> ctypes.CDLL | None:
     global _LIB, _TRIED_LOAD
     if _TRIED_LOAD:
@@ -58,6 +65,9 @@ def get_native_lib() -> ctypes.CDLL | None:
                     ctypes.c_int, ctypes.c_char_p, ctypes.c_size_t,
                 ]
                 lib.spectre_epoll_tcp_probe.restype = ctypes.c_int
+                if hasattr(lib, "spectre_js_token_mask"):
+                    lib.spectre_js_token_mask.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+                    lib.spectre_js_token_mask.restype = ctypes.c_uint32
                 _LIB = lib
         except Exception:
             _LIB = None
@@ -136,4 +146,27 @@ def fast_epoll_tcp_probe(ip_addr: str, ports: list[int], timeout_ms: int = 900) 
                 except Exception:
                     discovered[int(p_s)] = b""
     return discovered
+
+
+def fast_js_token_mask(text_or_bytes: str | bytes) -> int:
+    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+    if not b:
+        return 0
+    lib = get_native_lib()
+    if lib is not None and hasattr(lib, "spectre_js_token_mask"):
+        return int(lib.spectre_js_token_mask(b, len(b)))
+    low = b.lower()
+    mask = 0
+    if any(t in low for t in (b"/api/", b"/v1/", b"/v2/", b"/v3/", b"/graphql", b"/auth/", b"/admin/", b"/internal/", b"/live/", b"/stream/", b"/news/", b"/tv/", b"/radio/", b"/channels/", b"http://", b"https://", b"ws://", b"wss://", b".get", b".post", b".put", b".delete", b".patch")):
+        mask |= JS_TOK_ROUTE
+    if any(t in low for t in (b"innerhtml", b"outerhtml", b"document.write", b"eval", b"settimeout", b"postmessage", b"dangerouslysetinnerhtml")):
+        mask |= JS_TOK_SINK
+    if any(t in low for t in (b"api_key", b"apikey", b"api-key", b"access_token", b"accesstoken", b"access-token", b"secret_key", b"secretkey", b"secret-key", b"base_url", b"baseurl", b"vite_", b"authorization", b"bearer ")):
+        mask |= JS_TOK_SECRET
+    if b"assets/" in low or b"static/js/" in low:
+        mask |= JS_TOK_CHUNK
+    if b"sourcemappingurl=" in low or b'"sourcescontent"' in low:
+        mask |= JS_TOK_SOURCEMAP
+    return mask
+
 

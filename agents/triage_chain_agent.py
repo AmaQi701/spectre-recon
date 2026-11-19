@@ -353,7 +353,15 @@ class TriageAndChainSuperAgent:
         ports = bundle.get("ports", [])
         http_svcs = bundle.get("http_services", [])
         endpoints = bundle.get("endpoints", [])
-        findings = [f for f in bundle.get("findings", []) if f.get("triage_status") != "False-Positive"]
+        findings = [f for f in bundle.get("findings", []) if f.get("triage_status") != "False-Positive" and f.get("severity") != "Info"]
+        intel_entries = []
+        seen_intel: set[str] = set()
+        for lg in bundle.get("task_logs", []):
+            if lg.get("agent") == "SPECTRE-Intel":
+                s_key = f"{lg.get('tool')}:{lg.get('summary')}"
+                if s_key not in seen_intel:
+                    seen_intel.add(s_key)
+                    intel_entries.append(lg)
         chains = bundle.get("bug_chains", [])
 
         safe_name = f"project_{project_id}_audit_report"
@@ -410,6 +418,12 @@ class TriageAndChainSuperAgent:
                 f"- **Remediation (Yopish yo'li):** {f['remediation']}",
                 "",
             ])
+
+        if intel_entries:
+            md_lines.extend(["---", "## 4. 🧭 Arxitektura va OSINT Razvedka Xulosasi (Consolidated Recon Intel)"])
+            for ilg in intel_entries[:25]:
+                md_lines.append(f"- **`[{ilg.get('tool')}]`** (`{ilg.get('command')}`): {ilg.get('summary')}")
+            md_lines.append("")
 
         md_content = "\n".join(md_lines)
         md_path.write_text(md_content, encoding="utf-8")

@@ -49,6 +49,7 @@ class _BenchmarkHandler(http.server.BaseHTTPRequestHandler):
                 "<a href='/search?q=item'>Search</a>"
                 "<a href='/safe_search?safe_q=item'>SafeSearch</a>"
                 "<a href='/debug_err?id=1'>DebugErr</a>"
+                "<a href='/portal'>Portal</a>"
                 "<script src='/static/app.js'></script></body></html>"
             ).encode()
             self.send_response(200)
@@ -122,6 +123,28 @@ class _BenchmarkHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
             self.wfile.write(b"Traceback (most recent call last):\n  File 'app.py', line 12\nZeroDivisionError")
+        elif parsed.path == "/portal":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(
+                b"<html><head><title>Inner Portal</title></head><body>"
+                b"<h1>Staff Portal</h1><a href='/portal/settings'>Settings</a></body></html>"
+            )
+        elif parsed.path == "/portal/settings":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(
+                b"<html><head><title>Portal Settings</title></head><body>"
+                b"<form action='/portal/update_role' method='POST'><input name='role'></form>"
+                b"<script src='/static/portal.js'></script></body></html>"
+            )
+        elif parsed.path == "/static/portal.js":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript")
+            self.end_headers()
+            self.wfile.write(b"axios.post('/api/v2/internal/audit', {actor: 'admin'});\n")
         else:
             self.send_response(404)
             self.end_headers()
@@ -184,7 +207,7 @@ def run_benchmark() -> None:
             assert kb_check.check_gate(require_ports=[6379])[0] is True, "KB Gate failed to detect port 6379"
             assert kb_check.check_gate(require_ports=[27017])[0] is False, "KB Gate failed to block closed port 27017"
 
-            vuln = VulnAssessmentSuperAgent(db)
+            vuln = VulnAssessmentSuperAgent(db, shared_session=recon.session)
             vuln.configure_context(
                 primary_auth="Authorization: Bearer token_user_a",
                 secondary_auth="Authorization: Bearer token_user_b",
@@ -199,8 +222,11 @@ def run_benchmark() -> None:
             titles = [f["title"] for f in bundle["findings"]]
             confs = [f["confidence"] for f in bundle["findings"]]
             chains = [c["chain_title"] for c in bundle["bug_chains"]]
+            ep_urls = [e["url"] for e in bundle["endpoints"]]
 
-            assert len(bundle["js_assets"]) >= 1, "JS Analyzer failed to capture app.js"
+            assert len(bundle["js_assets"]) >= 2, f"Depth-2 BFS or JS Analyzer missed portal.js: {bundle['js_assets']}"
+            assert any("/portal/update_role" in u for u in ep_urls) and any("/api/v2/internal/audit" in u for u in ep_urls), f"Depth-2 BFS crawler missed inner form/JS routes: {ep_urls}"
+            assert not any(f["severity"] == "Info" for f in bundle["findings"]), f"Info noise leaked into findings table: {bundle['findings']}"
             assert any("BOLA" in t for t in titles), f"Multi-Role BOLA Matrix missed flaw: {titles}"
             assert any("Unauthenticated Access" in t for t in titles), f"Authz Matrix missed flaw: {titles}"
             assert any("Arbitrary CORS Origin Reflection" in t for t in titles), f"CORS audit missed flaw: {titles}"

@@ -510,14 +510,38 @@ def build_target_dossier(db, project_id: int, selected_domain: str = "") -> str:
     else:
         lines.append("  • Standart portlarda faol veb-servis topilmadi.")
 
-    lines.append(f"\n◈ XAVFSIZLIK TOPILMALARI ({len(host_finds)} ta)")
+    real_host_finds = [f for f in host_finds if f.get("severity") != "Info"]
+    info_host_finds = [f for f in host_finds if f.get("severity") == "Info"]
+    from core.scope_guard import ScopeGuard
+    apex_sel = ScopeGuard.extract_apex_domain(selected_domain) if selected_domain else ""
+    intel_logs = []
+    seen_ilg: set[str] = set()
+    for lg in b.get("task_logs", []):
+        if lg.get("agent") != "SPECTRE-Intel":
+            continue
+        cmd_s = str(lg.get("command") or "")
+        if (not selected_domain) or (selected_domain in cmd_s) or (apex_sel and cmd_s == apex_sel) or cmd_s.startswith("project:"):
+            k_ilg = f"{lg.get('tool')}:{lg.get('summary')}"
+            if k_ilg not in seen_ilg:
+                seen_ilg.add(k_ilg)
+                intel_logs.append(lg)
+
+    lines.append(f"\n◈ XAVFSIZLIK TOPILMALARI ({len(real_host_finds)} ta)")
     lines.append("─" * 68)
-    if host_finds:
-        for f in host_finds:
+    if real_host_finds:
+        for f in real_host_finds:
             lines.append(f"  • [{f['severity'].upper()} | CVSS {f['cvss_score']}] {f['title']}")
             lines.append(f"    Dalil: {f['evidence'][:120]}")
     else:
         lines.append("  • Ushbu xostda hozircha zaiflik qayd etilmagan.")
+
+    if info_host_finds or intel_logs:
+        lines.append(f"\n◈ ARXITEKTURA VA OSINT RAZVEDKA MA'LUMOTLARI ({len(info_host_finds) + len(intel_logs)} ta)")
+        lines.append("─" * 68)
+        for inf in info_host_finds[:6]:
+            lines.append(f"  • {inf['title']} -> {inf['evidence'][:110]}")
+        for ilg in intel_logs[:6]:
+            lines.append(f"  • [{ilg['tool']}] {ilg['summary'][:120]}")
 
     lines.append("\n◈ AMALIY PENTEST REJASI (TASK TREE)")
     lines.append("─" * 68)

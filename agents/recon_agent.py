@@ -1,3 +1,4 @@
+import collections
 import concurrent.futures
 import hashlib
 import json
@@ -98,7 +99,7 @@ class ReconSuperAgent:
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         })
-        self._http_get_cache: dict[tuple[str, bool], object] = {}
+        self._http_get_cache: collections.OrderedDict[tuple[str, bool], object] = collections.OrderedDict()
         self._cache_lock = threading.Lock()
         self._probe_tls = threading.local()
         self._host_fail_counts: dict[str, int] = {}
@@ -139,15 +140,17 @@ class ReconSuperAgent:
                 ckey = (str(url), bool(kwargs.get("allow_redirects", True)))
                 with self._cache_lock:
                     if ckey in self._http_get_cache:
+                        self._http_get_cache.move_to_end(ckey)
                         return self._http_get_cache[ckey]
                 resp = _guard_call(_orig_get, url, **kwargs)
                 if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
                     resp.encoding = "utf-8"
-                if (resp.status_code == 200 and len(resp.content) < 600000) or (resp.status_code == 404 and len(resp.content) < 65536):
+                if (resp.status_code == 200 and len(resp.content) < 1800000) or (resp.status_code == 404 and len(resp.content) < 65536):
                     with self._cache_lock:
-                        if len(self._http_get_cache) > 250:
-                            self._http_get_cache.clear()
                         self._http_get_cache[ckey] = resp
+                        self._http_get_cache.move_to_end(ckey)
+                        while len(self._http_get_cache) > 1200:
+                            self._http_get_cache.popitem(last=False)
                 return resp
             resp = _guard_call(_orig_get, url, **kwargs)
             if not kwargs.get("stream") and (not resp.encoding or resp.encoding.lower() == "iso-8859-1"):
@@ -871,13 +874,13 @@ class ReconSuperAgent:
                                 self._seen_ext_redirects.add(ext_key)
                         if first_ext:
                             log_fn(f"  [🔄 EXTERNAL REDIRECT] {url} -> {loc_full} (Scope tashqarisidagi domenga yo'naltirilgan)")
-                            self.db.upsert_finding(
-                                project_id, "SPECTRE-Agent1 (Redirect-Intel)", f"External Domain Redirect Detected ({loc_host or ScopeGuard.extract_host(url)})",
-                                "Infrastructure / Domain Migration Intelligence", "Info", 0.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
-                                "CWE-601", "A05:2021 - Security Misconfiguration", url,
-                                f"HTTP {resp.status_code} Location: {loc_full}",
-                                "Domen tashqi (scope tashqarisidagi) boshqa domenga HTTP 301/302 orqali yo'naltirilgan.",
-                                "Agar yangi domen ham tashkilotga tegishli bo'lsa, uni Scope ro'yxatiga qo'shing.",
+                            self.db.log_task(
+                                project_id,
+                                "SPECTRE-Intel",
+                                "external_redirect",
+                                "COMPLETED",
+                                url,
+                                f"External Redirect ({resp.status_code}) -> {loc_full[:180]}",
                             )
             self._probe_tls.last_status = resp.status_code
             headers = {k: v for k, v in resp.headers.items()}
@@ -1056,14 +1059,22 @@ class ReconSuperAgent:
             cat = "high_value_endpoint"
             risks.append("Sensitive/Admin Route")
 
+        is_dle_comment_form = u_l.endswith((".html", ".htm")) and "comments" in p_l and "subaction" in p_l
+        cms_non_idor_ids = {
+            "post_id", "news_id", "newsid", "cat_id", "category_id", "page_id", "parent_id",
+            "poll_id", "tag_id", "block_id", "imp_id", "site_id", "valid", "invalid",
+            "grid", "fluid", "void", "android",
+        }
+
         for p in p_l:
             if p in ("__viewstate", "__eventvalidation", "__viewstategenerator"):
                 if "ViewState_Deserialization_Candidate" not in risks:
                     risks.append("ViewState_Deserialization_Candidate")
                 continue
-            if re.search(r"(?:^|_|-)(?:id|uid|uuid|user|userid|account|order|doc|invoice|profile|slug|item)(?:$|_|-)", p) or (p.endswith("id") and p not in ("valid", "invalid", "grid", "fluid", "void", "android")):
-                if "IDOR_Candidate" not in risks:
-                    risks.append("IDOR_Candidate")
+            if not is_dle_comment_form and p not in cms_non_idor_ids:
+                if re.search(r"(?:^|_|-)(?:id|uid|uuid|user|userid|account|order|doc|invoice|profile|slug|item)(?:$|_|-)", p) or p.endswith("id"):
+                    if "IDOR_Candidate" not in risks:
+                        risks.append("IDOR_Candidate")
             if any(k in p for k in ("url", "uri", "redirect", "next", "return", "callback", "webhook", "dest", "host")):
                 if "SSRF_or_Redirect_Candidate" not in risks:
                     risks.append("SSRF_or_Redirect_Candidate")
@@ -1104,35 +1115,65 @@ class ReconSuperAgent:
 
 
 
-    def _stage4_html_and_wayback(self, project_id: int, base_url: str, html_body: str, domain: str, scope: ScopeGuard, log_fn) -> list[str]:
-        js_urls = set()
-        if html_body:
-            soup = BeautifulSoup(html_body[:80000], "html.parser")
-            for a in soup.find_all(["a", "link"], href=True):
-                self._record_discovered_url(project_id, a["href"], base_url, scope, "html_crawler")
-            for meta in soup.find_all("meta", content=True):
-                m_ref = re.search(r"url\s*=\s*['\"]?([^'\"\s;>]+)", str(meta.get("content", "")), re.IGNORECASE)
-                if m_ref:
-                    self._record_discovered_url(project_id, m_ref.group(1), base_url, scope, "meta_refresh")
-            for form in soup.find_all("form"):
-                action = form.get("action") or base_url
-                method = (form.get("method") or "GET").upper()
-                inputs = [inp.get("name") for inp in form.find_all(["input", "select", "textarea"]) if inp.get("name")]
-                for btn_fa in form.find_all(["button", "input"], formaction=True):
-                    self._record_discovered_url(project_id, btn_fa["formaction"], base_url, scope, "html_formaction", method=method, extra_params=inputs)
-                clean_f_url = self._record_discovered_url(project_id, action, base_url, scope, "html_form", method=method, extra_params=inputs)
-                if clean_f_url and method == "POST" and inputs:
-                    csrf_markers = ("csrf", "xsrf", "_token", "authenticity_token", "requestverificationtoken", "nonce")
-                    has_csrf_field = any(any(cm in str(in_n).lower() for cm in csrf_markers) for in_n in inputs)
-                    if not has_csrf_field:
-                        self.db.upsert_endpoint(project_id, clean_f_url, method="POST", params=inputs, risk_tags=["CSRF_Review_Candidate"], source="html_form")
+    def _extract_html_surface(
+        self,
+        project_id: int,
+        page_url: str,
+        html_body: str,
+        domain: str,
+        scope: ScopeGuard,
+        live_js_list: list[str],
+        seen_comment_hosts: set[str],
+    ) -> list[str]:
+        same_host_links: list[str] = []
+        if not html_body:
+            return same_host_links
+        page_host = (urllib.parse.urlparse(page_url).hostname or "").lower()
+        page_port = urllib.parse.urlparse(page_url).port
+        soup = BeautifulSoup(html_body[:80000], "html.parser")
+        static_skip_exts = (
+            ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".woff", ".woff2",
+            ".ttf", ".eot", ".pdf", ".zip", ".rar", ".7z", ".tar", ".gz", ".mp4", ".mp3", ".webm", ".avi",
+            ".mkv", ".xml", ".json", ".map", ".wasm",
+        )
+        for a in soup.find_all(["a", "link"], href=True):
+            raw_href = a["href"]
+            rec_u = self._record_discovered_url(project_id, raw_href, page_url, scope, "html_crawler")
+            if a.name == "a" and rec_u:
+                full_cand = urllib.parse.urljoin(page_url, raw_href.strip()).split("#")[0]
+                pu = urllib.parse.urlparse(full_cand)
+                if (
+                    pu.scheme in ("http", "https")
+                    and (pu.hostname or "").lower() == page_host
+                    and pu.port == page_port
+                    and not any(pu.path.lower().endswith(ext) for ext in static_skip_exts)
+                    and not any(bd in full_cand.lower() for bd in ("/logout", "/signout", "/sign-out", "/log-out", "action=logout", "/delete"))
+                ):
+                    same_host_links.append(full_cand)
 
-            # Hidden Input Miner
-            hidden_inputs = [inp.get("name") for inp in soup.find_all("input", {"type": "hidden"}) if inp.get("name")]
-            if hidden_inputs:
-                self._record_discovered_url(project_id, base_url, base_url, scope, "hidden_inputs", method="POST", extra_params=hidden_inputs)
+        for meta in soup.find_all("meta", content=True):
+            m_ref = re.search(r"url\s*=\s*['\"]?([^'\"\s;>]+)", str(meta.get("content", "")), re.IGNORECASE)
+            if m_ref:
+                self._record_discovered_url(project_id, m_ref.group(1), page_url, scope, "meta_refresh")
 
-            # HTML Comment Intelligence Miner (Strict word-boundary filter to exclude commented-out social media markup)
+        for form in soup.find_all("form"):
+            action = form.get("action") or page_url
+            method = (form.get("method") or "GET").upper()
+            inputs = [inp.get("name") for inp in form.find_all(["input", "select", "textarea"]) if inp.get("name")]
+            for btn_fa in form.find_all(["button", "input"], formaction=True):
+                self._record_discovered_url(project_id, btn_fa["formaction"], page_url, scope, "html_formaction", method=method, extra_params=inputs)
+            clean_f_url = self._record_discovered_url(project_id, action, page_url, scope, "html_form", method=method, extra_params=inputs)
+            if clean_f_url and method == "POST" and inputs:
+                csrf_markers = ("csrf", "xsrf", "_token", "authenticity_token", "requestverificationtoken", "nonce")
+                has_csrf_field = any(any(cm in str(in_n).lower() for cm in csrf_markers) for in_n in inputs)
+                if not has_csrf_field:
+                    self.db.upsert_endpoint(project_id, clean_f_url, method="POST", params=inputs, risk_tags=["CSRF_Review_Candidate"], source="html_form")
+
+        hidden_inputs = [inp.get("name") for inp in soup.find_all("input", {"type": "hidden"}) if inp.get("name")]
+        if hidden_inputs:
+            self._record_discovered_url(project_id, page_url, page_url, scope, "hidden_inputs", method="POST", extra_params=hidden_inputs)
+
+        if domain not in seen_comment_hosts:
             comment_kw_re = re.compile(r"\b(?:todo|fixme|hack|xxx|api_key|apikey|secret|token|password|passwd|debug|staging|internal|decommissioned|legacy)\b", re.IGNORECASE)
             comments = [str(c).strip() for c in soup.find_all(string=lambda text: isinstance(text, Comment))]
             interesting_comments = [
@@ -1140,65 +1181,191 @@ class ReconSuperAgent:
                 if len(c.strip()) > 6 and "social" not in c.lower() and comment_kw_re.search(c)
             ]
             if interesting_comments:
+                seen_comment_hosts.add(domain)
                 self.db.upsert_finding(
                     project_id, "SPECTRE-Agent1 (HTML-Miner)", f"Developer Comments / Hints in HTML Source ({domain})",
                     "Information Disclosure", "Low", 3.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
-                    "CWE-615", "A05:2021 - Security Misconfiguration", base_url,
+                    "CWE-615", "A05:2021 - Security Misconfiguration", page_url,
                     f"Comments: {' | '.join(interesting_comments[:4])}",
                     "HTML sahifa kodida dasturchi izohlari yoki yashirin texnik ma'lumotlar qoldirilgan.",
                     "Production sahifalardan barcha HTML izohlarni (<!-- ... -->) olib tashlang.",
                 )
 
-            analytics_ignore = ("googletagmanager.com", "google-analytics.com", "mc.yandex.ru", "connect.facebook.net", "doubleclick.net", "cloudflareinsights.com", "hotjar.com")
-            live_js_list: list[str] = []
+        analytics_ignore = ("googletagmanager.com", "google-analytics.com", "mc.yandex.ru", "connect.facebook.net", "doubleclick.net", "cloudflareinsights.com", "hotjar.com")
 
-            def _collect_script_src(raw_src: str, tag_source: str) -> None:
-                s_clean = (raw_src or "").strip()
-                if not s_clean or any(c.isspace() for c in s_clean):
-                    return
-                u_in = self._record_discovered_url(project_id, s_clean, base_url, scope, tag_source)
-                if u_in and u_in.endswith(".js") and u_in not in live_js_list:
+        def _collect_script_src(raw_src: str, tag_source: str) -> None:
+            s_clean = (raw_src or "").strip()
+            if not s_clean or any(c.isspace() for c in s_clean):
+                return
+            u_in = self._record_discovered_url(project_id, s_clean, page_url, scope, tag_source)
+            if u_in and u_in.lower().endswith(".js") and u_in not in live_js_list:
+                if not any(ag in u_in.lower() for ag in analytics_ignore):
                     live_js_list.append(u_in)
-                    return
-                full_ext = urllib.parse.urljoin(base_url, s_clean)
-                p_ext = urllib.parse.urlparse(full_ext)
-                if p_ext.scheme in ("http", "https") and p_ext.path.lower().endswith(".js"):
-                    if not any(ag in (p_ext.hostname or "").lower() for ag in analytics_ignore):
-                        clean_ext = f"{p_ext.scheme}://{p_ext.netloc}{p_ext.path}"
-                        if clean_ext not in live_js_list:
-                            live_js_list.append(clean_ext)
 
-            for sc in soup.find_all("script", src=True):
-                _collect_script_src(sc["src"], "script_tag")
+        for sc in soup.find_all("script", src=True):
+            _collect_script_src(sc["src"], "script_tag")
 
-            for lnk in soup.find_all("link", href=True):
-                rel_s = " ".join(lnk.get("rel") or []).lower()
-                href_v = lnk["href"].strip()
-                if ("modulepreload" in rel_s or "preload" in rel_s or href_v.endswith(".js")) and ".js" in href_v:
-                    _collect_script_src(href_v, "modulepreload_js")
+        for lnk in soup.find_all("link", href=True):
+            rel_s = " ".join(lnk.get("rel") or []).lower()
+            href_v = lnk["href"].strip()
+            if ("modulepreload" in rel_s or "preload" in rel_s or href_v.endswith(".js")) and ".js" in href_v:
+                _collect_script_src(href_v, "modulepreload_js")
 
-            # Inline <script> route & subdomain extractor
-            inline_ep_re = re.compile(r"""['"`]((?:/api/v\d+/|/api/|/v1/|/v2/|/v3/|/graphql|/auth/|/admin/|/internal/)[a-zA-Z0-9_\-/\.?=&{}]+)['"`]""")
-            for isc in soup.find_all("script", src=False):
-                stxt = isc.string or isc.get_text() or ""
-                if len(stxt) > 15:
-                    for iep in inline_ep_re.findall(stxt[:60000]):
-                        self._record_discovered_url(project_id, iep, base_url, scope, "inline_script")
+        inline_ep_re = re.compile(r"""['"`]((?:/api/v\d+/|/api/|/v1/|/v2/|/v3/|/graphql|/auth/|/admin/|/internal/)[a-zA-Z0-9_\-/\.?=&{}]+)['"`]""")
+        for isc in soup.find_all("script", src=False):
+            stxt = isc.string or isc.get_text() or ""
+            if len(stxt) > 15:
+                for iep in inline_ep_re.findall(stxt[:60000]):
+                    self._record_discovered_url(project_id, iep, page_url, scope, "inline_script")
+        return same_host_links
+
+    def _crawl_same_host_bfs(
+        self,
+        project_id: int,
+        base_url: str,
+        seed_links: list[str],
+        domain: str,
+        scope: ScopeGuard,
+        live_js_list: list[str],
+        seen_comment_hosts: set[str],
+        log_fn,
+        max_pages: int = 18,
+        max_budget_sec: float = 11.0,
+    ) -> int:
+        if not seed_links or project_id in self.abort_flags:
+            return 0
+        base_p = urllib.parse.urlparse(base_url)
+        base_host = (base_p.hostname or "").lower()
+        base_port = base_p.port
+        norm_root = f"{base_p.scheme}://{base_p.netloc}{base_p.path.rstrip('/') or '/'}"
+        visited: set[str] = {norm_root, base_url.rstrip("/")}
+        prefix_counts: dict[str, int] = {}
+        hv_kw = (
+            "login", "signin", "auth", "sso", "oauth", "admin", "panel", "portal", "cabinet",
+            "dashboard", "register", "signup", "reset", "forgot", "password", "profile", "account",
+            "settings", "upload", "import", "export", "graphql", "api", "swagger", "search",
+            "query", "feedback", "contact", "order", "pay", "checkout",
+        )
+
+        def _score_link(u: str) -> int:
+            ul = u.lower()
+            if any(k in ul for k in hv_kw):
+                return 100
+            if "?" in ul:
+                return 80
+            segs = [s for s in urllib.parse.urlparse(u).path.split("/") if s]
+            if len(segs) <= 2 and all(len(s) <= 24 for s in segs):
+                return 55
+            return 15
 
 
-        wb_url = f"http://web.archive.org/cdx/search/cdx?url={domain}/*&output=json&fl=original&collapse=urlkey&limit=60"
+        cal_len = -1
         try:
-            r = self.session.get(wb_url, timeout=6)
-            if r.status_code == 200:
-                rows = r.json()
-                for row in rows[1:]:
-                    if row:
-                        u = self._record_discovered_url(project_id, row[0], base_url, scope, "wayback")
-                        if u and u.endswith(".js") and u not in live_js_list:
-                            js_urls.add(u)
-                log_fn(f"  [+] Wayback Archive: {max(0, len(rows)-1)} ta tarixiy URL olindi.")
+            rc = self.session.get(urllib.parse.urljoin(base_url, "/spectre-bfs-nonexistent-99182"), timeout=3.0, verify=False, allow_redirects=False)
+            if rc.status_code == 200:
+                cal_len = len(rc.text)
         except Exception:
             pass
+
+        t0 = time.monotonic()
+        crawled_pages = 0
+        frontier = list(dict.fromkeys(seed_links))
+
+        for _depth in (1, 2):
+            if not frontier or crawled_pages >= max_pages or (time.monotonic() - t0) >= max_budget_sec:
+                break
+            batch: list[str] = []
+            for cand in sorted(frontier, key=lambda x: (-_score_link(x), len(x))):
+                if len(batch) >= (max_pages - crawled_pages):
+                    break
+                pu = urllib.parse.urlparse(cand)
+                norm_k = f"{pu.scheme}://{pu.netloc}{pu.path.rstrip('/') or '/'}" + (f"?{pu.query}" if pu.query else "")
+                if norm_k in visited:
+                    continue
+                segs = [s for s in pu.path.split("/") if s]
+                pref = segs[0].lower() if len(segs) >= 2 else ""
+                sc_v = _score_link(cand)
+                if pref and sc_v < 100 and prefix_counts.get(pref, 0) >= 2:
+                    continue
+                visited.add(norm_k)
+                if pref and sc_v < 100:
+                    prefix_counts[pref] = prefix_counts.get(pref, 0) + 1
+                batch.append(cand)
+            if not batch:
+                break
+
+            fetched_htmls: list[tuple[str, str]] = []
+            redir_next: list[str] = []
+
+            def _fetch_bfs_page(u_target: str) -> tuple[str, str, str]:
+                try:
+                    rp = self.session.get(u_target, timeout=(3.0, 4.5), verify=False, allow_redirects=False)
+                    if rp.status_code in (301, 302, 303, 307, 308) and rp.headers.get("Location"):
+                        loc_u = urllib.parse.urljoin(u_target, rp.headers["Location"].strip()).split("#")[0]
+                        lp = urllib.parse.urlparse(loc_u)
+                        if lp.scheme in ("http", "https") and (lp.hostname or "").lower() == base_host and lp.port == base_port:
+                            return (u_target, "", loc_u)
+                        return (u_target, "", "")
+                    ctype = rp.headers.get("Content-Type", "").lower()
+                    if rp.status_code == 200 and len(rp.text) >= 64 and ("html" in ctype or "<html" in rp.text[:400].lower()):
+                        if cal_len > 0 and abs(len(rp.text) - cal_len) < max(80, int(cal_len * 0.06)):
+                            return (u_target, "", "")
+                        return (u_target, rp.text[:80000], "")
+                except Exception:
+                    pass
+                return (u_target, "", "")
+
+            rem_budget = max(2.0, max_budget_sec - (time.monotonic() - t0))
+            ex_bfs = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+            futs_bfs = [ex_bfs.submit(_fetch_bfs_page, bu) for bu in batch]
+            done_bfs, _ = concurrent.futures.wait(futs_bfs, timeout=min(7.0, rem_budget))
+            ex_bfs.shutdown(wait=False, cancel_futures=True)
+
+            for fb in done_bfs:
+                try:
+                    u_ok, body_ok, r_loc = fb.result()
+                    if body_ok:
+                        fetched_htmls.append((u_ok, body_ok))
+                    elif r_loc:
+                        redir_next.append(r_loc)
+                except Exception:
+                    pass
+
+            next_frontier: list[str] = list(redir_next)
+            for p_u, p_html in fetched_htmls:
+                crawled_pages += 1
+                with self._cache_lock:
+                    next_links = self._extract_html_surface(project_id, p_u, p_html, domain, scope, live_js_list, seen_comment_hosts)
+                next_frontier.extend(next_links)
+            frontier = next_frontier
+
+        if crawled_pages > 0:
+            log_fn(f"  [🕷️ BFS Crawler] {base_url} -> Depth-2 ichki sahifalar o'rganildi: {crawled_pages} sahifa, jami {len(live_js_list)} JS paket.")
+        return crawled_pages
+
+    def _stage4_html_and_wayback(self, project_id: int, base_url: str, html_body: str, domain: str, scope: ScopeGuard, log_fn) -> list[str]:
+        js_urls: set[str] = set()
+        live_js_list: list[str] = []
+        seen_comment_hosts: set[str] = set()
+        if html_body:
+            seed_links = self._extract_html_surface(project_id, base_url, html_body, domain, scope, live_js_list, seen_comment_hosts)
+            if seed_links:
+                self._crawl_same_host_bfs(project_id, base_url, seed_links, domain, scope, live_js_list, seen_comment_hosts, log_fn)
+
+        if domain not in ("127.0.0.1", "localhost") and not domain.endswith(".local"):
+            wb_url = f"http://web.archive.org/cdx/search/cdx?url={domain}/*&output=json&fl=original&collapse=urlkey&limit=60"
+            try:
+                r = self.session.get(wb_url, timeout=6)
+                if r.status_code == 200:
+                    rows = r.json()
+                    for row in rows[1:]:
+                        if row:
+                            u = self._record_discovered_url(project_id, row[0], base_url, scope, "wayback")
+                            if u and u.endswith(".js") and u not in live_js_list:
+                                js_urls.add(u)
+                    log_fn(f"  [+] Wayback Archive: {max(0, len(rows)-1)} ta tarixiy URL olindi.")
+            except Exception:
+                pass
         return live_js_list + sorted(js_urls)
 
     def _stage5_openapi_discovery(self, project_id: int, base_url: str, scope: ScopeGuard, log_fn):
@@ -1283,8 +1450,15 @@ class ReconSuperAgent:
         ep_regex = re.compile(r"""(?:['"`]|\$\{[^}]{1,35}\})((?:/api/v\d+/|/api/|/v1/|/v2/|/v3/|/graphql|/auth/|/admin/|/internal/|/live/|/stream/|/news/|/tv/|/radio/|/channels/)[a-zA-Z0-9_\-/\.?=&${}:]+)""")
         full_url_regex = re.compile(r"""['"`]((?:https?|wss?)://[a-zA-Z0-9.\-_]+(?::\d+)?(?:/[a-zA-Z0-9_\-/\.?=&%${}]*)?)['"`]""")
         param_regex = re.compile(r"""(?:params|body|query|data)\s*[:=]\s*\{([^}]{1,250})\}|[?&]([a-zA-Z_][a-zA-Z0-9_]{1,25})=""")
-        sink_regex = re.compile(r"""(innerHTML|outerHTML|document\.write|eval\s*\(|setTimeout\s*\(\s*['"]|postMessage\s*\(|dangerouslySetInnerHTML)""")
-        secret_regex = re.compile(r"""(?i)((?:api[_-]?key|access[_-]?token|secret[_-]?key|base_?url|vite_[a-z0-9_]+|authorization)\s*[:=]\s*['"][^'"]{4,100}['"]|bearer\s+[a-zA-Z0-9_\-\.]{12,})""")
+        # Dynamic DOM Sink Matcher: ignores static string assignments like `el.innerHTML = "<b>OK</b>"` or `""`
+        dyn_dom_assign_re = re.compile(
+            r"""\.(innerHTML|outerHTML)\s*\+?=\s*(?!(?:""|''|``|"[^"$+{\n]*"|'[^'$+{\n]*')\s*(?:[;,\)\}\n]|$))"""
+        )
+        other_sink_re = re.compile(
+            r"""(document\.write\s*\(\s*(?!['"][^'"{$+]*['"]\s*\))|eval\s*\(\s*(?!['"][^'"{$+]*['"]\s*\))|setTimeout\s*\(\s*['"]|dangerouslySetInnerHTML\s*=\s*\{\s*\{\s*__html\s*:\s*(?!['"][^'"{$+]*['"]))"""
+        )
+        postmsg_re = re.compile(r"""\bpostMessage\s*\(""")
+        secret_regex = re.compile(r"""(?i)((?:api[_-]?key|access[_-]?token|secret[_-]?key|vite_(?:api|secret|key|token)[a-z0-9_]*|authorization)\s*[:=]\s*['"][^'"]{8,100}['"]|bearer\s+[a-zA-Z0-9_\-\.]{16,})""")
 
 
         clean_js_urls = []
@@ -1321,36 +1495,39 @@ class ReconSuperAgent:
                     (js_cache_dir / safe_jname).write_text(content, encoding="utf-8", errors="ignore")
                 except Exception:
                     pass
-                for ch in chunk_regex.findall(content):
-                    ch_full = urllib.parse.urljoin(base_url, "/" + ch.lstrip("/")).replace("/assets/assets/", "/assets/")
-                    if ch_full not in clean_js_urls:
-                        discovered_chunks.add(ch_full)
+                from core.native_bridge import JS_TOK_CHUNK, JS_TOK_ROUTE, JS_TOK_SECRET, JS_TOK_SINK, fast_js_token_mask
+                tok_mask = fast_js_token_mask(content)
+
+                if tok_mask & JS_TOK_CHUNK:
+                    for ch in chunk_regex.findall(content):
+                        ch_full = urllib.parse.urljoin(base_url, "/" + ch.lstrip("/")).replace("/assets/assets/", "/assets/")
+                        if ch_full not in clean_js_urls:
+                            discovered_chunks.add(ch_full)
 
                 method_map: dict[str, str] = {}
-                for m_verb, m_path in method_ep_regex.findall(content):
-                    clean_mp = re.sub(r"\$\{[^}]+\}", "{param}", m_path).rstrip(".,;)'\"`")
-                    if clean_mp.startswith("/") or clean_mp.startswith("http"):
-                        method_map[clean_mp] = m_verb.upper()
-
-
-                raw_eps = ep_regex.findall(content)
                 eps = set()
-                for ep in raw_eps:
-                    cleaned_ep = re.sub(r"\$\{[^}]*\}?", "{param}", ep).rstrip(".,;)'\"`${")
-                    if len(cleaned_ep) > 4 and not any(cleaned_ep.endswith(ext) for ext in (".webp", ".png", ".jpg", ".svg", ".css", "/api/player.js")):
-                        eps.add(cleaned_ep)
+                if tok_mask & JS_TOK_ROUTE:
+                    for m_verb, m_path in method_ep_regex.findall(content):
+                        clean_mp = re.sub(r"\$\{[^}]+\}", "{param}", m_path).rstrip(".,;)'\"`")
+                        if clean_mp.startswith("/") or clean_mp.startswith("http"):
+                            method_map[clean_mp] = m_verb.upper()
 
-                full_urls = set(full_url_regex.findall(content))
-                for fu in full_urls:
-                    fu_clean = re.sub(r"\$\{[^}]*\}?", "{param}", fu).rstrip(".,;)'\"`${")
-                    if any(fu_clean.lower().endswith(ext) for ext in (".webp", ".png", ".jpg", ".svg", ".css", ".ico")):
-                        continue
-                    ok, _ = scope.is_in_scope(fu_clean)
-                    if ok:
-                        host = ScopeGuard.extract_host(fu_clean)
-                        self.db.upsert_domain(project_id, host, source="js_bundle")
-                        eps.add(fu_clean)
+                    raw_eps = ep_regex.findall(content)
+                    for ep in raw_eps:
+                        cleaned_ep = re.sub(r"\$\{[^}]*\}?", "{param}", ep).rstrip(".,;)'\"`${")
+                        if len(cleaned_ep) > 4 and not any(cleaned_ep.endswith(ext) for ext in (".webp", ".png", ".jpg", ".svg", ".css", "/api/player.js")):
+                            eps.add(cleaned_ep)
 
+                    full_urls = set(full_url_regex.findall(content))
+                    for fu in full_urls:
+                        fu_clean = re.sub(r"\$\{[^}]*\}?", "{param}", fu).rstrip(".,;)'\"`${")
+                        if any(fu_clean.lower().endswith(ext) for ext in (".webp", ".png", ".jpg", ".svg", ".css", ".ico")):
+                            continue
+                        ok, _ = scope.is_in_scope(fu_clean)
+                        if ok:
+                            host = ScopeGuard.extract_host(fu_clean)
+                            self.db.upsert_domain(project_id, host, source="js_bundle")
+                            eps.add(fu_clean)
 
                 extracted_params = set()
                 for m in param_regex.finditer(content):
@@ -1366,19 +1543,31 @@ class ReconSuperAgent:
                     vk in safe_jname.lower() or f"/{vk}" in js_url.lower()
                     for vk in ("require.min", "polyfill", "jquery", "bootstrap", "popper", "modernizr", "lodash", "swiper", "vendor", "uwnd.min", "/.s/src/", "video.min", "videojs", "hls.min", "playerjs")
                 )
-                sinks = [] if is_vendor_js else sorted(set(sink_regex.findall(content)))
+                if is_vendor_js or not (tok_mask & JS_TOK_SINK):
+                    sinks = []
+                else:
+                    found_sk: set[str] = set()
+                    for m_da in dyn_dom_assign_re.findall(content):
+                        found_sk.add(m_da)
+                    for m_os in other_sink_re.findall(content):
+                        lbl_s = m_os.split("(")[0].split("=")[0].strip()
+                        if lbl_s:
+                            found_sk.add(lbl_s if "postMessage" not in lbl_s else "postMessage(")
+                    if postmsg_re.search(content):
+                        found_sk.add("postMessage(")
+                    sinks = sorted(found_sk)
                 placeholder_tokens = (
                     "no_base_url", "undefined", "null", "localhost", "127.0.0.1", "example.com",
                     "custom-authorized", "changeme", "placeholder", "dummy", '""', "''",
                 )
-                raw_sec_matches = [] if is_vendor_js else secret_regex.findall(content)
+                raw_sec_matches = [] if (is_vendor_js or not (tok_mask & JS_TOK_SECRET)) else secret_regex.findall(content)
                 secrets = []
                 for sm in raw_sec_matches:
                     sm_s = sm[:120]
                     if any(pt in sm_s.lower() for pt in placeholder_tokens):
                         continue
                     val_part = re.split(r"[:=]", sm_s, maxsplit=1)[-1].strip().strip("'\"` ")
-                    if len(val_part) < 12 and not val_part.startswith(("http://", "https://", "/")):
+                    if len(val_part) < 12 or val_part.lower().startswith(("http://", "https://", "/", "viber://", "tg://", "mailto:")):
                         continue
                     secrets.append(sm_s)
                 secrets = sorted(set(secrets))
@@ -1651,13 +1840,13 @@ class ReconSuperAgent:
                     if dom != primary_host and t_sig == "telegram web" and "telegram" not in apex_domain.lower() and 10000 <= len(html) <= 25000:
                         if ("reality_decoy", "telegram_web") not in scanned_app_sigs:
                             scanned_app_sigs[("reality_decoy", "telegram_web")] = dom
-                            self.db.upsert_finding(
-                                project_id, "SPECTRE-Agent1 (Infra-Intel)", f"VPN / Reality Camouflage Proxy Decoy Detected ({dom})",
-                                "Infrastructure Topology Intelligence", "Info", 0.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
-                                "CWE-200", "A05:2021 - Security Misconfiguration", url,
-                                f"Subdomain serves proxied 'Telegram Web' decoy ({len(html)} bytes) on non-Telegram domain.",
-                                "Xost Xray/VLESS Reality kabi TLS maskirovka (decoy reverse-proxy) sifatida web.telegram.org sahifasini qaytarmoqda.",
-                                "Tashqi proksi tugunlarini asosiy korporativ domen zonasidan alohida domenga ajrating.",
+                            self.db.log_task(
+                                project_id,
+                                "SPECTRE-Intel",
+                                "reality_decoy",
+                                "COMPLETED",
+                                url,
+                                f"Reality Camouflage Decoy ({dom}): 'Telegram Web' ({len(html)}B)",
                             )
                         log_fn(f"  [⚡ Decoy Proxy Skip] {dom} ({url}) -> 'Telegram Web' TLS maskirovka tuguni, begona JS skan o'tkazib yuborildi.")
                         continue
@@ -1674,17 +1863,18 @@ class ReconSuperAgent:
                     host_t0 = time.monotonic()
                     is_high_val = (_dom_priority(dom) >= 60) and (deep_scanned_count <= 8)
                     collected_html.append(html[:50000])
-                    js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)[:35]
+                    from core.plugin_runner import ScanPhase, run_plugin_safely
+                    js_list = (run_plugin_safely(self.db, project_id, "r1_stage4_html_bfs", self._stage4_html_and_wayback, project_id, url, html, dom, scope, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO) or [])[:35]
                     cli_orchestrator.run_deep_web_and_fuzz_tools(
                         self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn, phase="crawl_only"
                     )
-                    self._stage6_js_analyzer(project_id, js_list[:35], url, scope, log_fn)
+                    run_plugin_safely(self.db, project_id, "r1_stage6_js_deconstruct", self._stage6_js_analyzer, project_id, js_list[:35], url, scope, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
                     if is_high_val:
-                        self._stage5_openapi_discovery(project_id, url, scope, log_fn)
-                        active_web_auditor.run_active_web_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                        protocol_and_client.run_protocol_client_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                        schema_and_iam.run_schema_iam_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                        runtime_and_network.run_runtime_network_suite(self, project_id, apex_domain, primary_host, url, js_list, log_fn)
+                        run_plugin_safely(self.db, project_id, "r1_stage5_openapi", self._stage5_openapi_discovery, project_id, url, scope, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+                        run_plugin_safely(self.db, project_id, "r1_active_web_suite", active_web_auditor.run_active_web_suite, self, project_id, apex_domain, url, js_list, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+                        run_plugin_safely(self.db, project_id, "r1_protocol_suite", protocol_and_client.run_protocol_client_suite, self, project_id, apex_domain, url, js_list, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+                        run_plugin_safely(self.db, project_id, "r1_schema_iam_suite", schema_and_iam.run_schema_iam_suite, self, project_id, apex_domain, url, js_list, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+                        run_plugin_safely(self.db, project_id, "r1_runtime_suite", runtime_and_network.run_runtime_network_suite, self, project_id, apex_domain, primary_host, url, js_list, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
                     if dom == primary_host or (time.monotonic() - host_t0) < 90.0:
                         cli_orchestrator.run_deep_web_and_fuzz_tools(
                             self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn, phase="fuzz_only"
@@ -1693,20 +1883,21 @@ class ReconSuperAgent:
                         log_fn(f"  [⚡ Time-Budget Guard] {dom} da tahlil 90s dan oshdi — ortiqcha fuzzing o'tkazib yuborildi.")
 
             _prog(0.90, "Stage 6/6: Adaptive Brain, SPA Manifests, Secrets, OSINT & DOM Clustering...")
-            origin_and_spa.run_adaptive_brain_strategy(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-            origin_and_spa.deconstruct_spa_manifests_and_ssr_state(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-            origin_and_spa.hunt_deep_secrets_and_uz_ecosystem(self.db, self.session, project_id, log_fn)
-            origin_and_spa.mine_well_known_and_mobile_links(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-            origin_and_spa.trace_redirect_chains_and_oauth_flows(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-            origin_and_spa.extract_document_metadata_osint(self.db, self.session, project_id, apex_domain, log_fn)
-            surface_prober.probe_api_versions_and_ghost_endpoints(self.db, project_id, log_fn, self.session)
-            surface_prober.classify_auth_portals_and_schema(self.db, project_id, log_fn)
-            surface_prober.analyze_badsecrets_and_cookies(self.db, project_id, apex_domain, log_fn)
-            cli_orchestrator.audit_ssl_certificates_deep(self.db, project_id, log_fn)
-            surface_prober.harvest_emails_and_osint(self.db, project_id, apex_domain, collected_html, log_fn)
-            surface_prober.build_custom_wordlist_and_params(self.db, project_id, apex_domain, log_fn)
-            cli_orchestrator.run_deep_cloud_osint_and_vuln_tools(self, project_id, apex_domain, primary_host, active_ids, log_fn)
-            schema_and_iam.cluster_subdomains_by_dom_structure(self.db, self.session, project_id, log_fn)
+            from core.plugin_runner import ScanPhase, run_plugin_safely
+            run_plugin_safely(self.db, project_id, "r1_adaptive_brain", origin_and_spa.run_adaptive_brain_strategy, self.db, self.session, project_id, scope, log_fn, self._record_discovered_url, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+            run_plugin_safely(self.db, project_id, "r1_spa_manifests", origin_and_spa.deconstruct_spa_manifests_and_ssr_state, self.db, self.session, project_id, scope, log_fn, self._record_discovered_url, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+            run_plugin_safely(self.db, project_id, "r1_deep_secrets", origin_and_spa.hunt_deep_secrets_and_uz_ecosystem, self.db, self.session, project_id, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+            run_plugin_safely(self.db, project_id, "r1_well_known", origin_and_spa.mine_well_known_and_mobile_links, self.db, self.session, project_id, scope, log_fn, self._record_discovered_url, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+            run_plugin_safely(self.db, project_id, "r1_oauth_redirects", origin_and_spa.trace_redirect_chains_and_oauth_flows, self.db, self.session, project_id, scope, log_fn, self._record_discovered_url, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+            run_plugin_safely(self.db, project_id, "r1_doc_metadata", origin_and_spa.extract_document_metadata_osint, self.db, self.session, project_id, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+            run_plugin_safely(self.db, project_id, "r1_ghost_apis", surface_prober.probe_api_versions_and_ghost_endpoints, self.db, project_id, log_fn, self.session, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+            run_plugin_safely(self.db, project_id, "r1_auth_portals", surface_prober.classify_auth_portals_and_schema, self.db, project_id, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+            run_plugin_safely(self.db, project_id, "r1_badsecrets", surface_prober.analyze_badsecrets_and_cookies, self.db, project_id, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+            run_plugin_safely(self.db, project_id, "r1_ssl_deep", cli_orchestrator.audit_ssl_certificates_deep, self.db, project_id, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+            run_plugin_safely(self.db, project_id, "r1_osint_emails", surface_prober.harvest_emails_and_osint, self.db, project_id, apex_domain, collected_html, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_END)
+            run_plugin_safely(self.db, project_id, "r1_custom_wordlist", surface_prober.build_custom_wordlist_and_params, self.db, project_id, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_END)
+            run_plugin_safely(self.db, project_id, "r1_cloud_vuln_cli", cli_orchestrator.run_deep_cloud_osint_and_vuln_tools, self, project_id, apex_domain, primary_host, active_ids, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+            run_plugin_safely(self.db, project_id, "r1_dom_clustering", schema_and_iam.cluster_subdomains_by_dom_structure, self.db, self.session, project_id, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_END)
 
         surface_prober.log_incremental_diff(before_snap, self.db, project_id, log_fn)
         _prog(1.0, "✅ Recon Completed!")
@@ -1762,28 +1953,30 @@ class ReconSuperAgent:
             url = f"{scheme}://{target_host}"
             html = self._stage3_http_probe(project_id, url, tls_info, scope, log_fn)
             if html:
-                js_list = self._stage4_html_and_wayback(project_id, url, html, target_host, scope, log_fn)
+                from core.plugin_runner import ScanPhase, run_plugin_safely
+                js_list = run_plugin_safely(self.db, project_id, "r1_single_stage4_bfs", self._stage4_html_and_wayback, project_id, url, html, target_host, scope, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO) or []
                 cli_orchestrator.run_deep_web_and_fuzz_tools(
                     self, project_id, url, target_host, target_host, True, scope, active_ids, js_list, log_fn, phase="crawl_only"
                 )
-                self._stage6_js_analyzer(project_id, js_list, url, scope, log_fn)
-                self._stage5_openapi_discovery(project_id, url, scope, log_fn)
-                active_web_auditor.run_active_web_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                protocol_and_client.run_protocol_client_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                schema_and_iam.run_schema_iam_suite(self, project_id, apex_domain, url, js_list, log_fn)
-                runtime_and_network.run_runtime_network_suite(self, project_id, apex_domain, target_host, url, js_list, log_fn)
+                run_plugin_safely(self.db, project_id, "r1_single_stage6_js", self._stage6_js_analyzer, project_id, js_list, url, scope, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+                run_plugin_safely(self.db, project_id, "r1_single_openapi", self._stage5_openapi_discovery, project_id, url, scope, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+                run_plugin_safely(self.db, project_id, "r1_single_active_web", active_web_auditor.run_active_web_suite, self, project_id, apex_domain, url, js_list, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+                run_plugin_safely(self.db, project_id, "r1_single_protocol", protocol_and_client.run_protocol_client_suite, self, project_id, apex_domain, url, js_list, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+                run_plugin_safely(self.db, project_id, "r1_single_schema_iam", schema_and_iam.run_schema_iam_suite, self, project_id, apex_domain, url, js_list, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+                run_plugin_safely(self.db, project_id, "r1_single_runtime", runtime_and_network.run_runtime_network_suite, self, project_id, apex_domain, target_host, url, js_list, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
                 cli_orchestrator.run_deep_web_and_fuzz_tools(
                     self, project_id, url, target_host, target_host, True, scope, active_ids, js_list, log_fn, phase="fuzz_only"
                 )
                 break
 
         _prog(0.85, f"Single-Host Adaptive Brain, SPA Manifest & SecretHunter: {target_host}...")
-        origin_and_spa.run_adaptive_brain_strategy(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-        origin_and_spa.deconstruct_spa_manifests_and_ssr_state(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-        origin_and_spa.hunt_deep_secrets_and_uz_ecosystem(self.db, self.session, project_id, log_fn)
-        origin_and_spa.mine_well_known_and_mobile_links(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-        origin_and_spa.trace_redirect_chains_and_oauth_flows(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
-        cli_orchestrator.run_deep_cloud_osint_and_vuln_tools(self, project_id, apex_domain, target_host, active_ids, log_fn)
+        from core.plugin_runner import ScanPhase, run_plugin_safely
+        run_plugin_safely(self.db, project_id, "r1_single_adaptive_brain", origin_and_spa.run_adaptive_brain_strategy, self.db, self.session, project_id, scope, log_fn, self._record_discovered_url, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+        run_plugin_safely(self.db, project_id, "r1_single_spa_manifests", origin_and_spa.deconstruct_spa_manifests_and_ssr_state, self.db, self.session, project_id, scope, log_fn, self._record_discovered_url, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+        run_plugin_safely(self.db, project_id, "r1_single_deep_secrets", origin_and_spa.hunt_deep_secrets_and_uz_ecosystem, self.db, self.session, project_id, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+        run_plugin_safely(self.db, project_id, "r1_single_well_known", origin_and_spa.mine_well_known_and_mobile_links, self.db, self.session, project_id, scope, log_fn, self._record_discovered_url, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+        run_plugin_safely(self.db, project_id, "r1_single_oauth_redirects", origin_and_spa.trace_redirect_chains_and_oauth_flows, self.db, self.session, project_id, scope, log_fn, self._record_discovered_url, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+        run_plugin_safely(self.db, project_id, "r1_single_cloud_vuln_cli", cli_orchestrator.run_deep_cloud_osint_and_vuln_tools, self, project_id, apex_domain, target_host, active_ids, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
         _prog(1.0, f"✅ Deep Scan Completed: {target_host}")
         log_fn(f"═══ ✅ SINGLE-HOST DEEP RECON YAKUNLANDI: {target_host} ═══")
 

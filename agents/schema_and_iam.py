@@ -144,14 +144,13 @@ def resolve_openapi_schema_refs(db, session, project_id: int, base_url: str, log
                     "Ushbu endpointlarda server tomonida real autentifikatsiya mavjudligini tekshiring va OpenAPI `securitySchemes` ni to'ldiring.",
                 )
             if synthesized:
-                db.upsert_finding(
-                    project_id, "SPECTRE-v11 (OpenAPI-Synthesizer)",
-                    f"OpenAPI Schema & DTO Body Properties Synthesized ({synthesized} operations)",
-                    "API Schema Intelligence", "Info", 0.0,
-                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-                    u, f"Synthesized Operations: {synthesized} | DTO Properties ({len(all_dto_fields)}): {', '.join(sorted(all_dto_fields)[:18])}",
-                    "OpenAPI/Swagger sxemasidagi barcha $ref model bog'lamalari yechilib, POST/PUT JSON maydonlari tiklandi.",
-                    "Production muhitida Swagger/OpenAPI hujjatlariga kirishni ichki tarmoq bilan cheklang.",
+                db.log_task(
+                    project_id,
+                    "SPECTRE-Intel",
+                    "openapi_dto_synth",
+                    "COMPLETED",
+                    u,
+                    f"OpenAPI Synthesized: {synthesized} ops | DTO fields ({len(all_dto_fields)}): {', '.join(sorted(all_dto_fields)[:15])}",
                 )
                 log_fn(f"  [🧬 OPENAPI SYNTH] {u} -> {synthesized} ta operatsiya va {len(all_dto_fields)} ta DTO maydoni tiklandi!")
                 break
@@ -200,14 +199,13 @@ def cluster_subdomains_by_dom_structure(db, session, project_id: int, log_fn) ->
         summary = f"Total Clusters: {len(clusters)} | Unique Apps ({len(unique_apps)}): {', '.join(unique_apps[:6])}"
         if cloned_groups:
             summary += f" | Shared Templates: {' ; '.join(cloned_groups[:4])}"
-        db.upsert_finding(
-            project_id, "SPECTRE-v11 (DOM-Clusterer)",
-            f"Subdomain Structural DOM Clustering ({len(clusters)} distinct application templates)",
-            "Attack Surface Prioritization", "Info", 0.0,
-            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-            f"Project #{project_id}", summary,
-            "HTML DOM teglar zanjiri (Structural SimHash) asosida klon subdomenlar guruhlandi va noyob veb-ilovalar ajratildi.",
-            "Birinchi navbatda noyob (One-of-a-Kind) arxitekturaga ega subdomenlarni chuqur auditdan o'tkazing.",
+        db.log_task(
+            project_id,
+            "SPECTRE-Intel",
+            "dom_clustering",
+            "COMPLETED",
+            f"project:{project_id}",
+            summary[:240],
         )
         log_fn(f"  [🛰️ DOM CLUSTER] {len(services[:25])} ta servis {len(clusters)} ta noyob klasterga ajratildi!")
     return clusters
@@ -301,15 +299,7 @@ def mine_i18n_translation_dictionaries(db, session, project_id: int, base_url: s
                 _walk_keys(data)
                 if discovered_keys:
                     k_list = sorted(discovered_keys)
-                    db.upsert_finding(
-                        project_id, "SPECTRE-v11 (i18n-Miner)",
-                        f"Privileged Application Capabilities in i18n Dictionary ({len(k_list)} keys)",
-                        "Application Feature Intelligence", "Info", 0.0,
-                        "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-                        u, f"Privileged i18n Keys ({len(k_list)}): {', '.join(k_list[:15])}",
-                        "Ochiq i18n tarjima faylidan tizimning yashirin ma'muriy funksiyalari va rollari ro'yxati aniqlandi.",
-                        "Maxfiy admin paneli tarjima lug'atlarini ommaviy frontend bundle'dan ajrating.",
-                    )
+                    db.log_task(project_id, "SPECTRE-Intel", "i18n_capabilities", "COMPLETED", u, f"Privileged i18n Keys ({len(k_list)}): {', '.join(k_list[:15])}")
                     log_fn(f"  [🌍 i18n MINER] {u} -> {len(k_list)} ta ichki funksiya/rol kaliti topildi!")
                     break
         except Exception:
@@ -387,18 +377,15 @@ def harvest_cors_preflight_capabilities(db, session, project_id: int, base_url: 
             pass
 
     if custom_headers:
-        from core.scope_guard import ScopeGuard
-        apex_asset = ScopeGuard.extract_apex_domain(urllib.parse.urlparse(base_url).hostname or base_url)
         ch_list = sorted(custom_headers)
         m_list = sorted(allowed_methods)
-        db.upsert_finding(
-            project_id, "SPECTRE-v11 (Preflight-Harvester)",
-            f"Custom Backend Headers Discovered via OPTIONS Preflight ({len(ch_list)} headers)",
-            "API Header Intelligence", "Info", 0.0,
-            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-            apex_asset, f"Sample Host: {base_url} | Custom Allowed Headers: {', '.join(ch_list[:15])} | Allowed Methods: {', '.join(m_list)}",
-            "CORS OPTIONS preflight javobidan backend qabul qiladigan maxsus HTTP sarlavhalar (custom headers) ro'yxati olindi.",
-            "Access-Control-Allow-Headers ro'yxatida faqat tashqi mijozlar uchun zarur sarlavhalarni qoldiring.",
+        db.log_task(
+            project_id,
+            "SPECTRE-Intel",
+            "cors_preflight_headers",
+            "COMPLETED",
+            base_url,
+            f"Custom Allowed Headers ({len(ch_list)}): {', '.join(ch_list[:12])} | Methods: {', '.join(m_list)}",
         )
         log_fn(f"  [🔗 PREFLIGHT HEADERS] {base_url} -> Custom Headers: {', '.join(ch_list[:8])}")
     return {"custom_headers": sorted(custom_headers), "methods": sorted(allowed_methods)}
@@ -428,20 +415,21 @@ def discover_related_sister_domains(db, project_id: int, apex_domain: str, log_f
 
     if sister_apexes:
         s_list = sorted(sister_apexes)
-        db.upsert_finding(
-            project_id, "SPECTRE-v11 (Scope-Recommender)",
-            f"Discovered Related Organization / Sister Domains ({len(s_list)} domains)",
-            "Attack Surface Scope Expansion", "Info", 0.0,
-            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-            apex_domain, f"Related Apex Domains on Shared Subnet/TLS: {', '.join(s_list[:12])}",
-            "PTR yozuvlari va TLS sertifikatlaridan shu infratuzilmada joylashgan ikkinchi darajali asosiy domenlar (Sister Domains) aniqlandi.",
-            "Agar ushbu domenlar ham tashkilotga tegishli bo'lsa, ularni In-Scope ro'yxatiga qo'shib alohida tekshiring.",
+        db.log_task(
+            project_id,
+            "SPECTRE-Intel",
+            "sister_domains",
+            "COMPLETED",
+            apex_domain,
+            f"Related Apex Domains ({len(s_list)}): {', '.join(s_list[:12])}",
         )
         log_fn(f"  [🧭 SISTER DOMAINS] Bog'liq tashkilot domenlari: {', '.join(s_list[:8])}")
     return sorted(sister_apexes)
 
 
 def run_schema_iam_suite(agent, project_id: int, apex_domain: str, base_url: str, js_urls: list[str], log_fn) -> None:
+    from core.plugin_runner import ScanPhase, run_plugin_safely
+
     log_fn(f"  [Schema-IAM-Suite] {base_url} ustida 8 ta IAM, OpenAPI va klaster moduli ishga tushirildi...")
     db = agent.db
     session = agent.session
@@ -452,15 +440,15 @@ def run_schema_iam_suite(agent, project_id: int, apex_domain: str, base_url: str
         ran_apex = agent._ran_apex_suites
     proj_done = ran_apex.setdefault(project_id, set())
 
-    map_iam_and_keycloak_realms(db, session, project_id, base_url, log_fn)
-    resolve_openapi_schema_refs(db, session, project_id, base_url, log_fn)
-    predict_and_fetch_webpack_chunks(db, session, project_id, base_url, js_urls, log_fn)
-    mine_i18n_translation_dictionaries(db, session, project_id, base_url, log_fn)
-    fingerprint_load_balancer_and_etag(db, session, project_id, base_url, log_fn)
-    harvest_cors_preflight_capabilities(db, session, project_id, base_url, log_fn)
+    run_plugin_safely(db, project_id, "si_iam_keycloak", map_iam_and_keycloak_realms, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+    run_plugin_safely(db, project_id, "si_openapi_refs", resolve_openapi_schema_refs, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "si_webpack_chunks", predict_and_fetch_webpack_chunks, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "si_i18n_miner", mine_i18n_translation_dictionaries, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "si_lb_etag", fingerprint_load_balancer_and_etag, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "si_cors_preflight", harvest_cors_preflight_capabilities, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
     if "sister_domains" not in proj_done:
         proj_done.add("sister_domains")
-        discover_related_sister_domains(db, project_id, apex_domain, log_fn)
+        run_plugin_safely(db, project_id, "si_sister_domains", discover_related_sister_domains, db, project_id, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_END)
     db.log_task(project_id, "SPECTRE-SchemaIAM", "schema_iam_suite", "COMPLETED", f"schema_suite {base_url}", f"Executed 8 schema/IAM modules on {base_url}")
 
 

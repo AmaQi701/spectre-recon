@@ -302,7 +302,11 @@ def run_active_protocol_verifiers(
     non_cdn_dom_ip: dict[str, str] = {}
     ip_to_primary_dom: dict[str, str] = {}
     cdn_ips: set[str] = set()
-    for d in (domains or []):
+    sorted_doms = sorted(
+        domains or [],
+        key=lambda x: (1 if str(x.get("domain") or "").lower().startswith("www.") else 0, len(str(x.get("domain") or "")), str(x.get("domain") or "")),
+    )
+    for d in sorted_doms:
         dom = str(d.get("domain") or "").strip().lower()
         dip = str(d.get("ip") or "").strip()
         if dom and dip:
@@ -328,7 +332,10 @@ def run_active_protocol_verifiers(
         if not dedup_k or (dedup_k, pnum) in seen_targets:
             continue
         seen_targets.add((dedup_k, pnum))
-        disp_h = ip_to_primary_dom.get(dedup_k, raw_h or dedup_k)
+        if raw_h and raw_h in non_cdn_dom_ip and not raw_h.startswith("www."):
+            disp_h = raw_h
+        else:
+            disp_h = ip_to_primary_dom.get(dedup_k, raw_h or dedup_k)
         tasks.append((pt_ip, disp_h, pnum, str(pt.get("version") or "").strip()))
 
     if not tasks:

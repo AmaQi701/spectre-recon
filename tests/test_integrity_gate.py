@@ -381,6 +381,40 @@ def run_integrity_gate() -> list[str]:
         if "CISA KEV" not in html_rep_txt or not any("SourceMap->API" in c["chain_title"] for c in db.get_project_bundle(pid_scale)["bug_chains"]):
             errors.append("[PHASE 8-10 REPORT KEV BADGE OR SOURCEMAP CHAIN BROKEN]")
 
+        # OP-3, OP-4 & OP-7 Gate: C++17 Multi-Token Byte Pre-Scanner, Bundle Cache & Consolidated Intel
+        from core.native_bridge import JS_TOK_CHUNK, JS_TOK_ROUTE, JS_TOK_SECRET, JS_TOK_SINK, JS_TOK_SOURCEMAP, fast_js_token_mask
+        if fast_js_token_mask("function sum(a, b) { return a + b; }") != 0:
+            errors.append("[NATIVE C++ JS TOKEN PRE-SCANNER FALSE BIT ON CLEAN CODE]")
+        full_mask = fast_js_token_mask(
+            "fetch('/api/v1/items'); el.innerHTML = v; const api_key='1234567890ab'; import('assets/lazy.js'); //# sourceMappingURL=x.js.map"
+        )
+        expected_mask = JS_TOK_ROUTE | JS_TOK_SINK | JS_TOK_SECRET | JS_TOK_CHUNK | JS_TOK_SOURCEMAP
+        if full_mask != expected_mask:
+            errors.append(f"[NATIVE C++ JS TOKEN PRE-SCANNER MISSED BITS] got={full_mask}, expected={expected_mask}")
+
+        db.log_task(pid_scale, "SPECTRE-Intel", "favicon_mmh3", "COMPLETED", "https://example.org", "Favicon MMH3 (-12345)")
+        dos_intel = surface_prober.build_target_dossier(db, pid_scale, "example.org")
+        rep_intel = tc_g.generate_reports(pid_scale)["markdown_preview"]
+        if "Favicon MMH3 (-12345)" not in dos_intel or "Favicon MMH3 (-12345)" not in rep_intel:
+            errors.append("[CONSOLIDATED SPECTRE-INTEL DOSSIER OR REPORT MISSING]")
+
+        # Live-Target #30 Calibration Gate: Out-of-scope JS isolation, DLE comment non-IDOR & www. port canonicalization
+        ext_js_g: list[str] = []
+        ra._extract_html_surface(
+            pid_scale,
+            "https://example.org/",
+            "<script src='https://yandex.ru/ads/system/context.js'></script><script src='/bundle.js'></script>",
+            "example.org",
+            ScopeGuard("example.org"),
+            ext_js_g,
+            set(),
+        )
+        if ext_js_g != ["https://example.org/bundle.js"]:
+            errors.append(f"[OUT-OF-SCOPE JS LEAKED INTO STAGE 6] {ext_js_g}")
+        _, c_tags = ra._classify_endpoint_risk("https://example.org/kino/55-film.html", ["comments", "post_id", "subaction"])
+        if "IDOR_Candidate" in c_tags:
+            errors.append("[DLE ARTICLE COMMENT FORM FALSELY FLAGGED AS IDOR]")
+
     return errors
 
 

@@ -253,4 +253,112 @@ int spectre_epoll_tcp_probe(
     return open_cnt;
 }
 
+static inline bool match_ci(const uint8_t* p, size_t rem, const char* lit, size_t n) {
+    if (rem < n) return false;
+    for (size_t k = 0; k < n; ++k) {
+        uint8_t c = p[k];
+        if (c >= 'A' && c <= 'Z') c += 32;
+        if (c != static_cast<uint8_t>(lit[k])) return false;
+    }
+    return true;
+}
+
+uint32_t spectre_js_token_mask(const uint8_t* data, size_t len) {
+    if (!data || len == 0) return 0U;
+    uint32_t mask = 0U;
+    for (size_t i = 0; i < len; ++i) {
+        uint8_t c = data[i];
+        if (c >= 'A' && c <= 'Z') c += 32;
+        const uint8_t* p = data + i;
+        const size_t rem = len - i;
+        switch (c) {
+            case '/':
+                if (!(mask & 1U)) {
+                    if (match_ci(p, rem, "/api/", 5) || match_ci(p, rem, "/v1/", 4) ||
+                        match_ci(p, rem, "/v2/", 4) || match_ci(p, rem, "/v3/", 4) ||
+                        match_ci(p, rem, "/graphql", 8) || match_ci(p, rem, "/auth/", 6) ||
+                        match_ci(p, rem, "/admin/", 7) || match_ci(p, rem, "/internal/", 10) ||
+                        match_ci(p, rem, "/live/", 6) || match_ci(p, rem, "/stream/", 8) ||
+                        match_ci(p, rem, "/news/", 6) || match_ci(p, rem, "/tv/", 4) ||
+                        match_ci(p, rem, "/radio/", 7) || match_ci(p, rem, "/channels/", 10)) {
+                        mask |= 1U;
+                    }
+                }
+                if (!(mask & 8U) && match_ci(p, rem, "/assets/", 8)) {
+                    mask |= 8U;
+                }
+                break;
+            case '.':
+                if (!(mask & 1U)) {
+                    if (match_ci(p, rem, ".get", 4) || match_ci(p, rem, ".post", 5) ||
+                        match_ci(p, rem, ".put", 4) || match_ci(p, rem, ".delete", 7) ||
+                        match_ci(p, rem, ".patch", 6)) {
+                        mask |= 1U;
+                    }
+                }
+                break;
+            case 'h':
+                if (!(mask & 1U) && (match_ci(p, rem, "http://", 7) || match_ci(p, rem, "https://", 8))) {
+                    mask |= 1U;
+                }
+                break;
+            case 'w':
+                if (!(mask & 1U) && (match_ci(p, rem, "ws://", 5) || match_ci(p, rem, "wss://", 6))) {
+                    mask |= 1U;
+                }
+                break;
+            case 'i':
+                if (!(mask & 2U) && match_ci(p, rem, "innerhtml", 9)) mask |= 2U;
+                break;
+            case 'o':
+                if (!(mask & 2U) && match_ci(p, rem, "outerhtml", 9)) mask |= 2U;
+                break;
+            case 'd':
+                if (!(mask & 2U) && (match_ci(p, rem, "document.write", 14) || match_ci(p, rem, "dangerouslysetinnerhtml", 23))) {
+                    mask |= 2U;
+                }
+                break;
+            case 'e':
+                if (!(mask & 2U) && match_ci(p, rem, "eval", 4)) mask |= 2U;
+                break;
+            case 'p':
+                if (!(mask & 2U) && match_ci(p, rem, "postmessage", 11)) mask |= 2U;
+                break;
+            case 's':
+                if (!(mask & 2U) && match_ci(p, rem, "settimeout", 10)) mask |= 2U;
+                if (!(mask & 4U) && (match_ci(p, rem, "secret_key", 10) || match_ci(p, rem, "secretkey", 9) || match_ci(p, rem, "secret-key", 10))) {
+                    mask |= 4U;
+                }
+                if (!(mask & 8U) && match_ci(p, rem, "static/js/", 10)) mask |= 8U;
+                if (!(mask & 16U) && match_ci(p, rem, "sourcemappingurl=", 17)) mask |= 16U;
+                break;
+            case 'a':
+                if (!(mask & 4U)) {
+                    if (match_ci(p, rem, "api_key", 7) || match_ci(p, rem, "apikey", 6) || match_ci(p, rem, "api-key", 7) ||
+                        match_ci(p, rem, "access_token", 12) || match_ci(p, rem, "accesstoken", 11) || match_ci(p, rem, "access-token", 12) ||
+                        match_ci(p, rem, "authorization", 13)) {
+                        mask |= 4U;
+                    }
+                }
+                if (!(mask & 8U) && match_ci(p, rem, "assets/", 7)) mask |= 8U;
+                break;
+            case 'b':
+                if (!(mask & 4U) && (match_ci(p, rem, "base_url", 8) || match_ci(p, rem, "baseurl", 7) || match_ci(p, rem, "bearer ", 7))) {
+                    mask |= 4U;
+                }
+                break;
+            case 'v':
+                if (!(mask & 4U) && match_ci(p, rem, "vite_", 5)) mask |= 4U;
+                break;
+            case '"':
+                if (!(mask & 16U) && match_ci(p, rem, "\"sourcescontent\"", 16)) mask |= 16U;
+                break;
+            default:
+                break;
+        }
+        if (mask == 0x1FU) break;
+    }
+    return mask;
+}
+
 } // extern "C"

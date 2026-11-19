@@ -117,14 +117,13 @@ def extract_grpc_and_protobuf_schemas(db, session, project_id: int, base_url: st
 
     if grpc_methods or proto_types:
         m_list, p_list = sorted(grpc_methods), sorted(proto_types)
-        db.upsert_finding(
-            project_id, "SPECTRE-v10 (gRPC-Mapper)",
-            f"Discovered gRPC-Web / Protobuf RPC Schema ({len(m_list)} methods, {len(p_list)} types)",
-            "API Architecture Discovery", "Info", 0.0,
-            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-            base_url, f"gRPC Methods: {', '.join(m_list[:10])} | Protobuf Types: {', '.join(p_list[:10])}",
-            "JavaScript bundle ichidan gRPC-Web servis metodlari va Protobuf xabar strukturalari tiklandi.",
-            "gRPC-Web endpointlarda avtorizatsiya va xabar o'lchami cheklovlarini server tomonida tekshiring.",
+        db.log_task(
+            project_id,
+            "SPECTRE-Intel",
+            "grpc_schema",
+            "COMPLETED",
+            base_url,
+            f"gRPC ({len(m_list)} methods, {len(p_list)} types): {', '.join(m_list[:8])}",
         )
         log_fn(f"  [📡 gRPC MAPPER] {len(m_list)} ta gRPC metod va {len(p_list)} ta Protobuf tip tiklandi!")
     return sorted(grpc_methods)
@@ -151,7 +150,9 @@ def _extract_brace_block(text: str, start_idx: int, max_len: int = 1800) -> str:
 
 def analyze_postmessage_handlers(db, session, project_id: int, base_url: str, js_urls: list[str], log_fn) -> int:
     listener_re = re.compile(r'addEventListener\s*\(\s*["\']message["\']\s*,')
-    sink_re = re.compile(r"(innerHTML|outerHTML|document\.write|eval\s*\(|location\.href|location\.assign|location\.replace|setAttribute\s*\(\s*['\"]src)")
+    dyn_sink_re = re.compile(
+        r"""(\.(?:innerHTML|outerHTML)\s*\+?=\s*(?!['"`][^'"`$+{]*['"`]\s*[;,\n}])|document\.write\s*\(|eval\s*\(|location\.(?:href|assign|replace)|setAttribute\s*\(\s*['"]src)"""
+    )
     issues = 0
 
     targets = [base_url] + list(js_urls[:20])
@@ -164,8 +165,8 @@ def analyze_postmessage_handlers(db, session, project_id: int, base_url: str, js
             for m in listener_re.finditer(txt):
                 block = _extract_brace_block(txt, m.end())
                 has_origin_check = (".origin" in block) or ("origin" in block and "===" in block)
-                sink_match = sink_re.search(block)
-                if not has_origin_check and sink_match:
+                sink_match = dyn_sink_re.search(block)
+                if not has_origin_check and sink_match and (".data" in block or "data" in block):
                     issues += 1
                     sink_name = sink_match.group(1)
                     db.upsert_finding(
@@ -365,14 +366,13 @@ def parse_service_worker_manifests(db, session, project_id: int, base_url: str, 
 
     if discovered_routes:
         r_list = sorted(discovered_routes)
-        db.upsert_finding(
-            project_id, "SPECTRE-v10 (ServiceWorker-Harvester)",
-            f"Service Worker & PWA Precache Route Table Discovered ({len(r_list)} assets)",
-            "Attack Surface Discovery", "Info", 0.0,
-            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-            base_url, f"Precached Routes ({len(r_list)}): {', '.join(r_list[:12])}",
-            "Service Worker (sw.js / ngsw.json) manifest faylidan ilovaning oflayn keshlanadigan marshrutlari va modullari ajratib olindi.",
-            "Maxfiy admin modullari va ichki marshrutlarni ommaviy Service Worker precache ro'yxatiga qo'shmang.",
+        db.log_task(
+            project_id,
+            "SPECTRE-Intel",
+            "service_worker_routes",
+            "COMPLETED",
+            base_url,
+            f"PWA Precache Routes ({len(r_list)}): {', '.join(r_list[:10])}",
         )
         log_fn(f"  [⚙️ SERVICE WORKER] {len(r_list)} ta yashirin PWA/Workbox marshruti tiklandi!")
     return sorted(discovered_routes)
@@ -391,15 +391,7 @@ def inspect_http_protocol_and_proxy_topology(db, session, project_id: int, base_
         if topo:
             summary = " | ".join([f"{k}: {v}" for k, v in topo.items()])
             db.merge_http_tech_stack(project_id, base_url, [f"Topology:{k}" for k in topo.keys()])
-            db.upsert_finding(
-                project_id, "SPECTRE-v10 (Topology-Mapper)",
-                f"Reverse-Proxy & Protocol Topology Headers ({len(topo)} hops/hints)",
-                "Infrastructure Topology Intelligence", "Info", 0.0,
-                "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-                base_url, summary,
-                "HTTP javob sarlavhalari orqali upstream proksi zanjiri, Envoy/Varnish/CDN tugunlari va HTTP/3 (QUIC) portlari aniqlandi.",
-                "Ichki upstream server nomlarini fosh qiluvchi X-Backend-Server va X-Upstream sarlavhalarini tozalang.",
-            )
+            db.log_task(project_id, "SPECTRE-Intel", "topology_headers", "COMPLETED", base_url, f"Topology Headers: {summary[:220]}")
             log_fn(f"  [🧬 TOPOLOGY MAP] {base_url} -> {summary[:100]}")
     except Exception:
         pass
@@ -473,14 +465,13 @@ def correlate_analytics_and_tag_ids(db, session, project_id: int, base_url: str,
     clean_map = {k: sorted(v) for k, v in found_ids.items() if v}
     if clean_map:
         flat_str = " | ".join([f"{k}: {', '.join(vals)}" for k, vals in clean_map.items()])
-        db.upsert_finding(
-            project_id, "SPECTRE-v10 (Analytics-Pivot)",
-            f"Organization Analytics & Tracking Correlation IDs ({sum(len(v) for v in clean_map.values())} IDs)",
-            "Horizontal Domain Correlation OSINT", "Info", 0.0,
-            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-            base_url, f"Extracted Identifiers: {flat_str}",
-            "Ushbu GTM/GA/Metrika identifikatorlari orqali kompaniyaga tegishli bo'lgan boshqa (gorizontal) domenlar va loyihalarni aniqlash mumkin.",
-            "Ichki test va ma'muriy tizimlarda ommaviy marketing/analitika teglarini ishlatmang.",
+        db.log_task(
+            project_id,
+            "SPECTRE-Intel",
+            "analytics_correlation",
+            "COMPLETED",
+            base_url,
+            f"Analytics IDs: {flat_str[:220]}",
         )
         log_fn(f"  [🕸️ ANALYTICS PIVOT] {flat_str}")
     return clean_map
@@ -572,23 +563,33 @@ def extract_client_storage_keys_and_checks(db, session, project_id: int, base_ur
 
     if keys or role_checks:
         k_list = sorted(keys)
-        sev = "Medium" if role_checks else "Info"
-        cvss = 5.3 if role_checks else 0.0
-        db.upsert_finding(
-            project_id, "SPECTRE-v10 (WebStorage-Mapper)",
-            f"Client-Side Storage Keys & State Conditions ({len(k_list)} keys)" + (" [Client Role Check!]" if role_checks else ""),
-            "Client-Side State & Storage Security", sev, cvss,
-            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N", "CWE-922", "A04:2021 - Insecure Design",
-            base_url,
-            f"Storage Keys: {', '.join(k_list[:15])}" + (f" | Client Conditions: {', '.join(role_checks[:5])}" if role_checks else ""),
-            "JavaScript kodida localStorage/sessionStorage/IndexedDB kalitlari va mijoz tomonida rol tekshiruvlari aniqlandi.",
-            "Maxfiy tokenlarni HttpOnly cookie'da saqlang va foydalanuvchi huquqlarini faqat backendda tekshiring.",
-        )
+        if role_checks:
+            db.upsert_finding(
+                project_id, "SPECTRE-v10 (WebStorage-Mapper)",
+                f"Client-Side Storage Keys & State Conditions ({len(k_list)} keys) [Client Role Check!]",
+                "Client-Side State & Storage Security", "Medium", 5.3,
+                "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N", "CWE-922", "A04:2021 - Insecure Design",
+                base_url,
+                f"Storage Keys: {', '.join(k_list[:15])} | Client Conditions: {', '.join(role_checks[:5])}",
+                "JavaScript kodida localStorage/sessionStorage/IndexedDB orqali mijoz tomonida rol tekshiruvlari aniqlandi.",
+                "Maxfiy tokenlarni HttpOnly cookie'da saqlang va foydalanuvchi huquqlarini faqat backendda tekshiring.",
+            )
+        else:
+            db.log_task(
+                project_id,
+                "SPECTRE-Intel",
+                "web_storage_keys",
+                "COMPLETED",
+                base_url,
+                f"Client Storage Keys ({len(k_list)}): {', '.join(k_list[:12])}",
+            )
         log_fn(f"  [🧠 WEB STORAGE] {len(k_list)} ta kalit topildi" + (f" | Shartlar: {', '.join(role_checks[:3])}" if role_checks else ""))
     return sorted(keys)
 
 
 def run_protocol_client_suite(agent, project_id: int, apex_domain: str, base_url: str, js_urls: list[str], log_fn) -> None:
+    from core.plugin_runner import ScanPhase, run_plugin_safely
+
     log_fn(f"  [Protocol-Client-Suite] {base_url} ustida 12 ta arxitektura va protokol moduli ishga tushirildi...")
     db = agent.db
     session = agent.session
@@ -599,20 +600,20 @@ def run_protocol_client_suite(agent, project_id: int, apex_domain: str, base_url
         ran_apex = agent._ran_apex_suites
     proj_done = ran_apex.setdefault(project_id, set())
 
-    audit_vcs_metadata_exposure(db, session, project_id, base_url, log_fn)
-    audit_static_routing_headers(db, session, project_id, base_url, log_fn)
-    extract_grpc_and_protobuf_schemas(db, session, project_id, base_url, js_urls, log_fn)
-    analyze_postmessage_handlers(db, session, project_id, base_url, js_urls, log_fn)
-    audit_cache_policy_and_headers(db, session, project_id, base_url, log_fn)
+    run_plugin_safely(db, project_id, "pc_vcs_metadata", audit_vcs_metadata_exposure, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+    run_plugin_safely(db, project_id, "pc_routing_headers", audit_static_routing_headers, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+    run_plugin_safely(db, project_id, "pc_grpc_schema", extract_grpc_and_protobuf_schemas, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "pc_postmessage_ast", analyze_postmessage_handlers, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "pc_cache_policy", audit_cache_policy_and_headers, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
     if "spf_dmarc_audit" not in proj_done:
         proj_done.add("spf_dmarc_audit")
-        validate_spf_dmarc_recursive(db, project_id, apex_domain, log_fn)
-    parse_service_worker_manifests(db, session, project_id, base_url, log_fn)
-    inspect_http_protocol_and_proxy_topology(db, session, project_id, base_url, log_fn)
-    audit_oauth_oidc_parameters(db, project_id, base_url, log_fn)
-    correlate_analytics_and_tag_ids(db, session, project_id, base_url, js_urls, log_fn)
-    verify_archive_magic_bytes_range(db, session, project_id, apex_domain, base_url, log_fn)
-    extract_client_storage_keys_and_checks(db, session, project_id, base_url, js_urls, log_fn)
+        run_plugin_safely(db, project_id, "pc_spf_dmarc", validate_spf_dmarc_recursive, db, project_id, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "pc_service_worker", parse_service_worker_manifests, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "pc_proxy_topology", inspect_http_protocol_and_proxy_topology, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "pc_oauth_oidc", audit_oauth_oidc_parameters, db, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "pc_analytics_corr", correlate_analytics_and_tag_ids, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "pc_archive_magic", verify_archive_magic_bytes_range, db, session, project_id, apex_domain, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+    run_plugin_safely(db, project_id, "pc_web_storage", extract_client_storage_keys_and_checks, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
     db.log_task(project_id, "SPECTRE-Protocol", "protocol_client_suite", "COMPLETED", f"protocol_suite {base_url}", f"Executed 12 protocol/client modules on {base_url}")
 
 

@@ -166,7 +166,7 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
     non_cdn_ips = [
         d.get("ip")
         for d in domains
-        if d.get("ip") and "cloudflare" not in str(d.get("cdn_waf", "")).lower()
+        if d.get("ip") and not str(d.get("cdn_waf") or "").strip()
     ]
     if not non_cdn_ips:
         return
@@ -212,13 +212,13 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
     if ptr_map:
         sample_ptrs = [f"{k} -> {v}" for k, v in sorted(ptr_map.items())[:12]]
         log_fn(f"  [🗺️ /24 Neighborhood Map] Jami {len(ptr_map)} ta qo'shni server PTR yozuvi aniqlandi: {', '.join(sample_ptrs[:6])}")
-        db.upsert_finding(
-            project_id, "SPECTRE-Agent1 (/24 Subnet PTR Mapper)", f"Datacenter /24 Subnet Neighborhood Map ({len(ptr_map)} Active PTR Hosts)",
-            "Network Infrastructure Intelligence", "Info", 0.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
-            "CWE-200", "A05:2021 - Security Misconfiguration", ", ".join(sorted({".".join(i.split(".")[:3]) + ".0/24" for i in non_cdn_ips[:3]})),
-            "Discovered /24 PTR Neighbors:\n" + "\n".join(sample_ptrs),
-            "Nishon server joylashgan /24 subnetdagi qo'shni serverlar va PTR yozuvlari xaritasi tuzildi.",
-            "Maxfiy ichki subdomen nomlarini oshkor qilmaslik uchun PTR (Reverse-DNS) yozuvlarini neytral nomda saqlang.",
+        db.log_task(
+            project_id,
+            "SPECTRE-Intel",
+            "subnet_ptr_map",
+            "COMPLETED",
+            apex_domain,
+            f"Datacenter /24 PTR Neighbors ({len(ptr_map)}): {', '.join(sample_ptrs[:8])}",
         )
 
 
@@ -429,12 +429,13 @@ def mine_well_known_and_mobile_links(db, session: requests.Session, project_id: 
                             continue
                         seen_wk_hashes.add(wk_sig)
                         log_fn(f"  [📱 {label}] {full_u} -> {summary[:140]}")
-                        db.upsert_finding(
-                            project_id, "SPECTRE-Agent1 (Mobile/OIDC Miner)", f"{canon_lbl} Discovered ({urllib.parse.urlparse(full_u).hostname or full_u})",
-                            "Mobile & SSO Architecture Intelligence", "Info", 0.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
-                            "CWE-200", "A05:2021 - Security Misconfiguration", full_u,
-                            summary, f"{canon_lbl} orqali nishonning mobil ilova paketlari yoki SSO endpointlari aniqlandi.",
-                            "Mobil deep-link va OIDC endpointlarida redirect_uri validatsiyasini tekshiring.",
+                        db.log_task(
+                            project_id,
+                            "SPECTRE-Intel",
+                            "well_known_manifest",
+                            "COMPLETED",
+                            full_u,
+                            f"{canon_lbl}: {summary[:220]}",
                         )
             except Exception:
                 pass
@@ -534,12 +535,13 @@ def extract_document_metadata_osint(db, session: requests.Session, project_id: i
                                 meta_hits.append(f"{tag}: {m.group(1)}")
             if meta_hits:
                 log_fn(f"  [📄 Document Metadata] {d_url} -> {' | '.join(meta_hits)}")
-                db.upsert_finding(
-                    project_id, "SPECTRE-Agent1 (Doc Metadata OSINT)", f"Document Metadata & Author Leak ({d_url.split('/')[-1]})",
-                    "OSINT & Metadata Exposure", "Info", 0.0, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
-                    "CWE-200", "A05:2021 - Security Misconfiguration", d_url,
-                    " | ".join(meta_hits), "Ochiq hujjat metadatasi orqali ichki foydalanuvchi nomi va dastur versiyasi aniqlandi.",
-                    "Hujjatlarni ommaga e'lon qilishdan oldin Exif/Metadata ma'lumotlarini tozalang.",
+                db.log_task(
+                    project_id,
+                    "SPECTRE-Intel",
+                    "doc_metadata_osint",
+                    "COMPLETED",
+                    d_url,
+                    f"Document Metadata ({d_url.split('/')[-1]}): {' | '.join(meta_hits)[:220]}",
                 )
         except Exception:
             pass
