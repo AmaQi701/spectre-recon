@@ -18,7 +18,7 @@ from typing import Any
 
 from core.plugin_runner import QoD
 
-SUPPORTED_ACTIVE_PORTS = {21, 22, 25, 389, 587, 636, 873, 1022, 2375, 2376, 2379, 3306, 5432, 6379, 6380, 6443, 8500, 9100, 9200, 10250, 11211, 15672, 27017}
+SUPPORTED_ACTIVE_PORTS = {21, 22, 25, 389, 587, 636, 873, 1022, 1433, 2375, 2376, 2379, 3306, 5432, 5900, 6379, 6380, 6443, 8500, 9042, 9100, 9200, 10250, 11211, 15672, 27017}
 
 
 def parse_ssh_kexinit_packet(raw_stream: bytes) -> dict[str, list[str]]:
@@ -319,6 +319,56 @@ def _probe_binary_db_and_ldap(db: Any, project_id: int, connect_target: str, tar
             )
             log_fn(f"  [SOCKET-NVT] {disp_host}:{port} -> LDAP Anonymous Bind tasdiqlandi!")
             hits += 1
+
+    elif port == 5900:
+        with socket.create_connection((connect_target, 5900), timeout=2.5) as s_vnc:
+            s_vnc.settimeout(2.2)
+            rfb_ver = s_vnc.recv(16)
+            if rfb_ver.startswith(b"RFB "):
+                ver_txt = rfb_ver.decode("ascii", errors="ignore").strip()
+                db.upsert_port(project_id, disp_host, 5900, "tcp", ip=target_ip, service="vnc", version=ver_txt, banner=ver_txt, source="socket_nvt")
+                s_vnc.sendall(rfb_ver[:12])
+                sec_b = s_vnc.recv(32)
+                no_auth = False
+                if b"003.003" in rfb_ver and len(sec_b) >= 4 and struct.unpack("!I", sec_b[:4])[0] == 1:
+                    no_auth = True
+                elif len(sec_b) >= 2 and sec_b[0] > 0 and 1 in sec_b[1 : 1 + sec_b[0]]:
+                    no_auth = True
+                if no_auth:
+                    db.upsert_finding(
+                        project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated VNC Remote Desktop Service ({disp_host}:5900)",
+                        "Remote Desktop Exposure", "Critical", 9.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                        "CWE-306", "A07:2021 - Identification and Authentication Failures", f"{disp_host}:5900",
+                        f"RFB Handshake ({ver_txt}) offered SecurityType=1 (None)",
+                        "VNC serveri parolsiz masofaviy ekran ulanishiga (SecurityType=None) ruxsat bermoqda.",
+                        "VNC serverda parol talabini yoqing va 5900-portni faqat SSH/VPN tunnel orqali oching.",
+                        confidence=QoD.ACTIVE_VERIFIED,
+                    )
+                    hits += 1
+
+    elif port == 1433:
+        tds_prelogin = bytes.fromhex("1201001d00000100000015000601001b0001ff09000000000002")
+        with socket.create_connection((connect_target, 1433), timeout=2.5) as s_ms:
+            s_ms.settimeout(2.2)
+            s_ms.sendall(tds_prelogin)
+            resp = s_ms.recv(512)
+        if len(resp) >= 28 and resp[0] == 0x04:
+            pl = resp[8:]
+            if len(pl) >= 18 and pl[0] == 0x00:
+                v_off = struct.unpack("!H", pl[1:3])[0]
+                if v_off + 4 <= len(pl):
+                    maj, min_v, bld = pl[v_off], pl[v_off + 1], struct.unpack("!H", pl[v_off + 2 : v_off + 4])[0]
+                    ms_ver = f"Microsoft SQL Server {maj}.{min_v}.{bld}"
+                    db.upsert_port(project_id, disp_host, 1433, "tcp", ip=target_ip, service="ms-sql-s", version=ms_ver, banner=ms_ver, source="socket_nvt")
+
+    elif port == 9042:
+        cql_opts = b"\x04\x00\x00\x00\x05\x00\x00\x00\x00"
+        with socket.create_connection((connect_target, 9042), timeout=2.5) as s_cas:
+            s_cas.settimeout(2.2)
+            s_cas.sendall(cql_opts)
+            resp = s_cas.recv(512)
+        if len(resp) >= 9 and (resp[4] == 0x06 or b"CQL_VERSION" in resp):
+            db.upsert_port(project_id, disp_host, 9042, "tcp", ip=target_ip, service="cassandra", version="Apache Cassandra CQL", banner="CQL Binary Protocol SUPPORTED", source="socket_nvt")
     return hits
 
 
@@ -337,7 +387,7 @@ def _probe_single_port(
     try:
         if port in (6379, 6380, 11211, 9200, 9100, 2375, 2376, 2379, 6443, 8500, 10250, 15672):
             return _probe_data_and_metrics(db, http_engine, project_id, connect_target, target_ip, disp_host, port, log_fn)
-        if port in (3306, 5432, 27017, 389, 636):
+        if port in (1433, 3306, 5432, 5900, 9042, 27017, 389, 636):
             return _probe_binary_db_and_ldap(db, project_id, connect_target, target_ip, disp_host, port, log_fn)
         if port in (22, 1022):
             buf_ssh = bytearray()

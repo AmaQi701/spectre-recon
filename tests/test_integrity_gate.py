@@ -415,7 +415,7 @@ def run_integrity_gate() -> list[str]:
         if "IDOR_Candidate" in c_tags:
             errors.append("[DLE ARTICLE COMMENT FORM FALSELY FLAGGED AS IDOR]")
         from core.protocol_verifiers import SUPPORTED_ACTIVE_PORTS, parse_ssh_kexinit_packet
-        if not {22, 636, 1022, 2379, 6380, 8500, 15672}.issubset(SUPPORTED_ACTIVE_PORTS):
+        if not {22, 636, 1022, 1433, 2379, 5900, 6380, 8500, 9042, 15672}.issubset(SUPPORTED_ACTIVE_PORTS):
             errors.append(f"[EXTENDED SOCKET NVT PORTS MISSING] {SUPPORTED_ACTIVE_PORTS}")
         import struct as _st
         _nl = [b"diffie-hellman-group14-sha1,curve25519-sha256", b"ssh-ed25519,ssh-dss", b"aes128-cbc", b"aes128-cbc", b"hmac-md5", b"hmac-md5", b"none", b"none", b"", b""]
@@ -432,7 +432,7 @@ def run_integrity_gate() -> list[str]:
         from core.nvt_declarative_engine import load_nvt_catalog
         from core.advisory_kb import _CPE_VENDOR_PRODUCT
         nvt_rules = load_nvt_catalog()
-        if len(nvt_rules) < 60:
+        if len(nvt_rules) < 80:
             errors.append(f"[DECLARATIVE NVT CATALOG TOO SMALL] count={len(nvt_rules)}")
         if len(_CPE_VENDOR_PRODUCT) < 105:
             errors.append(f"[CPE 2.3 CATALOG BELOW 105 PRODUCTS] count={len(_CPE_VENDOR_PRODUCT)}")
@@ -442,11 +442,18 @@ def run_integrity_gate() -> list[str]:
             errors.append(f"[106-PRODUCT ENTERPRISE CPE MATCHING BROKEN] {ext_prods}")
         if surface_prober.murmur3_32(b"spectre_favicon_check") != active_web_auditor.murmurhash3_32_signed(b"spectre_favicon_check"):
             errors.append("[C++17 MURMUR3 UNIFICATION MISMATCH]")
-        from core.sca_engine import match_dependencies_advisories, parse_manifest_dependencies
+        from core.sca_engine import extract_js_bundle_libraries, match_dependencies_advisories, parse_manifest_dependencies
         _sca_deps = parse_manifest_dependencies("package.json", '{"dependencies": {"lodash": "^4.17.15", "express": "4.18.2"}}')
         _sca_hits = match_dependencies_advisories(_sca_deps, allow_online_osv=False)
-        if len(_sca_hits) < 2:
-            errors.append(f"[SCA DEPENDENCY ENGINE BROKEN] {_sca_hits}")
+        _js_libs = extract_js_bundle_libraries("/*! jQuery v2.1.4 | (c) JS Foundation */")
+        if len(_sca_hits) < 2 or ("npm", "jquery", "2.1.4") not in _js_libs:
+            errors.append(f"[SCA DEPENDENCY ENGINE BROKEN] {_sca_hits} | {_js_libs}")
+        from core.compliance_exporter import build_cyclonedx_sbom, build_sarif_report
+        _b_comp = db.get_project_bundle(pid_scale)
+        _sarif = build_sarif_report(_b_comp)
+        _sbom = build_cyclonedx_sbom(_b_comp)
+        if _sarif.get("version") != "2.1.0" or _sbom.get("bomFormat") != "CycloneDX":
+            errors.append("[SARIF 2.1.0 OR CYCLONEDX 1.5 EXPORTER BROKEN]")
 
     return errors
 

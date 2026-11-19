@@ -608,7 +608,7 @@ class ApexNativeWindow(Gtk.Window):
         btn_row5 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         btn_row5.pack_start(self._make_btn("+ Add Manual PoC", "act-btn", self.on_add_manual), False, False, 0)
         btn_row5.pack_start(self._make_btn("Generate Executive HTML & Markdown Report", "btn-green", self.on_generate_report), False, False, 0)
-        btn_row5.pack_start(self._make_btn("Export Artifacts (Burp JSON / Nuclei / CSV)", "btn-purple", self.on_export_artifacts), False, False, 0)
+        btn_row5.pack_start(self._make_btn("Export Artifacts (SARIF / SBOM / Burp / CSV)", "btn-purple", self.on_export_artifacts), False, False, 0)
         tab5.pack_start(btn_row5, False, False, 0)
         self.rep_view = Gtk.TextView(); self.rep_view.set_editable(False); self.rep_view.set_monospace(True)
         sc_rep = Gtk.ScrolledWindow(); sc_rep.set_vexpand(True); sc_rep.add(self.rep_view)
@@ -646,7 +646,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v3.6.0 Hybrid Workstation] C++17 epoll/OpenSSL Engine, 60-NVT Catalog, SCA/OSV & 106-Product CPE/KEV Engine initialized.\n")
+        self.term_buf.set_text("[SPECTRE v3.7.0 Hybrid Workstation] C++17 epoll/OpenSSL, 80-NVT Catalog, 26-Port Socket NVT, SCA/OSV & SARIF/SBOM Studio initialized.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)
@@ -1287,7 +1287,9 @@ class ApexNativeWindow(Gtk.Window):
             return
         res = cli_orchestrator.export_project_artifacts(self.db, self.current_project_id)
         msg = (
-            "╔══ 📤 SPECTRE MULTI-FORMAT ARTIFACTS EXPORTED ══╗\n"
+            "╔══ 📤 SPECTRE MULTI-FORMAT & COMPLIANCE ARTIFACTS EXPORTED ══╗\n"
+            f"• OASIS SARIF 2.1.0 (GitHub/DefectDojo): {res['sarif_json']}\n"
+            f"• CycloneDX 1.5 SBOM (CPE Inventory): {res['cyclonedx_sbom_json']}\n"
             f"• Burp Suite Scope JSON: {res['burp_scope_json']}\n"
             f"• Live URLs (Nuclei/HTTPX): {res['live_urls_txt']}\n"
             f"• Subdomains List: {res['subdomains_txt']}\n"

@@ -27,6 +27,13 @@ OFFLINE_SCA_RULES: tuple[dict[str, Any], ...] = (
     {"eco": "npm", "pkg": "axios", "min": "0.8.1", "max": "1.6.0", "cve": "CVE-2023-45857", "sev": "Medium", "cvss": 6.5},
     {"eco": "npm", "pkg": "express", "min": "4.0.0", "max": "4.19.2", "cve": "CVE-2024-29041", "sev": "Medium", "cvss": 6.1},
     {"eco": "npm", "pkg": "jsonwebtoken", "min": "0.1.0", "max": "9.0.0", "cve": "CVE-2022-23529", "sev": "High", "cvss": 7.6},
+    {"eco": "npm", "pkg": "jquery", "min": "1.0.0", "max": "3.5.0", "cve": "CVE-2020-11022", "sev": "Medium", "cvss": 6.1},
+    {"eco": "npm", "pkg": "bootstrap", "min": "2.0.0", "max": "4.3.1", "cve": "CVE-2019-8331", "sev": "Medium", "cvss": 6.1},
+    {"eco": "npm", "pkg": "underscore", "min": "1.3.0", "max": "1.13.6", "cve": "CVE-2021-23358", "sev": "High", "cvss": 7.2},
+    {"eco": "npm", "pkg": "handlebars", "min": "1.0.0", "max": "4.7.7", "cve": "CVE-2021-23369", "sev": "Critical", "cvss": 9.8},
+    {"eco": "npm", "pkg": "dompurify", "min": "0.5.0", "max": "2.4.2", "cve": "CVE-2023-47122", "sev": "Medium", "cvss": 6.1},
+    {"eco": "npm", "pkg": "moment", "min": "2.0.0", "max": "2.29.4", "cve": "CVE-2022-31129", "sev": "High", "cvss": 7.5},
+    {"eco": "npm", "pkg": "angular", "min": "1.0.0", "max": "1.8.0", "cve": "CVE-2022-25869", "sev": "Medium", "cvss": 6.1},
     {"eco": "PyPI", "pkg": "requests", "min": "2.3.0", "max": "2.31.0", "cve": "CVE-2023-32681", "sev": "Medium", "cvss": 6.1},
     {"eco": "PyPI", "pkg": "urllib3", "min": "1.20.0", "max": "2.0.7", "cve": "CVE-2023-45803", "sev": "Medium", "cvss": 4.2},
     {"eco": "PyPI", "pkg": "jinja2", "min": "2.0.0", "max": "3.1.3", "cve": "CVE-2024-22195", "sev": "Medium", "cvss": 6.1},
@@ -187,4 +194,108 @@ def run_sca_dependency_audit(
             if log_fn:
                 log_fn(f"  [SCA-ENGINE] {mf.name} -> {len(vuln_deps)} ta zaif kutubxona aniqlandi: {', '.join(ev_items[:4])}")
     return total_written
+
+
+_JS_BANNER_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("jquery", re.compile(r"(?i)jquery\s+v?([123]\.\d+\.\d+)")),
+    ("bootstrap", re.compile(r"(?i)bootstrap\s+v?([234]\.\d+\.\d+)")),
+    ("lodash", re.compile(r"(?i)lodash(?:\.js)?\s+v?(4\.\d+\.\d+)")),
+    ("underscore", re.compile(r"(?i)underscore(?:\.js)?\s+v?(1\.\d+\.\d+)")),
+    ("handlebars", re.compile(r"(?i)handlebars(?:\.js)?\s+v?([1-4]\.\d+\.\d+)")),
+    ("dompurify", re.compile(r"(?i)dompurify\s+v?([12]\.\d+\.\d+)")),
+    ("moment", re.compile(r"(?i)moment(?:\.js)?\s+v?(2\.\d+\.\d+)")),
+    ("angular", re.compile(r"(?i)angularjs\s+v?(1\.\d+\.\d+)")),
+    ("axios", re.compile(r"(?i)axios\s+v?(0\.\d+\.\d+|1\.[0-5]\.\d+)")),
+)
+
+
+def extract_js_bundle_libraries(js_text: str) -> list[tuple[str, str, str]]:
+    head = (js_text or "")[:16384]
+    found: list[tuple[str, str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for pkg, rx in _JS_BANNER_PATTERNS:
+        m = rx.search(head)
+        if m:
+            ver = m.group(1)
+            if (pkg, ver) not in seen:
+                seen.add((pkg, ver))
+                found.append(("npm", pkg, ver))
+    return found
+
+
+def run_web_and_js_sca_audit(
+    db: Any,
+    http_engine: Any,
+    project_id: int,
+    endpoints: list[dict[str, Any]],
+    log_fn: Any,
+    allow_online_osv: bool = True,
+) -> int:
+    written = 0
+    js_cache = Path(f"/tmp/spectre_js_cache_{project_id}")
+    js_deps: list[tuple[str, str, str]] = []
+    if js_cache.is_dir():
+        for jf in sorted(js_cache.glob("*.js"))[:35]:
+            try:
+                js_deps.extend(extract_js_bundle_libraries(jf.read_text(encoding="utf-8", errors="ignore")[:16384]))
+            except Exception:
+                pass
+    dedup_js_deps = list(dict.fromkeys(js_deps))
+    if dedup_js_deps:
+        js_vulns = match_dependencies_advisories(dedup_js_deps, allow_online_osv=allow_online_osv)
+        if js_vulns:
+            top_c = max(x["cvss"] for x in js_vulns)
+            top_s = "Critical" if top_c >= 9.0 else ("High" if top_c >= 7.0 else "Medium")
+            ev_s = " | ".join(f"{x['pkg']}@{x['ver']} ({', '.join(x['cves'][:2])})" for x in js_vulns[:8])
+            db.upsert_finding(
+                project_id,
+                "Agent-2 (JS-SCA)",
+                f"Outdated Client-Side JavaScript Libraries ({len(js_vulns)} libraries)",
+                "Software Composition Analysis (SCA)",
+                top_s,
+                top_c,
+                "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                "CWE-1395",
+                "A06:2021 - Vulnerable and Outdated Components",
+                f"Project #{project_id} JS Bundles",
+                f"Detected Vulnerable JS Libraries: {ev_s}",
+                "Veb-sahifada yuklangan mijoz JavaScript kutubxonalarida ma'lum CVE zaifliklariga ega eski versiyalar ishlatilgan.",
+                "Frontend kutubxonalarni zamonaviy xavfsiz relizlariga yangilang.",
+                confidence=QoD.HEADER_CONFIG,
+            )
+            written += 1
+
+    manifest_eps = [
+        str(e.get("url") or "") for e in (endpoints or [])
+        if str(e.get("url") or "").lower().endswith(("/package.json", "/composer.json"))
+    ][:6]
+    for mu in manifest_eps:
+        if http_engine.is_host_dead(mu):
+            continue
+        try:
+            rm = http_engine.request("GET", mu, timeout=(2.2, 3.0), allow_redirects=False, max_bytes=131072)
+            if rm.status_code == 200 and rm.text.lstrip().startswith("{"):
+                mname = mu.rsplit("/", 1)[-1]
+                m_deps = parse_manifest_dependencies(mname, rm.text)
+                m_vulns = match_dependencies_advisories(m_deps, allow_online_osv=allow_online_osv)
+                if m_vulns:
+                    tc = max(x["cvss"] for x in m_vulns)
+                    ts = "Critical" if tc >= 9.0 else ("High" if tc >= 7.0 else "Medium")
+                    ev_m = " | ".join(f"{x['pkg']}@{x['ver']} ({', '.join(x['cves'][:2])})" for x in m_vulns[:8])
+                    db.upsert_finding(
+                        project_id, "Agent-2 (Web-SCA)",
+                        f"Vulnerable Dependencies in Exposed {mname} ({len(m_vulns)} packages)",
+                        "Software Composition Analysis (SCA)", ts, tc,
+                        "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L", "CWE-1395",
+                        "A06:2021 - Vulnerable and Outdated Components", mu,
+                        f"Exposed Manifest: {mu} | Vulnerable Packages: {ev_m}",
+                        "Ochiq veb-manifest faylidan eskirgan va zaif paket versiyalari aniqlandi.",
+                        "Manifest fayliga tashqi HTTP kirishni yoping va zaif kutubxonalarni yangilang.",
+                        confidence=QoD.ACTIVE_VERIFIED,
+                    )
+                    written += 1
+        except Exception:
+            pass
+    return written
+
 
