@@ -19,6 +19,7 @@ from core.cms_enterprise_nvts import run_cms_and_enterprise_nvts
 from core.database import DatabaseManager
 from core.feed_updater import enrich_project_findings_with_kev
 from core.http_engine import RateLimitedHttpEngine
+from core.nvt_declarative_engine import run_declarative_nvt_catalog
 from core.plugin_runner import PhaseOrchestrator, QoD, ScanContextKB, ScanPhase
 from core.protocol_verifiers import run_active_protocol_verifiers
 
@@ -1407,11 +1408,19 @@ class VulnAssessmentSuperAgent:
 
     def _audit_cms_and_enterprise_apps(self, project_id: int, log_fn):
         b_cur = self.db.get_project_bundle(project_id)
+        svcs_cur = b_cur.get("http_services", [])
         run_cms_and_enterprise_nvts(
             self.db,
             self.http_engine,
             project_id,
-            b_cur.get("http_services", []),
+            svcs_cur,
+            log_fn,
+        )
+        run_declarative_nvt_catalog(
+            self.db,
+            self.http_engine,
+            project_id,
+            svcs_cur,
             log_fn,
         )
 

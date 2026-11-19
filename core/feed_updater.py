@@ -46,9 +46,14 @@ def load_local_kev_map() -> dict[str, str]:
             data = json.loads(KEV_CACHE_PATH.read_text(encoding="utf-8", errors="ignore"))
             for item in data.get("vulnerabilities", []):
                 cid = str(item.get("cveID") or "").strip().upper()
+                vend = str(item.get("vendorProject") or "").strip()
+                prod = str(item.get("product") or "").strip()
                 vname = str(item.get("vulnerabilityName") or item.get("shortDescription") or "CISA KEV").strip()
+                ransom = str(item.get("knownRansomwareCampaignUse") or "").strip()
                 if cid.startswith("CVE-"):
-                    kev_map[cid] = vname[:120]
+                    prefix = f"{vend} {prod}: ".strip(": ") if (vend or prod) else ""
+                    r_tag = " [Ransomware-Linked]" if ransom.lower() == "known" else ""
+                    kev_map[cid] = f"{prefix}{vname}{r_tag}"[:140]
         except Exception:
             pass
     return kev_map

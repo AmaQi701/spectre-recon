@@ -18,7 +18,46 @@ from typing import Any
 
 from core.plugin_runner import QoD
 
-SUPPORTED_ACTIVE_PORTS = {21, 25, 389, 587, 636, 873, 2375, 2376, 2379, 3306, 5432, 6379, 6380, 6443, 8500, 9100, 9200, 10250, 11211, 15672, 27017}
+SUPPORTED_ACTIVE_PORTS = {21, 22, 25, 389, 587, 636, 873, 1022, 2375, 2376, 2379, 3306, 5432, 6379, 6380, 6443, 8500, 9100, 9200, 10250, 11211, 15672, 27017}
+
+
+def parse_ssh_kexinit_packet(raw_stream: bytes) -> dict[str, list[str]]:
+    """Parses an RFC 4253 Section 7.1 binary SSH_MSG_KEXINIT (type 20) packet into algorithm lists."""
+    if not raw_stream or len(raw_stream) < 28:
+        return {}
+    idx = 0
+    if raw_stream.startswith(b"SSH-"):
+        nl_pos = raw_stream.find(b"\n")
+        if nl_pos == -1:
+            return {}
+        idx = nl_pos + 1
+    while idx + 22 <= len(raw_stream):
+        pkt_len = struct.unpack("!I", raw_stream[idx : idx + 4])[0]
+        pad_len = raw_stream[idx + 4]
+        if 16 <= pkt_len <= 32768 and idx + 4 + pkt_len <= len(raw_stream):
+            payload = raw_stream[idx + 5 : idx + 4 + pkt_len - pad_len]
+            if len(payload) > 17 and payload[0] == 20:
+                pos = 17  # 1-byte msg_type (20) + 16-byte random cookie
+                lists: list[list[str]] = []
+                for _ in range(8):
+                    if pos + 4 > len(payload):
+                        break
+                    slen = struct.unpack("!I", payload[pos : pos + 4])[0]
+                    pos += 4
+                    if pos + slen > len(payload):
+                        break
+                    s_val = payload[pos : pos + slen].decode("ascii", errors="ignore")
+                    lists.append([x.strip() for x in s_val.split(",") if x.strip()])
+                    pos += slen
+                if len(lists) >= 6:
+                    return {
+                        "kex": lists[0],
+                        "host_key": lists[1],
+                        "enc": sorted(set(lists[2] + lists[3])),
+                        "mac": sorted(set(lists[4] + lists[5])),
+                    }
+        idx += 1
+    return {}
 
 
 def _tcp_exchange(host: str, port: int, payloads: list[bytes], timeout: float = 2.6, read_initial: bool = False, use_tls: bool = False) -> str:
@@ -300,6 +339,48 @@ def _probe_single_port(
             return _probe_data_and_metrics(db, http_engine, project_id, connect_target, target_ip, disp_host, port, log_fn)
         if port in (3306, 5432, 27017, 389, 636):
             return _probe_binary_db_and_ldap(db, project_id, connect_target, target_ip, disp_host, port, log_fn)
+        if port in (22, 1022):
+            buf_ssh = bytearray()
+            with socket.create_connection((connect_target, port), timeout=2.5) as s_ssh:
+                s_ssh.settimeout(2.2)
+                try:
+                    buf_ssh.extend(s_ssh.recv(256))
+                except Exception:
+                    pass
+                s_ssh.sendall(b"SSH-2.0-SPECTRE_Audit_3.4\r\n")
+                for _ in range(3):
+                    try:
+                        chunk = s_ssh.recv(4096)
+                        if not chunk:
+                            break
+                        buf_ssh.extend(chunk)
+                        if len(buf_ssh) >= 512 and parse_ssh_kexinit_packet(bytes(buf_ssh)):
+                            break
+                    except Exception:
+                        break
+            raw_b = bytes(buf_ssh)
+            banner_ln = raw_b.splitlines()[0].decode("utf-8", errors="ignore").strip() if raw_b else ""
+            kex_info = parse_ssh_kexinit_packet(raw_b)
+            if banner_ln.startswith("SSH-") and not existing_ver:
+                db.upsert_port(project_id, disp_host, port, "tcp", ip=target_ip, service="ssh", version=banner_ln[:90], banner=banner_ln[:160], source="socket_nvt")
+            if kex_info:
+                weak_kex = [a for a in kex_info["kex"] if a in ("diffie-hellman-group1-sha1", "diffie-hellman-group14-sha1", "diffie-hellman-group-exchange-sha1")]
+                weak_hk = [a for a in kex_info["host_key"] if a == "ssh-dss"]
+                weak_enc = [a for a in kex_info["enc"] if a in ("3des-cbc", "aes128-cbc", "aes192-cbc", "aes256-cbc", "arcfour", "arcfour128", "arcfour256", "blowfish-cbc")]
+                weak_mac = [a for a in kex_info["mac"] if a in ("hmac-md5", "hmac-md5-96", "hmac-sha1-96")]
+                weak_all = weak_kex + weak_hk + weak_enc + weak_mac
+                if weak_all:
+                    db.upsert_finding(
+                        project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Weak / Legacy SSH Protocol or Algorithm ({disp_host}:{port})",
+                        "Cryptographic Failure", "Medium", 5.9, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                        "CWE-327", "A02:2021 - Cryptographic Failures", f"{disp_host}:{port}",
+                        f"Banner: {banner_ln[:60]} | Weak KEXINIT Algorithms ({len(weak_all)}): {', '.join(weak_all[:8])}",
+                        "SSH serveri RFC 4253 KEXINIT almashinuvida eskirgan SHA-1 kalit almashish, DSA, CBC/RC4 shifr yoki MD5 MAC algoritmlarini taklif qilmoqda.",
+                        "sshd_config ichida faqat zamonaviy Curve25519/ECDH KEX, Ed25519/RSA-SHA2 host-key va ChaCha20-Poly1305 / AES-GCM shifrlarini qoldiring.",
+                        confidence=QoD.PROTOCOL_VERIFIED,
+                    )
+                    log_fn(f"  [SOCKET-NVT] {disp_host}:{port} -> SSH KEXINIT zaif algoritmlar tasdiqlandi: {', '.join(weak_all[:5])}")
+                    hits += 1
         if port == 873:
             out = _tcp_exchange(connect_target, 873, [b"\n"], timeout=2.5, read_initial=True)
             if "@RSYNCD:" in out:

@@ -414,9 +414,32 @@ def run_integrity_gate() -> list[str]:
         _, c_tags = ra._classify_endpoint_risk("https://example.org/kino/55-film.html", ["comments", "post_id", "subaction"])
         if "IDOR_Candidate" in c_tags:
             errors.append("[DLE ARTICLE COMMENT FORM FALSELY FLAGGED AS IDOR]")
-        from core.protocol_verifiers import SUPPORTED_ACTIVE_PORTS
-        if not {636, 2379, 6380, 8500, 15672}.issubset(SUPPORTED_ACTIVE_PORTS):
+        from core.protocol_verifiers import SUPPORTED_ACTIVE_PORTS, parse_ssh_kexinit_packet
+        if not {22, 636, 1022, 2379, 6380, 8500, 15672}.issubset(SUPPORTED_ACTIVE_PORTS):
             errors.append(f"[EXTENDED SOCKET NVT PORTS MISSING] {SUPPORTED_ACTIVE_PORTS}")
+        import struct as _st
+        _nl = [b"diffie-hellman-group14-sha1,curve25519-sha256", b"ssh-ed25519,ssh-dss", b"aes128-cbc", b"aes128-cbc", b"hmac-md5", b"hmac-md5", b"none", b"none", b"", b""]
+        _pl = b"\x14" + (b"\xaa" * 16) + b"".join(_st.pack("!I", len(x)) + x for x in _nl) + b"\x00\x00\x00\x00\x00"
+        _pad = 8 - ((len(_pl) + 5) % 8)
+        if _pad < 4:
+            _pad += 8
+        _ssh_raw = b"SSH-2.0-OpenSSH_7.4\r\n" + _st.pack("!IB", len(_pl) + _pad + 1, _pad) + _pl + (b"\x00" * _pad)
+        _parsed_kex = parse_ssh_kexinit_packet(_ssh_raw)
+        if "diffie-hellman-group14-sha1" not in _parsed_kex.get("kex", []) or "aes128-cbc" not in _parsed_kex.get("enc", []):
+            errors.append(f"[SSH KEXINIT PARSER BROKEN] {_parsed_kex}")
+
+        # v3.4.0 Gate: 42-Rule Declarative NVT Catalog + 100+ Product CPE 2.3 Catalog
+        from core.nvt_declarative_engine import load_nvt_catalog
+        from core.advisory_kb import _CPE_VENDOR_PRODUCT
+        nvt_rules = load_nvt_catalog()
+        if len(nvt_rules) < 42:
+            errors.append(f"[DECLARATIVE NVT CATALOG TOO SMALL] count={len(nvt_rules)}")
+        if len(_CPE_VENDOR_PRODUCT) < 100:
+            errors.append(f"[CPE 2.3 CATALOG BELOW 100 PRODUCTS] count={len(_CPE_VENDOR_PRODUCT)}")
+        m_ext = match_version_advisories("Kibana 8.12.0\nRoundcube 1.6.5\nownCloud 10.13.1\nGitea 1.21.5\nSolr 9.2.0")
+        ext_prods = {x["product"] for x in m_ext}
+        if not {"kibana", "roundcube", "owncloud", "gitea", "solr"}.issubset(ext_prods):
+            errors.append(f"[102-PRODUCT ENTERPRISE CPE MATCHING BROKEN] {ext_prods}")
 
     return errors
 

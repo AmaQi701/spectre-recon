@@ -160,6 +160,11 @@ class _BenchmarkHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/javascript")
             self.end_headers()
             self.wfile.write(b"axios.post('/api/v2/internal/audit', {actor: 'admin'});\n")
+        elif parsed.path == "/nginx_status":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"Active connections: 4\nserver accepts handled requests\n 120 120 340\nReading: 0 Writing: 1 Waiting: 3\n")
         else:
             self.send_response(404)
             self.end_headers()
@@ -249,6 +254,7 @@ def run_benchmark() -> None:
             assert any("Verified Open Redirect" in t for t in titles), f"Redirect verifier missed flaw: {titles}"
             assert any("Unencoded HTML Output Reflection via 'q'" in t for t in titles), f"Encoding verifier missed unencoded q: {titles}"
             assert any("Unencoded HTML Output Reflection via POST 'role'" in t for t in titles), f"POST form encoding verifier missed role: {titles}"
+            assert any("Nginx Stub-Status" in t for t in titles), f"Declarative NVT engine missed /nginx_status: {titles}"
             assert not any("safe_q" in t for t in titles), f"False positive on properly HTML-escaped safe_q: {titles}"
             assert any("Unvalidated X-Forwarded-Host" in t for t in titles), f"XFH verifier missed flaw: {titles}"
             assert any("Verbose Python Stack Trace Disclosed" in t for t in titles), f"Debug stack-trace detector missed 500 trace: {titles}"

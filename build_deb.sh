@@ -14,7 +14,7 @@ mkdir -p "${DIST_DIR}"
 
 cat << 'EOF' > "${PKG_DIR}/DEBIAN/control"
 Package: spectre-recon
-Version: 3.3.0
+Version: 3.4.0
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -23,7 +23,7 @@ Recommends: g++, libssl-dev, nmap, whois, dnsutils
 Maintainer: AmaQi701 <67887617+AmaQi701@users.noreply.github.com>
 Description: SPECTRE Hybrid C++17/Python Attack Surface & Security Audit Studio
  Native Linux GTK3 Desktop platform with C++17 epoll/OpenSSL acceleration,
- active protocol NVTs, 68-product CPE 2.3 engine, and CISA KEV correlation.
+ declarative NVTs, RFC 4253 SSH KEX auditor, and 102-product CPE 2.3/KEV engine.
 EOF
 
 if command -v g++ >/dev/null 2>&1; then
@@ -43,7 +43,7 @@ Version=1.0
 Type=Application
 Name=SPECTRE Recon Studio
 GenericName=Cyber-Recon & Attack Surface Studio
-Comment=SPECTRE v3.3.0 Hybrid C++17/Python Recon, Protocol NVT, Bug Chaining & Report Studio
+Comment=SPECTRE v3.4.0 Hybrid C++17/Python Recon, Declarative NVT, Bug Chaining & Report Studio
 Exec=/bin/bash /opt/apex-asm-studio/launch_apex.sh
 Path=/opt/apex-asm-studio
 Icon=/opt/apex-asm-studio/ui/apex-icon.svg
@@ -53,5 +53,5 @@ Keywords=pentest;recon;security;audit;spectre;scanner;
 StartupNotify=true
 EOF
 
-dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_3.3.0_amd64.deb"
-echo "[+] Built package: ${DIST_DIR}/spectre-recon_3.3.0_amd64.deb"
+dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_3.4.0_amd64.deb"
+echo "[+] Built package: ${DIST_DIR}/spectre-recon_3.4.0_amd64.deb"
