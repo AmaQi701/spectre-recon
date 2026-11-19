@@ -281,6 +281,22 @@ class VulnAssessmentSuperAgent:
             is_https = url.lower().startswith("https://")
             for ck in cookies:
                 ck_name = str(ck.get("name") or "session")
+                ck_raw = str(ck.get("raw") or "")
+                m_jwt = re.search(r"\b(eyJ[A-Za-z0-9_\-]{8,}\.eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*)", ck_raw)
+                if m_jwt and f"jwt:{ck_name}" not in seen_cookie_names:
+                    seen_cookie_names.add(f"jwt:{ck_name}")
+                    j_res = self.audit_jwt_token(m_jwt.group(1))
+                    crit_iss = [x for x in j_res.get("issues", []) if x.startswith("CRITICAL")]
+                    if crit_iss:
+                        self.db.upsert_finding(
+                            project_id, "Agent-2 (JWT-Crypto)", f"[CONFIRMED] Weak JWT Cryptographic Posture in '{ck_name}' Cookie",
+                            "Cryptographic Failure", "Critical", 9.4, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                            "CWE-347", "A02:2021 - Cryptographic Failures", url,
+                            " | ".join(crit_iss),
+                            "Sessiya cookie ichidagi JWT token zaif HMAC kalit yoki xavfsiz bo'lmagan algoritm bilan imzolangan.",
+                            "Kamida 256-bitli kriptografik tasodifiy kalit yoki RS256/EdDSA asimmetrik imzoga o'ting.",
+                            confidence=QoD.ACTIVE_VERIFIED,
+                        )
                 ck_low = ck_name.lower()
                 if ck_low.startswith(analytics_ck_prefixes):
                     continue
@@ -876,6 +892,10 @@ class VulnAssessmentSuperAgent:
         ("Spring Boot Whitelabel Error", "<h1>Whitelabel Error Page</h1>", "Low"),
         ("PHP Uncaught Fatal Error", "Fatal error: Uncaught ", "Medium"),
         ("Database Driver Error", "SQLSTATE[", "High"),
+        ("PostgreSQL Driver Warning", "pg_query(): Query failed:", "High"),
+        ("MySQL Driver Warning", "You have an error in your SQL syntax", "High"),
+        ("Oracle Database Error", "ORA-01756:", "High"),
+        ("ASP.NET Detailed Error", "Server Error in '/' Application", "Medium"),
     )
 
     def _inspect_verbose_debug_trace(self, project_id: int, url: str, host_k: str, status_code: int, body_text: str, seen_debug: set[tuple[str, str]], log_fn) -> None:

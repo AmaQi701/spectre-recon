@@ -450,6 +450,7 @@ def trace_redirect_chains_and_oauth_flows(db, session: requests.Session, project
     log_fn("[SPECTRE Ultra #6 -> Redirect-Chain & SSO Tracker] 301/302 redirect zanjirlari va SSO/OAuth redirect_uri parametrlari kuzatilmoqda...")
     probe_routes = ["/", "/admin", "/login", "/dashboard", "/cabinet", "/auth", "/sso", "/profile"]
 
+    seen_oauth_issues: set[tuple[str, str]] = set()
     for svc in services[:6]:
         base_url = svc["url"]
         for rt in probe_routes:
@@ -461,10 +462,37 @@ def trace_redirect_chains_and_oauth_flows(db, session: requests.Session, project
                     if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("Location"):
                         nxt = urllib.parse.urljoin(cur_url, r.headers["Location"])
                         hops.append(f"{r.status_code}:{nxt}")
-                        if any(p in nxt.lower() for p in ("redirect_uri=", "returnurl=", "return_to=", "next=", "client_id=", "continue=")):
+                        nxt_l = nxt.lower()
+                        if any(p in nxt_l for p in ("redirect_uri=", "returnurl=", "return_to=", "next=", "client_id=", "continue=")):
                             log_fn(f"  [🔄 OAuth/Redirect Flow] {' -> '.join(hops)}")
                             if record_url_fn:
                                 record_url_fn(project_id, nxt, base_url, scope, "redirect_chain_tracker")
+                            p_nx = urllib.parse.urlparse(nxt)
+                            q_nx = {k.lower(): v for k, v in urllib.parse.parse_qs(p_nx.query).items()}
+                            ohost = p_nx.hostname or base_url
+                            if "client_id" in q_nx and "redirect_uri" in q_nx:
+                                if "state" not in q_nx and (ohost, "no_state") not in seen_oauth_issues:
+                                    seen_oauth_issues.add((ohost, "no_state"))
+                                    db.upsert_finding(
+                                        project_id, "SPECTRE-OAuth-Auditor", f"OAuth2 Authorization Redirect Missing 'state' Parameter ({ohost})",
+                                        "OAuth2 / SSO Misconfiguration", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+                                        "CWE-352", "A07:2021 - Identification and Authentication Failures", cur_url,
+                                        f"Redirect Location lacks 'state': {nxt[:160]}",
+                                        "OAuth2 avtorizatsiya so'rovida CSRF himoyasi uchun majburiy 'state' parametri yuborilmagan.",
+                                        "Har bir OAuth2 avtorizatsiya oqimida tasodifiy kriptografik 'state' va PKCE ('code_challenge') ishlating.",
+                                    )
+                                rtype = ",".join(q_nx.get("response_type", [])).lower()
+                                if "token" in rtype.split() or rtype == "token":
+                                    if (ohost, "implicit") not in seen_oauth_issues:
+                                        seen_oauth_issues.add((ohost, "implicit"))
+                                        db.upsert_finding(
+                                            project_id, "SPECTRE-OAuth-Auditor", f"Deprecated OAuth2 Implicit Flow ('response_type=token') ({ohost})",
+                                            "OAuth2 / SSO Misconfiguration", "Medium", 5.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:N/A:N",
+                                            "CWE-522", "A07:2021 - Identification and Authentication Failures", cur_url,
+                                            f"Implicit flow redirect: {nxt[:160]}",
+                                            "OAuth2 Implicit Flow access tokenni URL fragmentida ochiq qaytaradi.",
+                                            "Authorization Code + PKCE (`response_type=code`) oqimiga o'ting.",
+                                        )
                         cur_url = nxt
                     else:
                         break
