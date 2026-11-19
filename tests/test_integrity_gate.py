@@ -432,14 +432,14 @@ def run_integrity_gate() -> list[str]:
         from core.nvt_declarative_engine import load_nvt_catalog
         from core.advisory_kb import _CPE_VENDOR_PRODUCT
         nvt_rules = load_nvt_catalog()
-        if len(nvt_rules) < 80:
+        if len(nvt_rules) < 100:
             errors.append(f"[DECLARATIVE NVT CATALOG TOO SMALL] count={len(nvt_rules)}")
-        if len(_CPE_VENDOR_PRODUCT) < 105:
-            errors.append(f"[CPE 2.3 CATALOG BELOW 105 PRODUCTS] count={len(_CPE_VENDOR_PRODUCT)}")
-        m_ext = match_version_advisories("Kibana 8.12.0\nRoundcube 1.6.5\nownCloud 10.13.1\nGitea 1.21.5\nSolr 9.2.0\nActiveMQ 5.17.1\nMetabase 0.45.2")
+        if len(_CPE_VENDOR_PRODUCT) < 120:
+            errors.append(f"[CPE 2.3 CATALOG BELOW 120 PRODUCTS] count={len(_CPE_VENDOR_PRODUCT)}")
+        m_ext = match_version_advisories("Kibana 8.12.0\nRoundcube 1.6.5\nownCloud 10.13.1\nGitea 1.21.5\nSolr 9.2.0\nActiveMQ 5.17.1\nMetabase 0.45.2\nOllama 0.1.29\nMLflow 2.10.0")
         ext_prods = {x["product"] for x in m_ext}
-        if not {"kibana", "roundcube", "owncloud", "gitea", "solr", "activemq", "metabase"}.issubset(ext_prods):
-            errors.append(f"[106-PRODUCT ENTERPRISE CPE MATCHING BROKEN] {ext_prods}")
+        if not {"kibana", "roundcube", "owncloud", "gitea", "solr", "activemq", "metabase", "ollama", "mlflow"}.issubset(ext_prods):
+            errors.append(f"[120-PRODUCT ENTERPRISE CPE MATCHING BROKEN] {ext_prods}")
         if surface_prober.murmur3_32(b"spectre_favicon_check") != active_web_auditor.murmurhash3_32_signed(b"spectre_favicon_check"):
             errors.append("[C++17 MURMUR3 UNIFICATION MISMATCH]")
         from core.sca_engine import extract_js_bundle_libraries, match_dependencies_advisories, parse_manifest_dependencies
@@ -454,6 +454,11 @@ def run_integrity_gate() -> list[str]:
         _sbom = build_cyclonedx_sbom(_b_comp)
         if _sarif.get("version") != "2.1.0" or _sbom.get("bomFormat") != "CycloneDX":
             errors.append("[SARIF 2.1.0 OR CYCLONEDX 1.5 EXPORTER BROKEN]")
+        from core.credentialed_auditor import parse_sshd_posture
+        import spectre_cli
+        _ssh_issues = parse_sshd_posture("PermitRootLogin yes\nPermitEmptyPasswords yes\n")
+        if len(_ssh_issues) < 2 or spectre_cli.build_parser() is None:
+            errors.append(f"[CREDENTIALED SSH OR HEADLESS CLI BROKEN] {_ssh_issues}")
 
     return errors
 

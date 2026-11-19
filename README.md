@@ -2,9 +2,9 @@
 
 <img src="ui/apex-icon.svg" width="105" alt="SPECTRE Logo" />
 
-# SPECTRE (`spectre-recon`) v3.7.0
+# SPECTRE (`spectre-recon`) v3.8.0
 
-**Hybrid C++17 / Python Attack Surface Management (ASM), 80-Rule Declarative NVT, 26-Port Socket NVT, SCA/OSV & SARIF/CycloneDX SBOM Studio for Linux (Native GTK3)**
+**Hybrid C++17 / Python Attack Surface Management (ASM), 100-Rule Declarative NVT, 26-Port Socket NVT, Credentialed SSH Audit, SCA/OSV & SARIF/CycloneDX SBOM Platform (GTK3 Desktop + Headless CLI)**
 
 [![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Kali%20%7C%20Debian-0ea5e9?style=for-the-badge&logo=linux)](https://github.com/AmaQi701/spectre-recon)
 [![Engine](https://img.shields.io/badge/Core-C%2B%2B17%20epoll%20%2B%20OpenSSL-ef4444?style=for-the-badge&logo=cplusplus)](https://isocpp.org/)
@@ -105,12 +105,20 @@ cd spectre-recon
 ./launch_apex.sh
 ```
 
-### Option 2: Build & Install `.deb` Package
+### Option 2: Headless Server & CI/CD CLI Mode (`spectre_cli.py`)
+
+```bash
+python3 spectre_cli.py --target example.org --mode full --fail-on high
+# Optional Read-Only Credentialed SSH CIS & Package Audit:
+python3 spectre_cli.py --target example.org --ssh-audit auditor@example.org --ssh-key ~/.ssh/id_ed25519
+```
+
+### Option 3: Build & Install `.deb` Package
 
 ```bash
 chmod +x build_deb.sh
 ./build_deb.sh
-sudo dpkg -i dist/spectre-recon_3.6.0_amd64.deb
+sudo dpkg -i dist/spectre-recon_3.8.0_amd64.deb
 spectre-recon
 ```
 

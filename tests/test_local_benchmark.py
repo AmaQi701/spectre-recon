@@ -279,6 +279,9 @@ def run_benchmark() -> None:
             assert any("Infrastructure Exposure Chain" in c for c in chains), f"Protocol/Debug chain missing: {chains}"
             assert len(chains) >= 10, f"Asset-Bound Graph Chainer produced too few chains: {chains}"
             assert pathlib.Path(rep_paths["html_path"]).is_file(), "HTML report was not generated"
+            from agents import cli_orchestrator
+            exp_res = cli_orchestrator.export_project_artifacts(db, pid, str(tmp_path / "reports"))
+            assert pathlib.Path(exp_res["sarif_json"]).is_file() and pathlib.Path(exp_res["cyclonedx_sbom_json"]).is_file(), "SARIF or SBOM export missing"
 
             print(
                 f"BENCHMARK_OK | Endpoints={len(bundle['endpoints'])} | JS={len(bundle['js_assets'])} "

@@ -1,0 +1,131 @@
+"""
+SPECTRE Read-Only Credentialed SSH CIS & Package Posture Auditor
+================================================================
+Performs non-destructive, read-only local configuration and package version
+checks over an authorized `BatchMode=yes` SSH session (Nessus/OpenVAS LSC style).
+"""
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+from typing import Any
+
+from core.advisory_kb import match_version_advisories
+from core.plugin_runner import QoD
+
+
+def parse_sshd_posture(config_text: str) -> list[tuple[str, str, float, str, str]]:
+    """Evaluates `sshd_config` text against CIS Linux SSH hardening rules."""
+    issues: list[tuple[str, str, float, str, str]] = []
+    directives: dict[str, str] = {}
+    for raw_ln in (config_text or "").splitlines():
+        ln = raw_ln.split("#", 1)[0].strip()
+        if not ln:
+            continue
+        parts = ln.split(None, 1)
+        if len(parts) == 2:
+            directives.setdefault(parts[0].lower(), parts[1].strip().lower())
+
+    if directives.get("permitemptypasswords") == "yes":
+        issues.append((
+            "[CONFIRMED] SSH PermitEmptyPasswords Enabled (CIS Benchmark)",
+            "Critical", 9.8, "CWE-287",
+            "sshd_config faylida `PermitEmptyPasswords no` o'rnating va sshd xizmatini qayta yuklang.",
+        ))
+    if directives.get("permitrootlogin") == "yes":
+        issues.append((
+            "[CONFIRMED] SSH Direct Root Password Login Enabled (PermitRootLogin yes)",
+            "Medium", 6.5, "CWE-250",
+            "sshd_config faylida `PermitRootLogin prohibit-password` yoki `no` o'rnating.",
+        ))
+    if directives.get("protocol") == "1" or "1" in directives.get("protocol", "").split(","):
+        issues.append((
+            "[CONFIRMED] Legacy SSH Protocol v1 Enabled in sshd_config",
+            "High", 7.5, "CWE-327",
+            "sshd_config faylida faqat `Protocol 2` qoldiring.",
+        ))
+    return issues
+
+
+def run_credentialed_ssh_audit(
+    db: Any,
+    project_id: int,
+    ssh_target: str,
+    log_fn: Any,
+    ssh_key: str = "",
+) -> int:
+    ssh_bin = shutil.which("ssh")
+    if not ssh_bin or not ssh_target:
+        return 0
+
+    host_part = ssh_target.split("@")[-1]
+    port_num = "22"
+    if ":" in host_part:
+        host_part, port_num = host_part.rsplit(":", 1)
+    user_host = ssh_target.rsplit(":", 1)[0] if ":" in ssh_target.split("@")[-1] else ssh_target
+
+    cmd = [
+        ssh_bin, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "ConnectTimeout=5", "-p", port_num,
+    ]
+    if ssh_key:
+        cmd.extend(["-i", ssh_key])
+    remote_probe = (
+        "uname -sr; echo '===OS==='; cat /etc/os-release 2>/dev/null | head -n 6; "
+        "echo '===SSHD==='; grep -Ev '^[[:space:]]*(#|$)' /etc/ssh/sshd_config 2>/dev/null; "
+        "echo '===PKGS==='; dpkg-query -W -f='${Package} ${Version}\\n' 2>/dev/null | "
+        "grep -Ei '^(openssh-server|nginx|apache2|mysql-server|mariadb-server|postgresql|redis-server|php|exim4|postfix|squid|bind9|dnsmasq)' || "
+        "rpm -qa --qf '%{NAME} %{VERSION}-%{RELEASE}\\n' 2>/dev/null | "
+        "grep -Ei '^(openssh-server|nginx|httpd|mariadb-server|postgresql-server|redis|php|postfix|squid|bind|dnsmasq)'"
+    )
+    cmd.extend([user_host, remote_probe])
+
+    try:
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=12)
+    except Exception:
+        return 0
+    if proc.returncode != 0 or not proc.stdout:
+        return 0
+
+    out = proc.stdout
+    written = 0
+    parts_os = out.split("===OS===")
+    uname_s = parts_os[0].strip()[:80]
+    rest1 = parts_os[1] if len(parts_os) > 1 else ""
+    os_rel, rest2 = (rest1.split("===SSHD===", 1) + [""])[:2]
+    sshd_txt, pkgs_txt = (rest2.split("===PKGS===", 1) + [""])[:2]
+
+    pretty_m = re.search(r'PRETTY_NAME="?([^"\n]+)"?', os_rel)
+    os_name = pretty_m.group(1) if pretty_m else uname_s
+    db.log_task(project_id, "SPECTRE-Intel", "ssh_lsc_baseline", "COMPLETED", host_part, f"OS: {os_name} | Kernel: {uname_s}")
+
+    for title, sev, cvss, cwe, rem in parse_sshd_posture(sshd_txt):
+        db.upsert_finding(
+            project_id, "Agent-2 (Credentialed-SSH)", f"{title} ({host_part})",
+            "CIS Benchmark / Local Security Check", sev, cvss,
+            "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N", cwe,
+            "A05:2021 - Security Misconfiguration", f"ssh://{host_part}:{port_num}",
+            f"Authenticated SSH check on {host_part} ({os_name})",
+            "Lokal sshd_config tekshiruvi xavfsizlik me'yorlariga zid sozlamani aniqladi.",
+            rem, confidence=QoD.ACTIVE_VERIFIED,
+        )
+        written += 1
+
+    norm_pkgs = pkgs_txt.replace("openssh-server", "openssh").replace("apache2", "apache").replace("httpd", "apache").replace("-server", "")
+    for adv in match_version_advisories(f"{os_name}\n{norm_pkgs}"):
+        if adv.get("distro_backport_likely"):
+            continue
+        db.upsert_finding(
+            project_id, "Agent-2 (Credentialed-SSH)", f"[CONFIRMED] {adv['title']} ({host_part}) [{adv['cve']}]",
+            "Authenticated Package Audit (LSC)", adv["severity"], float(adv["cvss"]), adv["vector"],
+            adv["cwe"], adv["owasp"], f"ssh://{host_part}:{port_num}",
+            f"Authenticated dpkg/rpm inventory: {adv['product']} {adv['detected_version']} | {adv.get('cpe23', '')}",
+            "Lokal paket inventarizatsiyasi orqali eskirgan tizim paketi tasdiqlandi.",
+            adv["remediation"], confidence=QoD.ACTIVE_VERIFIED,
+        )
+        written += 1
+
+    if log_fn:
+        log_fn(f"  [CREDENTIALED-SSH] {host_part} ({os_name}) tekshirildi -> {written} ta lokal CIS/paket topilmasi.")
+    return written

@@ -464,8 +464,23 @@ class TriageAndChainSuperAgent:
             f"<td>{_html.escape(str(ch['remediation']))}</td></tr>"
             for ch in chains
         )
+        crit_c = sum(1 for f in findings if f.get("severity") == "Critical")
+        high_c = sum(1 for f in findings if f.get("severity") == "High")
+        med_c = sum(1 for f in findings if f.get("severity") == "Medium")
+        low_c = sum(1 for f in findings if f.get("severity") == "Low")
+        kev_c = sum(1 for f in findings if "[CISA-KEV" in str(f.get("evidence", "")))
+        kpi_bar = (
+            f"<div style='display:flex;gap:12px;flex-wrap:wrap;margin:16px 0;'>"
+            f"<div style='background:#1a1114;border:1px solid #7f1d1d;padding:10px 16px;border-radius:8px;'><b>Critical:</b> {crit_c}</div>"
+            f"<div style='background:#1c1410;border:1px solid #9a3412;padding:10px 16px;border-radius:8px;'><b>High:</b> {high_c}</div>"
+            f"<div style='background:#1a180f;border:1px solid #854d0e;padding:10px 16px;border-radius:8px;'><b>Medium:</b> {med_c}</div>"
+            f"<div style='background:#0f1914;border:1px solid #166534;padding:10px 16px;border-radius:8px;'><b>Low:</b> {low_c}</div>"
+            f"<div style='background:#17121e;border:1px solid #581c87;padding:10px 16px;border-radius:8px;'><b>CISA KEV:</b> {kev_c}</div>"
+            f"<div style='background:#0f172a;border:1px solid #1e3a8a;padding:10px 16px;border-radius:8px;'><b>Attack Chains:</b> {len(chains)}</div>"
+            f"</div>"
+        )
         html_content = f"""<!DOCTYPE html>
-<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v3.0 Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
+<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v3.8.0 Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
 <style>
 body {{ font-family: "Inter", system-ui, sans-serif; background: #090c0a; color: #e2e8f0; padding: 32px; }}
 h1, h2 {{ color: #4ade80; border-bottom: 1px solid #1b2a21; padding-bottom: 8px; }}
@@ -474,8 +489,9 @@ th, td {{ border: 1px solid #1b2a21; padding: 10px 12px; text-align: left; font-
 th {{ background: #13281c; color: #4ade80; font-weight: 700; }}
 code {{ color: #86efac; background: #080b09; padding: 2px 6px; border-radius: 4px; }}
 </style></head><body>
-<h1>SPECTRE v3.0 — Security &amp; Attack Surface Audit Report: {_html.escape(str(proj.get('name', '')))}</h1>
+<h1>SPECTRE v3.8.0 — Enterprise Security &amp; Attack Surface Report: {_html.escape(str(proj.get('name', '')))}</h1>
 <p><b>Primary Target:</b> <code>{_html.escape(str(proj.get('primary_target', '')))}</code> | <b>In-Scope:</b> <code>{_html.escape(str(proj.get('in_scope', '')))}</code></p>
+{kpi_bar}
 <h2>🔗 Zaifliklar Zanjiri (Bug Chaining Scenarios — {len(chains)})</h2>
 <table><thead><tr><th>Severity / CVSS</th><th>Zanjir Nomi va Bosqichlari</th><th>Hujum Ssenariysi</th><th>Remediation</th></tr></thead>
 <tbody>{chains_html or '<tr><td colspan="4">Zanjirlangan ssenariylar aniqlanmadi.</td></tr>'}</tbody></table>

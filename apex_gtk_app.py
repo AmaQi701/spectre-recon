@@ -646,7 +646,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v3.7.0 Hybrid Workstation] C++17 epoll/OpenSSL, 80-NVT Catalog, 26-Port Socket NVT, SCA/OSV & SARIF/SBOM Studio initialized.\n")
+        self.term_buf.set_text("[SPECTRE v3.8.0 Hybrid Workstation] C++17 epoll/OpenSSL, 100-NVT Catalog, 26-Port NVT, 120-CPE, SCA/OSV & SARIF/SBOM Studio initialized.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)
