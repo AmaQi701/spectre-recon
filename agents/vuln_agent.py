@@ -178,12 +178,15 @@ class VulnAssessmentSuperAgent:
                     sig_input = f"{parts[0]}.{parts[1]}".encode("utf-8")
                     pad_s = "=" * ((4 - len(parts[2]) % 4) % 4)
                     raw_sig = base64.urlsafe_b64decode(parts[2] + pad_s)
-                    digest_fn = {"hs256": hashlib.sha256, "hs384": hashlib.sha384, "hs512": hashlib.sha512}[alg]
-                    default_keys = ("secret", "password", "123456", "jwt_secret", "changeme", "admin", "secretkey", "mysecret", "key", "token")
-                    for cand_k in default_keys:
-                        if hmac.compare_digest(hmac.new(cand_k.encode("utf-8"), sig_input, digest_fn).digest(), raw_sig):
-                            issues.insert(0, f"CRITICAL [QoD: 99%]: JWT imzosi standart zaif kalit ('{cand_k}') bilan tasdiqlandi!")
-                            break
+                    from core.native_bridge import fast_jwt_hmac_audit
+                    default_keys = (
+                        "secret", "password", "123456", "jwt_secret", "changeme", "admin",
+                        "secretkey", "mysecret", "key", "token", "supersecret", "dev",
+                        "production", "jwt", "auth_secret", "app_secret", "qwerty", "12345678",
+                    )
+                    matched_k = fast_jwt_hmac_audit(sig_input, raw_sig, alg, default_keys)
+                    if matched_k:
+                        issues.insert(0, f"CRITICAL [QoD: 99%]: JWT imzosi standart zaif kalit ('{matched_k}') bilan tasdiqlandi!")
             if "exp" not in payload:
                 issues.append("MEDIUM: Token muddati ('exp' claim) belgilanmagan — token doimiy amal qilishi mumkin.")
             if any(k in str(payload).lower() for k in ("password", "secret", "ssn", "private")):

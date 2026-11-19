@@ -342,6 +342,32 @@ def run_integrity_gate() -> list[str]:
         if not any("secret" in x and "CRITICAL" in x for x in jwt_res.get("issues", [])):
             errors.append(f"[JWT HMAC KEY CHECK BROKEN] {jwt_res}")
 
+        # Phase 1 Gate: C++17 Native Accelerator (libspectre_accel.so + Linux epoll + SimHash64)
+        from core.native_bridge import get_native_lib, fast_epoll_tcp_probe, fast_simhash64, fast_shannon_entropy
+        if get_native_lib() is None:
+            errors.append("[NATIVE C++ ENGINE FAILED TO COMPILE OR LOAD]")
+        srv_ep = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+        srv_ep.bind(("127.0.0.1", 0))
+        srv_ep.listen(1)
+        ep_port = srv_ep.getsockname()[1]
+
+        def _fake_mysql():
+            try:
+                cs, _ = srv_ep.accept()
+                cs.sendall(b"\x20\x00\x00\x00\x0a8.0.36\x00")
+                cs.close()
+            except Exception:
+                pass
+            finally:
+                srv_ep.close()
+
+        _thr.Thread(target=_fake_mysql, daemon=True).start()
+        ep_hits = fast_epoll_tcp_probe("127.0.0.1", [ep_port], timeout_ms=400)
+        if ep_port not in ep_hits or b"8.0.36" not in ep_hits[ep_port]:
+            errors.append(f"[NATIVE C++ EPOLL PROBE BROKEN] {ep_hits}")
+        if fast_simhash64("<html><body>Admin Panel</body></html>") == 0 or fast_shannon_entropy("A9f8K2m9P0q7Z1x4") < 3.5:
+            errors.append("[NATIVE C++ HASH/ENTROPY BROKEN]")
+
     return errors
 
 

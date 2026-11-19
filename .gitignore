@@ -36,5 +36,6 @@ venv/
 .env
 dist/
 *.deb
+*.so
 .DS_Store
 

@@ -12,11 +12,12 @@ import concurrent.futures
 import json
 import re
 import socket
+import struct
 from typing import Any
 
 from core.plugin_runner import QoD
 
-SUPPORTED_ACTIVE_PORTS = {21, 25, 587, 873, 2375, 2376, 6379, 6443, 9100, 9200, 10250, 11211}
+SUPPORTED_ACTIVE_PORTS = {21, 25, 389, 587, 873, 2375, 2376, 3306, 5432, 6379, 6443, 9100, 9200, 10250, 11211, 27017}
 
 
 def _tcp_exchange(host: str, port: int, payloads: list[bytes], timeout: float = 2.6, read_initial: bool = False) -> str:
@@ -144,6 +145,82 @@ def _probe_data_and_metrics(db: Any, http_engine: Any, project_id: int, connect_
     return hits
 
 
+def _probe_binary_db_and_ldap(db: Any, project_id: int, connect_target: str, target_ip: str, disp_host: str, port: int, log_fn: Any) -> int:
+    hits = 0
+    if port == 3306:
+        with socket.create_connection((connect_target, 3306), timeout=2.5) as s:
+            s.settimeout(2.5)
+            pkt = s.recv(512)
+        if len(pkt) >= 6:
+            proto_b = pkt[4]
+            if proto_b == 0x0A:
+                end_v = pkt.find(b"\x00", 5)
+                if end_v > 5:
+                    ver_str = pkt[5:end_v].decode("utf-8", errors="ignore").strip()
+                    plugin_m = re.search(rb"(mysql_native_password|caching_sha2_password|mariadb_gssapi_client)", pkt[end_v:])
+                    plug_s = plugin_m.group(1).decode("ascii") if plugin_m else ""
+                    lbl_v = f"MariaDB {ver_str}" if "mariadb" in ver_str.lower() else f"MySQL {ver_str}"
+                    db.upsert_port(project_id, disp_host, 3306, "tcp", ip=target_ip, service="mysql", version=lbl_v, banner=f"{lbl_v} {plug_s}".strip(), source="socket_nvt")
+            elif proto_b == 0xFF and len(pkt) > 7:
+                err_txt = pkt[7:].decode("utf-8", errors="ignore").strip()
+                db.upsert_port(project_id, disp_host, 3306, "tcp", ip=target_ip, service="mysql", banner=err_txt[:160], source="socket_nvt")
+
+    elif port == 5432:
+        body = b"user\x00postgres\x00database\x00postgres\x00\x00"
+        startup = struct.pack("!II", len(body) + 8, 196608) + body
+        with socket.create_connection((connect_target, 5432), timeout=2.5) as s:
+            s.settimeout(2.5)
+            s.sendall(startup)
+            resp = s.recv(1024)
+        if resp.startswith(b"R") and len(resp) >= 9:
+            auth_code = struct.unpack("!I", resp[5:9])[0]
+            db.upsert_port(project_id, disp_host, 5432, "tcp", ip=target_ip, service="postgresql", banner=f"PG AuthCode={auth_code}", source="socket_nvt")
+            if auth_code == 0:
+                db.upsert_finding(
+                    project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated Backend Data Store Access (PostgreSQL Trust on {disp_host}:5432)",
+                    "Database / Cache Exposure", "Critical", 9.6, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                    "CWE-306", "A05:2021 - Security Misconfiguration", f"{disp_host}:5432",
+                    "PostgreSQL StartupMessage returned AuthenticationOk (code=0, pg_hba.conf trust)",
+                    "PostgreSQL serveri tashqi ulanishlarga parolsiz (`trust` rejimida) kirishga ruxsat bermoqda.",
+                    "`pg_hba.conf` faylida `trust` o'rniga `scram-sha-256` o'rnating va portni ichki tarmoqqa cheklang.",
+                    confidence=QoD.ACTIVE_VERIFIED,
+                )
+                hits += 1
+
+    elif port == 27017:
+        bson_doc = b"\x13\x00\x00\x00\x10ismaster\x00\x01\x00\x00\x00\x00"
+        op_query = struct.pack("<IIII", 0, 0, 0, 1) + b"admin.$cmd\x00" + struct.pack("<ii", 0, 1) + bson_doc
+        wire_pkt = struct.pack("<IIII", len(op_query) + 16, 1, 0, 2004) + op_query
+        with socket.create_connection((connect_target, 27017), timeout=2.5) as s:
+            s.settimeout(2.5)
+            s.sendall(wire_pkt)
+            resp = s.recv(2048)
+        if b"maxWireVersion" in resp or b"ismaster" in resp:
+            db.upsert_port(project_id, disp_host, 27017, "tcp", ip=target_ip, service="mongodb", version="MongoDB", banner="MongoDB Wire Handshake OK", source="socket_nvt")
+
+    elif port == 389:
+        # Standard ASN.1 BER LDAPv3 Anonymous Simple BindRequest (messageID=1, version=3, name="", simple="")
+        ldap_bind = bytes.fromhex("300c020101600702010304008000")
+        with socket.create_connection((connect_target, 389), timeout=2.5) as s:
+            s.settimeout(2.5)
+            s.sendall(ldap_bind)
+            resp = s.recv(512)
+        if len(resp) >= 7 and b"\x61" in resp[:6] and b"\x0a\x01\x00" in resp[:14]:
+            db.upsert_port(project_id, disp_host, 389, "tcp", ip=target_ip, service="ldap", version="LDAPv3", banner="Anonymous Bind Allowed", source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] LDAP Anonymous Bind Permitted ({disp_host}:389)",
+                "Directory Service Misconfiguration", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                "CWE-284", "A01:2021 - Broken Access Control", f"{disp_host}:389",
+                "LDAPv3 Simple BindRequest (empty DN/password) returned resultCode=0 (success)",
+                "LDAP serveri parolsiz (Anonymous Bind) ulanishga ruxsat bermoqda.",
+                "OpenLDAP (`disallow bind_anon`) yoki Active Directory da anonim LDAP so'rovlarini o'chiring.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            log_fn(f"  [SOCKET-NVT] {disp_host}:389 -> LDAP Anonymous Bind tasdiqlandi!")
+            hits += 1
+    return hits
+
+
 def _probe_single_port(
     db: Any,
     http_engine: Any,
@@ -159,6 +236,8 @@ def _probe_single_port(
     try:
         if port in (6379, 11211, 9200, 9100, 2375, 2376, 6443, 10250):
             return _probe_data_and_metrics(db, http_engine, project_id, connect_target, target_ip, disp_host, port, log_fn)
+        if port in (3306, 5432, 27017, 389):
+            return _probe_binary_db_and_ldap(db, project_id, connect_target, target_ip, disp_host, port, log_fn)
         if port == 873:
             out = _tcp_exchange(connect_target, 873, [b"\n"], timeout=2.5, read_initial=True)
             if "@RSYNCD:" in out:

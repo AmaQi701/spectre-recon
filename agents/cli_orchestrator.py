@@ -78,6 +78,7 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
     tls_lock = threading.Lock()
     mismatch_items: list[tuple[str, str, str]] = []
     expired_items: list[tuple[str, str, str]] = []
+    expiring_soon_items: list[tuple[str, str, str]] = []
     weak_tls_items: list[tuple[str, str, str]] = []
 
     def inspect_cert(url: str):
@@ -92,6 +93,8 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
                 with ctx.wrap_socket(sock, server_hostname=host) as ssock:
                     cert = ssock.getpeercert()
                     tls_ver = ssock.version() or ""
+                    cipher_info = ssock.cipher() or ("", "", 256)
+                    c_name, _, c_bits = cipher_info[0], cipher_info[1], int(cipher_info[2] or 256)
                     not_after_str = cert.get("notAfter", "")
                     if not_after_str:
                         exp_dt = datetime.datetime.strptime(not_after_str, "%b %d %H:%M:%S %Y %Z")
@@ -100,9 +103,12 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
                         if days_left < 0:
                             with tls_lock:
                                 expired_items.append((f"{host}:{port}", url, f"Expired on {not_after_str} ({abs(days_left)}d ago)"))
-                    if tls_ver in ("TLSv1", "TLSv1.1", "SSLv3"):
+                        elif days_left <= 14:
+                            with tls_lock:
+                                expiring_soon_items.append((f"{host}:{port}", url, f"Expires in {days_left}d ({not_after_str})"))
+                    if tls_ver in ("TLSv1", "TLSv1.1", "SSLv3") or c_bits < 128 or any(wc in c_name.upper() for wc in ("RC4", "3DES", "DES-", "NULL", "EXPORT", "MD5")):
                         with tls_lock:
-                            weak_tls_items.append((f"{host}:{port}", url, f"Protocol: {tls_ver}"))
+                            weak_tls_items.append((f"{host}:{port}", url, f"{tls_ver} / {c_name} ({c_bits}-bit)"))
         except ssl.SSLCertVerificationError as ssl_err:
             err_msg = str(ssl_err)
             with tls_lock:
@@ -135,6 +141,16 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
             "CWE-326", "A02:2021 - Cryptographic Failures", weak_tls_items[0][1],
             ev, "Eskirgan TLS protokoli yoqilgan.",
             "Faqat TLSv1.2 va TLSv1.3 protokollariga ruxsat bering.",
+        )
+    if expiring_soon_items:
+        lbl = expiring_soon_items[0][0] if len(expiring_soon_items) == 1 else f"{len(expiring_soon_items)} HTTPS Hosts"
+        ev = " | ".join(f"{hp}: {msg}" for hp, _, msg in expiring_soon_items[:8])
+        db.upsert_finding(
+            project_id, "SPECTRE-TLS-Audit", f"SSL/TLS Certificate Expiring Within 14 Days ({lbl})",
+            "Certificate Lifecycle Warning", "Low", 3.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+            "CWE-298", "A02:2021 - Cryptographic Failures", expiring_soon_items[0][1],
+            ev, "SSL/TLS sertifikatining amal qilish muddati 14 kundan kam qolgan.",
+            "ACME / Certbot avto-yangilanish xizmatini tekshiring va sertifikatni oldindan yangilang.",
         )
     if mismatch_items:
         lbl = mismatch_items[0][0] if len(mismatch_items) == 1 else f"{len(mismatch_items)} Subdomains"
@@ -602,6 +618,20 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
         ip_to_primary_host[ip] = sorted(h_list, key=lambda x: (-_rank_h(x), len(x)))[0]
 
     non_cdn_ips = sorted(ip_to_primary_host.keys(), key=lambda ip_k: (0 if ip_to_primary_host[ip_k] == primary_host else 1, ip_k))
+
+    # 3.0 Native C++17 Linux epoll Multi-Port & Greeting Sweep (< 0.8s per Origin IP)
+    if non_cdn_ips:
+        from core.native_bridge import fast_epoll_tcp_probe
+        core_ports = [21, 22, 23, 25, 53, 80, 81, 389, 443, 445, 587, 873, 1500, 2083, 2375, 3000, 3306, 5432, 6379, 6443, 8000, 8080, 8443, 9000, 9001, 9100, 9200, 10250, 11211, 27017]
+        for ep_ip in non_cdn_ips[:5]:
+            ep_res = fast_epoll_tcp_probe(ep_ip, core_ports, timeout_ms=750)
+            if ep_res:
+                canon_h = ip_to_primary_host.get(ep_ip, ep_ip)
+                for p_open, b_bytes in ep_res.items():
+                    svc_lbl = agent.STANDARD_PORT_SERVICES.get(p_open, "tcp-open")
+                    b_txt = b_bytes.decode("utf-8", errors="ignore").strip()[:120]
+                    agent.db.upsert_port(project_id, canon_h, p_open, "tcp", ip=ep_ip, service=svc_lbl, banner=b_txt, source="cpp_epoll")
+                log_fn(f"[C++ epoll Engine] {ep_ip} -> {len(ep_res)} ta ochiq port millisekundlarda aniqlandi: {sorted(ep_res.keys())}")
 
     # 3.1 Naabu Fast Top-1000 Port Scanner FIRST (Unique Non-CDN Origin IPs -> Feeds Nmap Deep NSE!)
     alg_false_ports = {2000, 5060}
