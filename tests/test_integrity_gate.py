@@ -368,6 +368,19 @@ def run_integrity_gate() -> list[str]:
         if fast_simhash64("<html><body>Admin Panel</body></html>") == 0 or fast_shannon_entropy("A9f8K2m9P0q7Z1x4") < 3.5:
             errors.append("[NATIVE C++ HASH/ENTROPY BROKEN]")
 
+        # Phase 7–10 Gate: 68-Product Catalog + SourceMap Chain + CISA KEV HTML Badge
+        m_infra = match_version_advisories("FortiOS 7.2.1\nConfluence 8.5.1\nArgoCD 2.9.3\nDjango 4.2.10")
+        inf_prods = {x["product"] for x in m_infra}
+        if not {"fortios", "confluence", "argocd", "django"}.issubset(inf_prods):
+            errors.append(f"[68-PRODUCT INFRA CATALOG BROKEN] {inf_prods}")
+        db.upsert_finding(pid_scale, "Predator", "[CONFIRMED] Exposed JavaScript SourceMap (app.js.map)", "Source Code Exposure", "High", 7.5, "", "CWE-540", "A05", "https://example.org/app.js.map", "ev", "rc", "rem")
+        db.upsert_endpoint(pid_scale, "https://example.org/api/v1/users", "GET", category="api_endpoint")
+        tc_g.run_triage_and_chaining(pid_scale, lambda _m: None)
+        reps_g = tc_g.generate_reports(pid_scale)
+        html_rep_txt = pathlib.Path(reps_g["html_path"]).read_text(encoding="utf-8")
+        if "CISA KEV" not in html_rep_txt or not any("SourceMap->API" in c["chain_title"] for c in db.get_project_bundle(pid_scale)["bug_chains"]):
+            errors.append("[PHASE 8-10 REPORT KEV BADGE OR SOURCEMAP CHAIN BROKEN]")
+
     return errors
 
 

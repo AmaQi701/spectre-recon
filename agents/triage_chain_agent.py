@@ -300,6 +300,37 @@ class TriageAndChainSuperAgent:
             )
 
         all_api_eps = [e["url"] for e in endpoints if e.get("category") in ("api_endpoint", "high_value_endpoint")]
+        smap_finds = [f for f in findings if "exposed javascript sourcemap" in str(f.get("title", "")).lower()]
+        if smap_finds and all_api_eps:
+            sf0 = smap_finds[0]
+            self.db.upsert_bug_chain(
+                project_id,
+                f"[SourceMap->API] {sf0['title']} + Reconstructed API Surface -> White-Box Assisted Exposure",
+                "High", 8.5,
+                [f"SourceMap: {sf0['asset']}", "Reconstructed TypeScript/JSX Source", f"API Target: {all_api_eps[0]}"],
+                "Production serverda ochiq qolgan SourceMap (.js.map) orqali tiklangan asl manba kodi ichki API marshrutlari va parametrlarini to'liq ochib bermoqda.",
+                "Yashirin biznes-mantiq va API endpointlarning tahlil qilinishi.",
+                "Build jarayonida `productionSourceMap: false` o'rnating va `*.map` fayllariga tashqi kirishni yoping.",
+            )
+
+        infra_crit = [
+            f for f in findings
+            if any(k in str(f.get("title", "")).lower() for k in ("docker daemon", "kubelet", "actuator environment", "ignition debug", "prometheus node exporter"))
+        ]
+        if infra_crit:
+            ic0 = infra_crit[0]
+            ic_h = self._extract_asset_host(ic0.get("asset", ""), known_hosts, ip_to_host) or pt_host
+            self.db.upsert_bug_chain(
+                project_id,
+                f"[{ic_h}] Unauthenticated Control/Telemetry Interface + Public Surface -> Infrastructure Exposure",
+                "Critical" if ic0.get("severity") == "Critical" else "High",
+                9.5 if ic0.get("severity") == "Critical" else 8.4,
+                [f"Host: {ic_h}", ic0["title"], f"Endpoint: {ic0['asset']}"],
+                "Tashqi tarmoqqa ochiq qoldirilgan konteyner, orkestrator yoki freymvork diagnostika interfeysi tizim konfiguratsiyasini oshkor qilmoqda.",
+                "Muhit o'zgaruvchilari, tokenlar yoki konteyner boshqaruvi ustidan ruxsatsiz amallar xavfi.",
+                ic0.get("remediation", "Boshqaruv va diagnostika portlarini tashqi tarmoqdan Firewall orqali yoping."),
+            )
+
         if sast_sinks and all_api_eps:
             sf = sast_sinks[0]
             self.db.upsert_bug_chain(
@@ -386,7 +417,9 @@ class TriageAndChainSuperAgent:
         # HTML Printable Report (with proper HTML escaping for safe rendering)
         import html as _html
         rows_html = "".join(
-            f"<tr><td><b>{_html.escape(str(f['severity']))}</b> ({_html.escape(str(f['cvss_score']))})<br><small>{_html.escape(str(f.get('confidence', '')))}</small></td>"
+            f"<tr><td><b>{_html.escape(str(f['severity']))}</b> ({_html.escape(str(f['cvss_score']))})"
+            + ("<br><span style='background:#7f1d1d;color:#fecaca;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:700;'>CISA KEV</span>" if "[CISA-KEV" in str(f.get("evidence", "")) else "")
+            + f"<br><small>{_html.escape(str(f.get('confidence', '')))}</small></td>"
             f"<td>{_html.escape(str(f['title']))}<br><small>{_html.escape(str(f['cwe']))} | {_html.escape(str(f['owasp']))}</small></td>"
             f"<td><code>{_html.escape(str(f['asset']))}</code></td>"
             f"<td><code>{_html.escape(str(f['evidence']))}</code></td>"

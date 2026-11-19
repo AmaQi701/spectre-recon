@@ -546,6 +546,7 @@ class ApexNativeWindow(Gtk.Window):
         triage_bar.pack_end(self._make_btn("Mark False-Positive", "btn-red", lambda _: self.on_set_triage("False-Positive")), False, False, 2)
         triage_bar.pack_end(self._make_btn("Needs Review", "btn-amber", lambda _: self.on_set_triage("Manual-Review")), False, False, 2)
         triage_bar.pack_end(self._make_btn("Mark Verified", "btn-green", lambda _: self.on_set_triage("Verified")), False, False, 2)
+        triage_bar.pack_end(self._make_btn("Send to Repeater", "act-btn", self.on_send_finding_to_repeater), False, False, 4)
         tab3_box.pack_start(triage_bar, False, False, 2)
 
         vuln_vpaned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
@@ -644,7 +645,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v3.2.0 Workstation] 49/49 CLI, Active Socket/CMS NVT Engine & 45-Product CPE/KEV Catalog initialized.\n")
+        self.term_buf.set_text("[SPECTRE v3.3.0 Hybrid Workstation] C++17 epoll/OpenSSL Engine, 49/49 CLI & 68-Product CPE/KEV Catalog initialized.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)
@@ -1292,6 +1293,22 @@ class ApexNativeWindow(Gtk.Window):
         self.rep_view.get_buffer().set_text(msg)
         self.log_msg(f"[EXPORT] ✅ Burp Scope, Nuclei URLs, CSV va JSON saqlandi: {res['burp_scope_json']}")
 
+
+    def on_send_finding_to_repeater(self, _btn):
+        sel = self.tree_find.get_selection()
+        model, treeiter = sel.get_selected()
+        if treeiter is None and len(model) > 0:
+            treeiter = model.get_iter_first()
+        if treeiter is None:
+            self.log_msg("[!] Avval Topilmalar jadvalidan qatorni tanlang.")
+            return
+        raw_asset = str(model[treeiter][5] or "").strip()
+        m_u = re.search(r"(https?://[^\s)]+)", raw_asset)
+        target_u = m_u.group(1) if m_u else (f"https://{raw_asset.split()[0]}" if raw_asset else "")
+        if target_u:
+            self.rep_url_entry.set_text(target_u)
+            self._switch_page("p_endpoints", self.nav_buttons[2])
+            self.log_msg(f"[REPEATER] Topilma manzili Repeater'ga yuklandi: {target_u}")
 
     def on_set_triage(self, status: str):
         sel = self.tree_find.get_selection()
