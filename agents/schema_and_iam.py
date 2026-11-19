@@ -149,18 +149,29 @@ def cluster_subdomains_by_dom_structure(db, session, project_id: int, log_fn) ->
     if len(services) < 2:
         return {}
 
+    from core.native_bridge import fast_simhash64
+
     tag_re = re.compile(r"<([a-zA-Z0-9]+)")
     clusters: dict[str, list[str]] = {}
+    sim_reps: list[tuple[int, str]] = []
     for svc in services[:25]:
         u = svc.get("url", "")
         if not u:
             continue
         try:
             r = session.get(u, timeout=4.5, verify=False)
-            tags = tag_re.findall(r.text[:60000].lower())[:120]
-            sig_str = f"{r.status_code}:{svc.get('server', '')}:{'-'.join(tags)}"
-            fp = hashlib.sha256(sig_str.encode("utf-8", errors="ignore")).hexdigest()[:12]
-            clusters.setdefault(fp, []).append(u)
+            tags = tag_re.findall(r.text[:60000].lower())[:160]
+            sig_str = f"{r.status_code}:{svc.get('server', '')}:{' '.join(tags)}"
+            sh_val = fast_simhash64(sig_str)
+            matched_fp = ""
+            for rep_sh, rep_fp in sim_reps:
+                if (sh_val ^ rep_sh).bit_count() <= 3:
+                    matched_fp = rep_fp
+                    break
+            if not matched_fp:
+                matched_fp = f"{sh_val:016x}"[:12]
+                sim_reps.append((sh_val, matched_fp))
+            clusters.setdefault(matched_fp, []).append(u)
         except Exception:
             pass
 
@@ -188,16 +199,31 @@ def cluster_subdomains_by_dom_structure(db, session, project_id: int, log_fn) ->
 def predict_and_fetch_webpack_chunks(db, session, project_id: int, base_url: str, js_urls: list[str], log_fn) -> list[str]:
     map_re = re.compile(r"\{((?:\s*['\"]?[a-zA-Z0-9_\-]+['\"]?\s*:\s*['\"][a-f0-9]{6,20}['\"]\s*,?){2,40})\}")
     kv_re = re.compile(r"['\"]?([a-zA-Z0-9_\-]+)['\"]?\s*:\s*['\"]([a-f0-9]{6,20})['\"]")
-    route_re = re.compile(r"""['"`]((?:/api/v\d+/|/api/|/v1/|/v2/|/internal/|/admin/)[a-zA-Z0-9_\-/\.?=&{}]+)['"`]""")
+    vite_dyn_re = re.compile(r"""import\(\s*['"`](\.?/[a-zA-Z0-9_\-./]+\.js)['"`]\s*\)""")
+    nextjs_chunk_re = re.compile(r"""['"`]((?:static/chunks/|/_next/static/chunks/)[a-zA-Z0-9_\-./]+\.js)['"`]""")
+    route_re = re.compile(r"""['"`]((?:/api/v\d+/|/api/|/v1/|/v2/|/internal/|/admin/|/graphql)[a-zA-Z0-9_\-/\.?=&{}]+)['"`]""")
     found_chunks: list[str] = []
 
-    for ju in js_urls[:15]:
+    for ju in list(js_urls[:15]):
         try:
             rj = session.get(ju, timeout=5, verify=False)
             if rj.status_code != 200:
                 continue
             base_js_dir = ju.rsplit("/", 1)[0] + "/"
-            for m_map in map_re.findall(rj.text[:250000]):
+            txt_slice = rj.text[:250000]
+
+            direct_rel_cands = set(vite_dyn_re.findall(txt_slice)) | set(nextjs_chunk_re.findall(txt_slice))
+            for rel_c in list(direct_rel_cands)[:12]:
+                cand_u = urllib.parse.urljoin(ju if rel_c.startswith(".") else base_url, rel_c)
+                if cand_u not in js_urls and cand_u not in found_chunks:
+                    rc = session.get(cand_u, timeout=3.5, verify=False)
+                    if rc.status_code == 200 and "javascript" in rc.headers.get("Content-Type", "").lower():
+                        found_chunks.append(cand_u)
+                        js_urls.append(cand_u)
+                        for rt in route_re.findall(rc.text[:200000]):
+                            db.upsert_endpoint(project_id, urllib.parse.urljoin(base_url, rt), method="GET", params=[], category="api_endpoint", source="vite_nextjs_chunk")
+
+            for m_map in map_re.findall(txt_slice):
                 pairs = kv_re.findall(m_map)
                 for chunk_id, chunk_hash in pairs[:12]:
                     for pattern in (f"{chunk_id}.{chunk_hash}.js", f"{chunk_id}.{chunk_hash}.chunk.js", f"chunk-{chunk_id}.{chunk_hash}.js"):

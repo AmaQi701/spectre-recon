@@ -10,6 +10,7 @@ import socket
 import ssl
 import subprocess
 import threading
+import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -1117,7 +1118,14 @@ class ReconSuperAgent:
                 action = form.get("action") or base_url
                 method = (form.get("method") or "GET").upper()
                 inputs = [inp.get("name") for inp in form.find_all(["input", "select", "textarea"]) if inp.get("name")]
-                self._record_discovered_url(project_id, action, base_url, scope, "html_form", method=method, extra_params=inputs)
+                for btn_fa in form.find_all(["button", "input"], formaction=True):
+                    self._record_discovered_url(project_id, btn_fa["formaction"], base_url, scope, "html_formaction", method=method, extra_params=inputs)
+                clean_f_url = self._record_discovered_url(project_id, action, base_url, scope, "html_form", method=method, extra_params=inputs)
+                if clean_f_url and method == "POST" and inputs:
+                    csrf_markers = ("csrf", "xsrf", "_token", "authenticity_token", "requestverificationtoken", "nonce")
+                    has_csrf_field = any(any(cm in str(in_n).lower() for cm in csrf_markers) for in_n in inputs)
+                    if not has_csrf_field:
+                        self.db.upsert_endpoint(project_id, clean_f_url, method="POST", params=inputs, risk_tags=["CSRF_Review_Candidate"], source="html_form")
 
             # Hidden Input Miner
             hidden_inputs = [inp.get("name") for inp in soup.find_all("input", {"type": "hidden"}) if inp.get("name")]
@@ -1663,6 +1671,7 @@ class ReconSuperAgent:
                         continue
                     scanned_app_sigs[app_sig] = dom
                     deep_scanned_count += 1
+                    host_t0 = time.monotonic()
                     is_high_val = (_dom_priority(dom) >= 60) and (deep_scanned_count <= 8)
                     collected_html.append(html[:50000])
                     js_list = self._stage4_html_and_wayback(project_id, url, html, dom, scope, log_fn)[:35]
@@ -1676,9 +1685,12 @@ class ReconSuperAgent:
                         protocol_and_client.run_protocol_client_suite(self, project_id, apex_domain, url, js_list, log_fn)
                         schema_and_iam.run_schema_iam_suite(self, project_id, apex_domain, url, js_list, log_fn)
                         runtime_and_network.run_runtime_network_suite(self, project_id, apex_domain, primary_host, url, js_list, log_fn)
-                    cli_orchestrator.run_deep_web_and_fuzz_tools(
-                        self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn, phase="fuzz_only"
-                    )
+                    if dom == primary_host or (time.monotonic() - host_t0) < 90.0:
+                        cli_orchestrator.run_deep_web_and_fuzz_tools(
+                            self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn, phase="fuzz_only"
+                        )
+                    else:
+                        log_fn(f"  [⚡ Time-Budget Guard] {dom} da tahlil 90s dan oshdi — ortiqcha fuzzing o'tkazib yuborildi.")
 
             _prog(0.90, "Stage 6/6: Adaptive Brain, SPA Manifests, Secrets, OSINT & DOM Clustering...")
             origin_and_spa.run_adaptive_brain_strategy(self.db, self.session, project_id, scope, log_fn, self._record_discovered_url)
