@@ -1041,6 +1041,12 @@ class ReconSuperAgent:
                 if resp.status_code in (200, 401, 403):
                     prio += 15
 
+            if orig_host != p_host and (
+                resp.status_code in (400, 404, 410)
+                or (resp.status_code == 200 and len(resp.content) < 64)
+            ):
+                return ""
+
             self.db.upsert_http_service(
                 project_id=project_id,
                 url=url,
@@ -1073,7 +1079,7 @@ class ReconSuperAgent:
     @staticmethod
     def _classify_endpoint_risk(url: str, params: list[str]) -> tuple[str, list[str]]:
         u_l = url.lower()
-        if any(u_l.endswith(ext) for ext in (".webp", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".css", ".woff", ".woff2", ".ttf", ".mp4")):
+        if any(u_l.endswith(ext) for ext in (".webp", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".css", ".woff", ".woff2", ".ttf", ".mp4", ".m3u8", ".ts", ".mpd", ".m4s", ".mp3", ".aac")):
             return "static_asset", []
         p_l = [p.lower() for p in params]
         risks = []
@@ -1566,7 +1572,8 @@ class ReconSuperAgent:
                             if key not in ("http", "https", "true", "false", "null", "undefined"):
                                 extracted_params.add(key)
 
-                is_vendor_js = any(
+                is_nextjs_vendor_chunk = "/_next/static/chunks/" in js_url.lower() and bool(re.match(r"^(?:framework|main|webpack|polyfills|\d+)[-_.]", safe_jname.lower()))
+                is_vendor_js = is_nextjs_vendor_chunk or any(
                     vk in safe_jname.lower() or f"/{vk}" in js_url.lower()
                     for vk in ("require.min", "polyfill", "jquery", "bootstrap", "popper", "modernizr", "lodash", "swiper", "vendor", "uwnd.min", "/.s/src/", "video.min", "videojs", "hls.min", "playerjs")
                 )

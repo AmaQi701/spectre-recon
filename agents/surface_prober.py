@@ -129,7 +129,9 @@ def probe_nonstandard_web_ports(db, session, project_id: int, log_fn):
                     loc = r.headers.get("Location", "")
                     if loc.startswith(("http://", "https://")) and f":{pnum}" not in loc:
                         continue
-                if code not in (200, 201, 204, 301, 302, 307, 308, 401, 403, 405):
+                if code not in (200, 201, 401, 403, 405):
+                    continue
+                if len(r.content) < 64 and code not in (401,):
                     continue
                 soup = BeautifulSoup(text_sample, "html.parser")
                 title = soup.title.string.strip() if (soup.title and soup.title.string) else ""

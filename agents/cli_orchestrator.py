@@ -1030,16 +1030,21 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
         open(b_file, "w").write("\n".join([base_w, f"{base_w}-media", f"{base_w}-static", f"{base_w}-backup", f"{base_w}-dev"]) + "\n")
         s3_out = agent._run_cli(f"s3scanner -bucket-file {b_file}", log_fn, timeout=20, project_id=project_id)
         for line in s3_out.splitlines():
-            if "exists" in line.lower() and "not_exist" not in line.lower():
+            low_s3 = line.lower()
+            if "exists" in low_s3 and "not_exist" not in low_s3:
+                if "authusers: []" in low_s3 and "allusers: []" in low_s3:
+                    continue
+                if not any(perm in line.upper() for perm in ("READ", "WRITE", "FULL_CONTROL")):
+                    continue
                 m_s3 = re.search(r'exists\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^"]+)', line, re.IGNORECASE)
                 b_label = f"{m_s3.group(1).strip()} ({m_s3.group(2).strip()})" if m_s3 else line.strip()[:50]
                 b_ev = m_s3.group(0).strip() if m_s3 else line.strip()[:200]
                 agent.db.upsert_finding(
                     project_id, "SPECTRE-Agent1 (S3Scanner)", f"Public Cloud Bucket Identified: {b_label}",
-                    "Cloud Storage Exposure", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                    "Cloud Storage Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
                     "CWE-284", "A05:2021 - Security Misconfiguration", apex_domain, b_ev,
-                    "S3Scanner orqali tashkilot nomiga mos ochiq bulutli bucket aniqlandi.",
-                    "Bucket ACL ruxsatlarini yoping.",
+                    "S3Scanner orqali tashqi foydalanuvchilarga READ/WRITE ACL ochiq qoldirilgan bulutli bucket tasdiqlandi.",
+                    "Bucket ACL ruxsatlarini yoping (`Block Public Access = ON`).",
                 )
 
     # 10.1 & 10.2 TruffleHog & Gitleaks on Workspace / Source Code & Downloaded JS Cache

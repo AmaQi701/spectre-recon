@@ -1171,13 +1171,27 @@ class VulnAssessmentSuperAgent:
                     except Exception:
                         pass
                 else:
-                    self._verify_param_output_encoding(project_id, u, p_parsed, qs, p_name, base_text, log_fn)
+                    self._verify_param_output_encoding(project_id, u, p_parsed, qs, p_name, base_text, seen_debug_hosts, log_fn)
 
-    def _verify_param_output_encoding(self, project_id: int, u: str, p_parsed, qs: dict, p_name: str, base_text: str, log_fn):
+    @staticmethod
+    def _has_exec_script_canary(html_txt: str, canary: str) -> bool:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup((html_txt or "")[:120000], "html.parser")
+        for sc in soup.find_all("script"):
+            sc_type = str(sc.get("type") or "").strip().lower()
+            sc_id = str(sc.get("id") or "").strip().lower()
+            if sc_id == "__next_data__" or "json" in sc_type:
+                continue
+            if canary in (sc.string or sc.get_text() or ""):
+                return True
+        return False
+
+    def _verify_param_output_encoding(self, project_id: int, u: str, p_parsed, qs: dict, p_name: str, base_text: str, seen_tracker: set, log_fn):
         canary = "spectrecheck9182"
         diag_marker = 'sp7x"<>'
         if canary in base_text:
             return
+        host_k = (p_parsed.hostname or "").lower()
         qs_c = dict(qs)
         qs_c[p_name] = [canary]
         test_u = urllib.parse.urlunparse(p_parsed._replace(query=urllib.parse.urlencode(qs_c, doseq=True)))
@@ -1185,7 +1199,7 @@ class VulnAssessmentSuperAgent:
             r = self.http_engine.request("GET", test_u, headers=self.role_a_headers or None, allow_redirects=False)
             if r.status_code != 200 or "text/html" not in r.headers.get("Content-Type", "").lower() or canary not in r.text:
                 return
-            in_script_ctx = bool(re.search(r"(?is)<script[^>]*>[^<]*" + re.escape(canary), r.text))
+            in_script_ctx = self._has_exec_script_canary(r.text, canary)
             qs_d = dict(qs)
             qs_d[p_name] = [diag_marker]
             test_diag_u = urllib.parse.urlunparse(p_parsed._replace(query=urllib.parse.urlencode(qs_d, doseq=True)))
@@ -1202,9 +1216,10 @@ class VulnAssessmentSuperAgent:
                     confidence=QoD.ACTIVE_VERIFIED,
                 )
                 log_fn(f"  [CONFIRMED UNENCODED REFLECTION] {u} ({p_name}) in {ctx_lbl}")
-            elif in_script_ctx:
+            elif in_script_ctx and (host_k, f"sc_refl:{p_name}") not in seen_tracker:
+                seen_tracker.add((host_k, f"sc_refl:{p_name}"))
                 self.db.upsert_finding(
-                    project_id, "Agent-2 (Differential-Verifier)", f"[CONFIRMED] Parameter Reflection Inside Inline <script> Block ('{p_name}')",
+                    project_id, "Agent-2 (Differential-Verifier)", f"[CONFIRMED] Parameter Reflection Inside Inline Script ({host_k}: '{p_name}')",
                     "Script Context Reflection", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
                     "CWE-79", "A03:2021 - Injection", u,
                     f"Canary '{canary}' reflected inside inline <script> block via '{p_name}' (HTML encoding alone does not neutralize JS string context).",

@@ -155,8 +155,7 @@ class TriageAndChainSuperAgent:
                 g["redirects"].append(f)
             if "cve" in tl or "nuclei:" in tl or "advisory" in tl or "end-of-life" in tl:
                 conf_s = str(f.get("confidence") or "")
-                ev_s = str(f.get("evidence") or "")
-                if "Passive Shodan Cache" not in conf_s or "[CISA-KEV" in ev_s:
+                if "Passive Shodan Cache" not in conf_s:
                     g["cves"].append(f)
             if "data store" in tl or "database / cache" in cat_l:
                 g["data_stores"].append(f)
