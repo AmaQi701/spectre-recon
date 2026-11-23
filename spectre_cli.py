@@ -9,6 +9,8 @@ on headless Linux servers, SSH sessions, Docker containers, and CI/CD runners.
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -43,9 +45,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mode", choices=("full", "subdomains", "ports", "web_js"), default="full")
     p.add_argument("--no-cli", action="store_true", help="Disable external CLI binaries (100%% built-in C++/Python mode)")
     p.add_argument("--db", default=str(BASE_DIR / "workspaces" / "apex_state.db"), help="SQLite state DB path")
-    p.add_argument("--reports-dir", default=str(BASE_DIR / "reports"), help="Output directory for HTML/MD/SARIF/SBOM")
+    p.add_argument("--reports-dir", default=str(BASE_DIR / "reports"), help="Output directory for HTML/MD/SARIF/SBOM/JUnit")
+    p.add_argument("--diff-project", type=int, default=0, help="Compare attack-surface & finding drift against baseline project ID")
+    p.add_argument("--min-qod", type=int, default=0, help="Minimum QoD %% (e.g. 90) counted toward --fail-on CI exit gate")
+    p.add_argument("--fail-on-drift", action="store_true", help="Return exit code 3 if new High/Critical drift is detected vs --diff-project")
     p.add_argument("--fail-on", choices=("none", "low", "medium", "high", "critical"), default="none", help="CI/CD exit code 2 gate")
     return p
+
+
+def _extract_qod_pct(conf_str: str) -> int:
+    m = re.search(r"QoD:\s*(\d+)%", str(conf_str or ""))
+    return int(m.group(1)) if m else 80
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -91,7 +101,20 @@ def main(argv: list[str] | None = None) -> int:
         triage.run_triage_and_chaining(pid, _log)
         rep = triage.generate_reports(pid)
         art = cli_orchestrator.export_project_artifacts(db, pid, reports_dir=args.reports_dir)
-        _log(f"[COMPLETE] HTML: {rep['html_path']} | SARIF: {art['sarif_json']} | SBOM: {art['cyclonedx_sbom_json']}")
+        _log(
+            f"[COMPLETE] HTML: {rep['html_path']} | SARIF: {art['sarif_json']} "
+            f"| SBOM: {art['cyclonedx_sbom_json']} | JUnit: {art['junit_xml']} | Compliance: {art['compliance_matrix_json']}"
+        )
+        if args.diff_project > 0:
+            from core.surface_diff_engine import compute_project_diff, format_diff_report_text
+            base_b = db.get_project_bundle(args.diff_project)
+            curr_b = db.get_project_bundle(pid)
+            diff_obj = compute_project_diff(base_b, curr_b)
+            diff_path = Path(args.reports_dir) / f"project_{pid}_vs_{args.diff_project}_drift.json"
+            diff_path.write_text(json.dumps(diff_obj, indent=2, ensure_ascii=False), encoding="utf-8")
+            _log("\n" + format_diff_report_text(diff_obj))
+            if args.fail_on_drift and diff_obj["drift_level"] in ("CRITICAL_DRIFT", "HIGH_DRIFT"):
+                return 3
     except KeyboardInterrupt:
         recon.abort_project(pid, _log)
         return 130
@@ -99,7 +122,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.fail_on != "none":
         thresh = SEV_RANK[args.fail_on]
         finds = db.get_project_bundle(pid).get("findings", [])
-        if any(FIND_RANK.get(str(f.get("severity") or ""), 0) >= thresh for f in finds if f.get("triage_status") != "False-Positive"):
+        if any(
+            FIND_RANK.get(str(f.get("severity") or ""), 0) >= thresh
+            and _extract_qod_pct(str(f.get("confidence") or "")) >= int(args.min_qod)
+            for f in finds if f.get("triage_status") != "False-Positive"
+        ):
             return 2
     return 0
 

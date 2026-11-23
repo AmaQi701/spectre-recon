@@ -81,8 +81,8 @@ progressbar progress { min-height: 22px; background-image: none; background-colo
 
 class ApexNativeWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="SPECTRE Recon & Attack Surface Studio v4.0.0")
-        self.set_default_size(1280, 760)
+        super().__init__(title="SPECTRE Recon & Attack Surface Studio v5.0.0")
+        self.set_default_size(1340, 800)
         self.maximize()
         self.set_wmclass("spectre-recon", "spectre-recon")
         icon_path = BASE_DIR / "ui" / "apex-icon.svg"
@@ -112,6 +112,7 @@ class ApexNativeWindow(Gtk.Window):
         self.is_running_job = False
         self._last_data_sig = None
         self._build_ui()
+        self.connect("key-press-event", self._on_window_key_press)
         self.refresh_projects()
         self.refresh_tools()
         GLib.timeout_add(2500, self._periodic_refresh)
@@ -252,11 +253,25 @@ class ApexNativeWindow(Gtk.Window):
         clicked_btn.get_style_context().add_class("nav-btn-active")
 
 
+    def _on_window_key_press(self, _win, event):
+        state = event.state & Gtk.accelerator_get_default_mod_mask()
+        keyval_nm = Gdk.keyval_name(event.keyval) or ""
+        if (state & Gdk.ModifierType.CONTROL_MASK) and keyval_nm.lower() == "f":
+            if hasattr(self, "search_entry"):
+                self.search_entry.grab_focus()
+            return True
+        if keyval_nm == "F5":
+            self._last_data_sig = None
+            self.refresh_projects()
+            self.load_bundle()
+            return True
+        return False
+
     def _build_ui(self):
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
         hb.props.title = "SPECTRE  —  Kiber-Razvedka va Hujum Yuzasi Platformasi"
-        hb.props.subtitle = "●  v4.0.0  •  Hybrid C++17 epoll, 100-NVT Engine, 26-Port Socket NVTs, 120-CPE & SARIF/SBOM Studio"
+        hb.props.subtitle = "●  v5.0.0  •  Hybrid C++17 v2, 130-NVT Engine, 34-Port Socket NVTs, 150-CPE, 14-Lockfile SCA & Drift Studio"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -319,33 +334,33 @@ class ApexNativeWindow(Gtk.Window):
         root_vbox.set_margin_start(10); root_vbox.set_margin_end(10)
         outer_hbox.pack_start(root_vbox, True, True, 0)
 
-        # Top Command & Filter Toolbar
-        cmd_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
+        # Top Command & Filter Toolbar (Clean Single-Row Layout)
+        cmd_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         cmd_bar.get_style_context().add_class("toolbar-bar")
-        cmd_bar.pack_start(self._make_btn("Yangi Nishon", "act-btn", lambda _: self._switch_page("p_scope", self.nav_buttons[0]), "list-add-symbolic"), False, False, 0)
         self.proj_combo = Gtk.ComboBoxText()
+        self.proj_combo.set_size_request(230, -1)
         self.proj_combo.connect("changed", self.on_project_changed)
         cmd_bar.pack_start(self.proj_combo, False, False, 0)
         cmd_bar.pack_start(self._make_btn("O‘chirish", "btn-red", self.on_delete_project, "user-trash-symbolic"), False, False, 0)
 
         self.search_entry = Gtk.SearchEntry()
-        self.search_entry.set_placeholder_text("Qidiruv (subdomen, port, API route, CVE...)")
+        self.search_entry.set_placeholder_text("Tezkor qidiruv [Ctrl+F] (subdomen, port, API route, CVE, CWE...)")
         self.search_entry.set_hexpand(True)
         self.search_entry.connect("search-changed", lambda _: self.load_bundle())
         cmd_bar.pack_start(self.search_entry, True, True, 0)
 
         self.mode_combo = Gtk.ComboBoxText()
-        self.mode_combo.append("full", "Rejim: To‘liq Razvedka")
-        self.mode_combo.append("subdomains", "Rejim: Subdomenlar")
-        self.mode_combo.append("ports", "Rejim: Port va Shodan")
-        self.mode_combo.append("web_js", "Rejim: Veb / API / JS")
+        self.mode_combo.append("full", "Rejim: To‘liq")
+        self.mode_combo.append("subdomains", "Rejim: DNS")
+        self.mode_combo.append("ports", "Rejim: Port")
+        self.mode_combo.append("web_js", "Rejim: Veb/JS")
         self.mode_combo.set_active_id("full")
         cmd_bar.pack_start(self.mode_combo, False, False, 0)
 
-        cmd_bar.pack_end(self._make_btn("To‘xtatish", "btn-red", lambda _: self.on_abort(), "process-stop-symbolic"), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("Stop", "btn-red", lambda _: self.on_abort(), "process-stop-symbolic"), False, False, 0)
         cmd_bar.pack_end(self._make_btn("To‘liq Skaner", "btn-purple", lambda _: self.on_run_agent("all"), "media-playback-start-symbolic"), False, False, 0)
         cmd_bar.pack_end(self._make_btn("3-Zanjir", "act-btn", lambda _: self.on_run_agent("triage")), False, False, 0)
-        cmd_bar.pack_end(self._make_btn("2-Zaiflik", "act-btn", lambda _: self.on_run_agent("vuln")), False, False, 0)
+        cmd_bar.pack_end(self._make_btn("2-Audit", "act-btn", lambda _: self.on_run_agent("vuln")), False, False, 0)
         cmd_bar.pack_end(self._make_btn("1-Razvedka", "act-btn", lambda _: self.on_run_agent("recon")), False, False, 0)
         root_vbox.pack_start(cmd_bar, False, False, 0)
 
@@ -377,17 +392,19 @@ class ApexNativeWindow(Gtk.Window):
 
 
 
-        # Compact Telemetry Strip
-        stats_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        # Compact 5-Card Executive Telemetry Strip
+        stats_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.lbl_stat_dom = Gtk.Label(label="0", xalign=0)
         self.lbl_stat_http = Gtk.Label(label="0 / 0", xalign=0)
         self.lbl_stat_ep = Gtk.Label(label="0 / 0", xalign=0)
         self.lbl_stat_find = Gtk.Label(label="0 / 0", xalign=0)
+        self.lbl_stat_posture = Gtk.Label(label="100/100", xalign=0)
         for title_cap, lbl in [
             ("SUBDOMENLAR VA DNS", self.lbl_stat_dom),
             ("TARMOQ PORTLARI VA VEB", self.lbl_stat_http),
-            ("ENDPOINTLAR VA JS FAYLLAR", self.lbl_stat_ep),
-            ("XAVFSIZLIK TOPILMALARI", self.lbl_stat_find),
+            ("ENDPOINTLAR VA JS", self.lbl_stat_ep),
+            ("TOPILMALAR VA ZANJIR", self.lbl_stat_find),
+            ("XAVFSIZLIK INDEKSI (POSTURE)", self.lbl_stat_posture),
         ]:
             t_lbl = Gtk.Label(label=title_cap, xalign=0)
             t_lbl.get_style_context().add_class("stat-title")
@@ -606,9 +623,12 @@ class ApexNativeWindow(Gtk.Window):
             pgrid.attach(w, idx % 3, idx // 3, 1, 1)
         tab5.pack_start(pgrid, False, False, 0)
         btn_row5 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        btn_row5.pack_start(self._make_btn("+ Add Manual PoC", "act-btn", self.on_add_manual), False, False, 0)
-        btn_row5.pack_start(self._make_btn("Generate Executive HTML & Markdown Report", "btn-green", self.on_generate_report), False, False, 0)
-        btn_row5.pack_start(self._make_btn("Export Artifacts (SARIF / SBOM / Burp / CSV)", "btn-purple", self.on_export_artifacts), False, False, 0)
+        btn_row5.pack_start(self._make_btn("+ Manual PoC", "act-btn", self.on_add_manual), False, False, 0)
+        btn_row5.pack_start(self._make_btn("Executive HTML & MD Report", "btn-green", self.on_generate_report), False, False, 0)
+        btn_row5.pack_start(self._make_btn("Export Suite (SARIF / SBOM / JUnit / Compliance)", "btn-purple", self.on_export_artifacts), False, False, 0)
+        self.diff_base_combo = Gtk.ComboBoxText()
+        btn_row5.pack_end(self._make_btn("Compare Drift", "btn-amber", self.on_compare_surface_drift), False, False, 0)
+        btn_row5.pack_end(self.diff_base_combo, False, False, 0)
         tab5.pack_start(btn_row5, False, False, 0)
         self.rep_view = Gtk.TextView(); self.rep_view.set_editable(False); self.rep_view.set_monospace(True)
         sc_rep = Gtk.ScrolledWindow(); sc_rep.set_vexpand(True); sc_rep.add(self.rep_view)
@@ -646,7 +666,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v3.8.0 Hybrid Workstation] C++17 epoll/OpenSSL, 100-NVT Catalog, 26-Port NVT, 120-CPE, SCA/OSV & SARIF/SBOM Studio initialized.\n")
+        self.term_buf.set_text("[SPECTRE v5.0.0 Hybrid Workstation] C++17 v2 Kernel, 130-NVT Catalog, 34-Port Socket NVTs, 150-CPE, 14-Lockfile SCA & Drift/Compliance Studio initialized.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)
@@ -668,13 +688,22 @@ class ApexNativeWindow(Gtk.Window):
     def refresh_projects(self):
         projs = self.db.get_projects()
         self.proj_combo.remove_all()
+        if hasattr(self, "diff_base_combo"):
+            self.diff_base_combo.remove_all()
         for p in projs:
-            self.proj_combo.append(str(p["id"]), f"#{p['id']} {p['name']} ({p['primary_target']}) [{p['status']}]")
+            short_nm = str(p["name"] or p["primary_target"])[:24]
+            self.proj_combo.append(str(p["id"]), f"#{p['id']} {short_nm} [{p['status']}]")
+            if hasattr(self, "diff_base_combo"):
+                self.diff_base_combo.append(str(p["id"]), f"Baseline: #{p['id']} {short_nm}")
         if projs:
             target_id = str(self.current_project_id or projs[0]["id"])
             self.proj_combo.set_active_id(target_id)
             if not self.proj_combo.get_active_id():
                 self.proj_combo.set_active(0)
+            if hasattr(self, "diff_base_combo") and len(projs) > 1:
+                self.diff_base_combo.set_active(1)
+            elif hasattr(self, "diff_base_combo"):
+                self.diff_base_combo.set_active(0)
 
     def on_project_changed(self, combo):
         aid = combo.get_active_id()
@@ -749,8 +778,11 @@ class ApexNativeWindow(Gtk.Window):
         ]
         if cpe_line:
             detail_lines.append(cpe_line)
+        from core.compliance_exporter import map_finding_compliance_controls
+        comp_c = map_finding_compliance_controls(f_obj)
         detail_lines.extend([
             f"Taxonomy    : {f_obj.get('cwe', '')}   |   {f_obj.get('owasp', '')}",
+            f"Compliance  : {comp_c['owasp_api_2023']}  |  {comp_c['pci_dss_v4']}  |  {comp_c['iso_27001_2022']}",
             f"CVSS Vector : {f_obj.get('cvss_vector', '')}",
             f"Target Asset: {asset_s}",
             "",
@@ -824,11 +856,19 @@ class ApexNativeWindow(Gtk.Window):
             return
         self._last_data_sig = sig
 
-        actionable_cnt = sum(1 for f in finds if f.get("severity") != "Info" and f.get("triage_status") != "False-Positive")
+        actionable = [f for f in finds if f.get("severity") != "Info" and f.get("triage_status") != "False-Positive"]
+        actionable_cnt = len(actionable)
+        c_cnt = sum(1 for f in actionable if f.get("severity") == "Critical")
+        h_cnt = sum(1 for f in actionable if f.get("severity") == "High")
+        m_cnt = sum(1 for f in actionable if f.get("severity") == "Medium")
+        from core.compliance_exporter import build_compliance_matrix
+        p_score = build_compliance_matrix(b).get("posture_score", 100)
         self.lbl_stat_dom.set_text(f"{len(doms)} subdomen  •  {ip_cnt} noyob IP")
         self.lbl_stat_http.set_text(f"{len(ports)} port  •  {len(https)} veb-servis")
         self.lbl_stat_ep.set_text(f"{len(eps)} route  •  {len(js_list)} JS paket")
         self.lbl_stat_find.set_text(f"{actionable_cnt} zaiflik  •  {len(chains)} zanjir")
+        if hasattr(self, "lbl_stat_posture"):
+            self.lbl_stat_posture.set_text(f"{p_score}/100  •  C:{c_cnt} H:{h_cnt} M:{m_cnt}")
 
         if hasattr(self, "nav_label_widgets") and len(self.nav_label_widgets) >= 8:
             badge_counts = {
@@ -1287,9 +1327,11 @@ class ApexNativeWindow(Gtk.Window):
             return
         res = cli_orchestrator.export_project_artifacts(self.db, self.current_project_id)
         msg = (
-            "╔══ 📤 SPECTRE MULTI-FORMAT & COMPLIANCE ARTIFACTS EXPORTED ══╗\n"
+            "╔══ 📤 SPECTRE v5.0 MULTI-FORMAT & COMPLIANCE ARTIFACTS EXPORTED ══╗\n"
             f"• OASIS SARIF 2.1.0 (GitHub/DefectDojo): {res['sarif_json']}\n"
-            f"• CycloneDX 1.5 SBOM (CPE Inventory): {res['cyclonedx_sbom_json']}\n"
+            f"• CycloneDX 1.5 VEX SBOM (CPE + purl): {res['cyclonedx_sbom_json']}\n"
+            f"• CI/CD JUnit XML Gate: {res['junit_xml']}\n"
+            f"• OWASP / PCI-DSS 4.0 / ISO 27001 Matrix: {res['compliance_matrix_json']}\n"
             f"• Burp Suite Scope JSON: {res['burp_scope_json']}\n"
             f"• Live URLs (Nuclei/HTTPX): {res['live_urls_txt']}\n"
             f"• Subdomains List: {res['subdomains_txt']}\n"
@@ -1297,7 +1339,21 @@ class ApexNativeWindow(Gtk.Window):
             f"• Full Database JSON: {res['full_json']}\n"
         )
         self.rep_view.get_buffer().set_text(msg)
-        self.log_msg(f"[EXPORT] ✅ Burp Scope, Nuclei URLs, CSV va JSON saqlandi: {res['burp_scope_json']}")
+        self.log_msg(f"[EXPORT] ✅ SARIF, CycloneDX VEX SBOM, JUnit XML, Compliance Matrix va CSV saqlandi.")
+
+    def on_compare_surface_drift(self, _btn):
+        if not self.current_project_id or not hasattr(self, "diff_base_combo"):
+            return
+        base_id_s = self.diff_base_combo.get_active_id()
+        if not base_id_s:
+            return
+        from core.surface_diff_engine import compute_project_diff, format_diff_report_text
+        base_b = self.db.get_project_bundle(int(base_id_s))
+        curr_b = self.db.get_project_bundle(int(self.current_project_id))
+        diff_obj = compute_project_diff(base_b, curr_b)
+        txt = format_diff_report_text(diff_obj)
+        self._set_styled_text(self.rep_view, txt)
+        self.log_msg(f"[DRIFT] Project #{base_id_s} -> #{self.current_project_id} taqqoslandi: {diff_obj['drift_level']}")
 
 
     def on_send_finding_to_repeater(self, _btn):

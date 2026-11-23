@@ -2,9 +2,9 @@
 
 <img src="ui/apex-icon.svg" width="105" alt="SPECTRE Logo" />
 
-# SPECTRE (`spectre-recon`) v4.0.0
+# SPECTRE (`spectre-recon`) v5.0.0
 
-**Hybrid C++17 / Python Attack Surface Management (ASM), 100-Rule Declarative NVT, 26-Port Socket NVT, 120-Product CPE 2.3, Credentialed SSH Audit, SCA/OSV & SARIF/CycloneDX SBOM Platform (GTK3 Desktop + Headless CLI)**
+**Hybrid C++17 v2 / Python Attack Surface Management (ASM), 130-Rule Declarative NVT, 34-Port Socket NVT, 150-Product CPE 2.3, 14-Lockfile SCA/OSV, Surface-Drift & SARIF/CycloneDX/JUnit/Compliance Platform (GTK3 Desktop + Headless CLI)**
 
 [![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Kali%20%7C%20Debian-0ea5e9?style=for-the-badge&logo=linux)](https://github.com/AmaQi701/spectre-recon)
 [![Engine](https://img.shields.io/badge/Core-C%2B%2B17%20epoll%20%2B%20OpenSSL-ef4444?style=for-the-badge&logo=cplusplus)](https://isocpp.org/)
@@ -36,14 +36,14 @@ Instead of chaining fragile shell scripts or running heavy browser-bound wrapper
 - **SPA, SourceMap & Runtime Analysis (`origin_and_spa.py`, `runtime_and_network.py`):** Deep JS bundle & Webpack lazy-chunk extraction, `.js.map` SourceMap reconstruction, Headless Chromium V8 DOM route interception, `postMessage` receiver analysis, and WebAssembly (`.wasm`) endpoint extraction.
 
 ### 3. Agent 2 — Hybrid C++17 & KB-Gated Vulnerability Assessment (`agents/vuln_agent.py`)
-- **Native C++17 Accelerator (`core/native/spectre_accel.cpp`, `core/native_bridge.py`):** Linux `epoll` non-blocking multi-port TCP/banner sweep, single-pass `spectre_js_token_mask` byte pre-scanner, OpenSSL `HMAC` JWT key validation, 64-bit structural DOM `SimHash`, `MurmurHash3`, and Shannon entropy scanning.
-- **Active Socket Protocol NVTs (`core/protocol_verifiers.py`):** Direct read-only TCP & TLS protocol handshakes across 26 services (`RFC 4253 SSH_MSG_KEXINIT` cryptographic negotiation, `MySQL/MariaDB HandshakeV10`, `PostgreSQL StartupMessage`, `MongoDB OP_QUERY`, `LDAP/LDAPS Anonymous Bind`, `Redis/Redis-TLS`, `Memcached`, `Elasticsearch`, `etcd`, `Consul`, `RabbitMQ`, `Prometheus`, `Docker API`, `Kubernetes Kubelet`, `5900/VNC`, `1433/MSSQL`, `9042/Cassandra`, `Rsync`, `FTP`, and `SMTP`).
-- **100-Rule Declarative & CMS NVT Engine (`core/nvt_declarative_engine.py`, `config/nvt_catalog.json`, `core/cms_enterprise_nvts.py`):** Dual-baseline calibrated checks across 100+ enterprise gateways, AI/ML & Vector DB servers (`Ollama`, `vLLM`, `MLflow`, `Ray`, `Qdrant`, `ChromaDB`, `Weaviate`), DevOps control planes, databases, and CMS platforms (`Kong`, `APISIX`, `Traefik`, `Envoy`, `Caddy`, `Kibana`, `Solr`, `CouchDB`, `ClickHouse`, `Vault`, `SonarQube`, `ArgoCD`, `WordPress`, `Moodle`, `1C-Bitrix`, `DataLife Engine`, `Laravel`, `Spring Actuator`, `Grafana`, `Zabbix`, `MinIO`, and `Jenkins`).
-- **120-Product CPE 2.3, CISA KEV & SCA/OSV Engine (`core/advisory_kb.py`, `core/sca_engine.py`, `core/feed_updater.py`):** Deterministic SemVer advisory matching across 120 enterprise products, manifest & client-side JS dependency auditing (`package.json`, `composer.json`, `requirements.txt`, `go.mod`, JS version banners) backed by offline rules + cached OSV.dev batch queries, and CISA Known Exploited Vulnerabilities (`KEV`) correlation.
-- **Differential Access Control (Multi-Role & Autonomous Guest BOLA Matrix):** Compares `Guest`, `Role A`, and `Role B` responses across API routes to confirm Broken Object Level Authorization (`CWE-639`) and unauthenticated API exposure (`CWE-306`), alongside calibrated GET/POST output encoding, `X-Forwarded-Host`, Open Redirect, OAuth2, and Python AST / SourceMap SAST checks.
+- **Native C++17 Accelerator v2 (`core/native/spectre_accel.cpp`, `core/native_bridge.py`):** Dual-stack IPv4/IPv6 Linux `epoll` multi-port TCP/banner sweep, single-pass `spectre_structural_hash` HTML/JSON skeleton engine, `spectre_js_token_mask` byte pre-scanner, OpenSSL `HMAC` JWT key validation, hardware `popcount` `SimHash64` Hamming distance, `MurmurHash3`, and Shannon entropy scanning.
+- **Active Socket Protocol NVTs (`core/protocol_verifiers.py`):** Direct read-only TCP & TLS protocol handshakes across 34 services (`RFC 4253 SSH_MSG_KEXINIT`, `MySQL/MariaDB`, `PostgreSQL`, `MongoDB`, `LDAP/LDAPS`, `Redis/Redis-TLS`, `Memcached`, `Elasticsearch`, `etcd`, `Consul`, `RabbitMQ`, `5672/AMQP`, `1883/8883/MQTT`, `2181/ZooKeeper`, `4222/NATS`, `9092/Kafka`, `8086/InfluxDB`, `8123/ClickHouse`, `Prometheus`, `Docker API`, `Kubernetes Kubelet`, `5900/VNC`, `1433/MSSQL`, `9042/Cassandra`, `Rsync`, `FTP`, and `SMTP`).
+- **130-Rule Declarative & CMS NVT Engine (`core/nvt_declarative_engine.py`, `config/nvt_catalog.json`, `core/cms_enterprise_nvts.py`):** C++17 structural-hash calibrated checks across 130+ enterprise gateways, AI/ML & Vector DB servers (`Ollama`, `vLLM`, `MLflow`, `Ray`, `Triton`, `Gradio`, `Langflow`, `Flowise`, `Qdrant`, `ChromaDB`, `Milvus`, `Weaviate`), DevOps control planes, databases, and CMS platforms.
+- **150-Product CPE 2.3, CISA KEV & 14-Lockfile SCA/OSV Engine (`core/advisory_kb.py`, `core/sca_engine.py`, `core/feed_updater.py`):** Deterministic SemVer advisory matching across 150 enterprise products, transitive lockfile & manifest auditing (`package.json`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `composer.json`, `composer.lock`, `requirements.txt`, `Pipfile.lock`, `poetry.lock`, `pyproject.toml`, `go.mod`, `Cargo.lock`, `Gemfile.lock`, `pom.xml`, plus client-side JS banners) with standardized `purl` identifiers and CISA `KEV` correlation.
+- **Differential Access Control (Multi-Role & Autonomous Guest BOLA Matrix):** Compares `Guest`, `Role A`, and `Role B` responses across API routes to confirm Broken Object Level Authorization (`CWE-639`) and unauthenticated API exposure (`CWE-306`), alongside calibrated GET/POST output encoding, `X-Forwarded-Host`, Open Redirect, OAuth2, JWT/JWS key-injection, GraphQL introspection, and Python AST / SourceMap SAST checks.
 
-### 4. Agent 3 — Asset-Bound Attack Graph & Reporting (`agents/triage_chain_agent.py`, `core/compliance_exporter.py`)
-- Host-exact correlation of findings, session flags, dangling CNAMEs, exposed data stores, and API routes into multi-step **Attack Chains** with automated **OASIS SARIF 2.1.0, CycloneDX 1.5 SBOM, Markdown, HTML, CSV, JSON, and Burp Suite Scope** exports.
+### 4. Agent 3 — Asset-Bound Attack Graph, Surface Drift & Compliance Studio (`agents/triage_chain_agent.py`, `core/compliance_exporter.py`, `core/surface_diff_engine.py`)
+- Host-exact correlation of findings, session flags, dangling CNAMEs, exposed data stores/brokers, and API routes into multi-step **Attack Chains**, continuous **EASM Attack-Surface Drift** comparison across projects, and automated **OASIS SARIF 2.1.0, CycloneDX 1.5 VEX SBOM, JUnit XML, OWASP Top 10:2021 / OWASP API:2023 / PCI-DSS v4.0 / ISO 27001 Compliance Matrix, Markdown, HTML, CSV, JSON, and Burp Suite Scope** exports.
 
 ---
 
@@ -108,7 +108,9 @@ cd spectre-recon
 ### Option 2: Headless Server & CI/CD CLI Mode (`spectre_cli.py`)
 
 ```bash
-python3 spectre_cli.py --target example.org --mode full --fail-on high
+python3 spectre_cli.py --target example.org --mode full --fail-on high --min-qod 90
+# Compare Attack-Surface & Vulnerability Drift vs Baseline Project #1:
+python3 spectre_cli.py --target example.org --diff-project 1 --fail-on-drift
 # Optional Read-Only Credentialed SSH CIS & Package Audit:
 python3 spectre_cli.py --target example.org --ssh-audit auditor@example.org --ssh-key ~/.ssh/id_ed25519
 ```
@@ -118,7 +120,7 @@ python3 spectre_cli.py --target example.org --ssh-audit auditor@example.org --ss
 ```bash
 chmod +x build_deb.sh
 ./build_deb.sh
-sudo dpkg -i dist/spectre-recon_3.8.0_amd64.deb
+sudo dpkg -i dist/spectre-recon_5.0.0_amd64.deb
 spectre-recon
 ```
 

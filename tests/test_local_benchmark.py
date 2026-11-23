@@ -165,6 +165,11 @@ class _BenchmarkHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
             self.wfile.write(b"Active connections: 4\nserver accepts handled requests\n 120 120 340\nReading: 0 Writing: 1 Waiting: 3\n")
+        elif parsed.path == "/debug/pprof/":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"Types of profiles available:\n12 goroutine\n4 heap\n")
         else:
             self.send_response(404)
             self.end_headers()
@@ -193,6 +198,16 @@ def run_benchmark() -> None:
                 encoding="utf-8",
             )
             (sast_dir / "requirements.txt").write_text("pyyaml==5.3.1\nrequests==2.25.0\n", encoding="utf-8")
+            (sast_dir / "pom.xml").write_text(
+                "<project><dependencies><dependency>"
+                "<groupId>org.apache.logging.log4j</groupId><artifactId>log4j-core</artifactId><version>2.14.1</version>"
+                "</dependency></dependencies></project>\n",
+                encoding="utf-8",
+            )
+            (sast_dir / "package-lock.json").write_text(
+                json.dumps({"lockfileVersion": 3, "packages": {"node_modules/minimist": {"version": "1.2.5"}}}),
+                encoding="utf-8",
+            )
 
             db = DatabaseManager(str(tmp_path / "bench.db"))
             base_url = f"http://127.0.0.1:{port}"
@@ -256,7 +271,10 @@ def run_benchmark() -> None:
             assert any("Unencoded HTML Output Reflection via 'q'" in t for t in titles), f"Encoding verifier missed unencoded q: {titles}"
             assert any("Unencoded HTML Output Reflection via POST 'role'" in t for t in titles), f"POST form encoding verifier missed role: {titles}"
             assert any("Nginx Stub-Status" in t for t in titles), f"Declarative NVT engine missed /nginx_status: {titles}"
+            assert any("Go pprof Runtime Profiling" in t for t in titles), f"Declarative NVT engine missed /debug/pprof/: {titles}"
             assert any("Vulnerable Open-Source Dependencies in requirements.txt" in t for t in titles), f"SCA engine missed requirements.txt: {titles}"
+            assert any("Vulnerable Open-Source Dependencies in pom.xml" in t for t in titles), f"SCA engine missed pom.xml Log4Shell: {titles}"
+            assert any("Vulnerable Open-Source Dependencies in package-lock.json" in t for t in titles), f"SCA engine missed package-lock.json: {titles}"
             assert not any("safe_q" in t for t in titles), f"False positive on properly HTML-escaped safe_q: {titles}"
             assert any("Unvalidated X-Forwarded-Host" in t for t in titles), f"XFH verifier missed flaw: {titles}"
             assert any("Verbose Python Stack Trace Disclosed" in t for t in titles), f"Debug stack-trace detector missed 500 trace: {titles}"
@@ -282,6 +300,10 @@ def run_benchmark() -> None:
             from agents import cli_orchestrator
             exp_res = cli_orchestrator.export_project_artifacts(db, pid, str(tmp_path / "reports"))
             assert pathlib.Path(exp_res["sarif_json"]).is_file() and pathlib.Path(exp_res["cyclonedx_sbom_json"]).is_file(), "SARIF or SBOM export missing"
+            assert pathlib.Path(exp_res["junit_xml"]).is_file() and pathlib.Path(exp_res["compliance_matrix_json"]).is_file(), "JUnit or Compliance Matrix export missing"
+            sbom_obj = json.loads(pathlib.Path(exp_res["cyclonedx_sbom_json"]).read_text(encoding="utf-8"))
+            assert any(c.get("purl", "").startswith("pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1") for c in sbom_obj.get("components", [])), f"SBOM missing Maven purl: {sbom_obj}"
+            assert any(v.get("id") == "CVE-2021-44228" for v in sbom_obj.get("vulnerabilities", [])), "SBOM missing VEX CVE-2021-44228"
 
             print(
                 f"BENCHMARK_OK | Endpoints={len(bundle['endpoints'])} | JS={len(bundle['js_assets'])} "

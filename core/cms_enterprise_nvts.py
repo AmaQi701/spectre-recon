@@ -15,6 +15,7 @@ import re
 import urllib.parse
 from typing import Any
 
+from core.native_bridge import fast_structural_hash
 from core.plugin_runner import QoD
 
 
@@ -22,25 +23,27 @@ def _body_sig(text: str) -> str:
     return hashlib.sha256((text or "")[:4096].encode("utf-8", errors="ignore")).hexdigest()[:16]
 
 
-def _is_soft_200(resp: Any, cal_status: int, cal_len: int, cal_sig: str) -> bool:
+def _is_soft_200(resp: Any, cal_status: int, cal_len: int, cal_sig: str, cal_skel: int = 0) -> bool:
     if resp.status_code != 200:
         return True
+    txt = resp.text or ""
     if cal_status == 200:
-        r_sig = _body_sig(resp.text)
-        if r_sig == cal_sig or abs(len(resp.text) - cal_len) < max(128, int(cal_len * 0.08)):
+        if _body_sig(txt) == cal_sig:
+            return True
+        if cal_skel and fast_structural_hash(txt[:16384]) == cal_skel and abs(len(txt) - cal_len) < max(512, int(cal_len * 0.35)):
             return True
     return False
 
 
-def _audit_cms_paths(db: Any, http_engine: Any, project_id: int, base_url: str, tech_blob: str, cal: tuple[int, int, str]) -> int:
+def _audit_cms_paths(db: Any, http_engine: Any, project_id: int, base_url: str, tech_blob: str, cal: tuple[int, int, str, int]) -> int:
     hits = 0
-    cal_st, cal_ln, cal_sg = cal
+    cal_st, cal_ln, cal_sg, cal_sk = cal
     host_lbl = urllib.parse.urlparse(base_url).hostname or base_url
 
     if "wordpress" in tech_blob or "wp-" in tech_blob:
         try:
             r_wp = http_engine.request("GET", f"{base_url}/wp-json/wp/v2/users?per_page=5", timeout=(2.5, 3.5), allow_redirects=False, max_bytes=32768)
-            if not _is_soft_200(r_wp, cal_st, cal_ln, cal_sg) and r_wp.text.lstrip().startswith("[") and '"slug"' in r_wp.text:
+            if not _is_soft_200(r_wp, cal_st, cal_ln, cal_sg, cal_sk) and r_wp.text.lstrip().startswith("[") and '"slug"' in r_wp.text:
                 arr = json.loads(r_wp.text)
                 slugs = [str(u.get("slug") or "") for u in arr if isinstance(u, dict) and u.get("slug")]
                 if slugs:
@@ -76,7 +79,7 @@ def _audit_cms_paths(db: Any, http_engine: Any, project_id: int, base_url: str, 
     if "moodle" in tech_blob or "moodle" in base_url.lower():
         try:
             r_md = http_engine.request("GET", f"{base_url}/lib/upgrade.txt", timeout=(2.2, 3.2), allow_redirects=False, max_bytes=24576)
-            if not _is_soft_200(r_md, cal_st, cal_ln, cal_sg) and "moodle" in r_md.text[:800].lower() and "===" in r_md.text[:600]:
+            if not _is_soft_200(r_md, cal_st, cal_ln, cal_sg, cal_sk) and "moodle" in r_md.text[:800].lower() and "===" in r_md.text[:600]:
                 m_mv = re.search(r"===\s*([345]\.\d+(?:\.\d+)?)\s*===", r_md.text[:1500])
                 ver_m = m_mv.group(1) if m_mv else ""
                 if ver_m:
@@ -97,7 +100,7 @@ def _audit_cms_paths(db: Any, http_engine: Any, project_id: int, base_url: str, 
     if "bitrix" in tech_blob:
         try:
             r_bx = http_engine.request("GET", f"{base_url}/bitrix/tools/composite_data.php", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=16384)
-            if not _is_soft_200(r_bx, cal_st, cal_ln, cal_sg) and "server_tz_offset" in r_bx.text.lower():
+            if not _is_soft_200(r_bx, cal_st, cal_ln, cal_sg, cal_sk) and "server_tz_offset" in r_bx.text.lower():
                 db.upsert_finding(
                     project_id, "Agent-2 (CMS-NVT)", f"1C-Bitrix Composite Diagnostic Endpoint Exposed ({host_lbl})",
                     "Information Disclosure", "Low", 3.7, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
@@ -114,7 +117,7 @@ def _audit_cms_paths(db: Any, http_engine: Any, project_id: int, base_url: str, 
     if "datalife" in tech_blob or "dle" in tech_blob:
         try:
             r_dle = http_engine.request("GET", f"{base_url}/upgrade/index.php", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=16384)
-            if not _is_soft_200(r_dle, cal_st, cal_ln, cal_sg) and "datalife engine" in r_dle.text.lower():
+            if not _is_soft_200(r_dle, cal_st, cal_ln, cal_sg, cal_sk) and "datalife engine" in r_dle.text.lower():
                 db.upsert_finding(
                     project_id, "Agent-2 (CMS-NVT)", f"[CONFIRMED] Exposed DataLife Engine Upgrade Script ({host_lbl})",
                     "Security Misconfiguration", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
@@ -130,7 +133,7 @@ def _audit_cms_paths(db: Any, http_engine: Any, project_id: int, base_url: str, 
         try:
             r_adm = http_engine.request("GET", f"{base_url}/admin.php", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=24576)
             adm_low = r_adm.text.lower()
-            if not _is_soft_200(r_adm, cal_st, cal_ln, cal_sg) and "<form" in adm_low and ("password" in adm_low or "datalife" in adm_low or "username" in adm_low):
+            if not _is_soft_200(r_adm, cal_st, cal_ln, cal_sg, cal_sk) and "<form" in adm_low and ("password" in adm_low or "datalife" in adm_low or "username" in adm_low):
                 has_rl = any(k.lower() in ("x-ratelimit-limit", "ratelimit-limit", "retry-after") for k in r_adm.headers.keys())
                 rl_note = "Rate-Limit Headers: Present" if has_rl else "Rate-Limit Headers: Absent"
                 db.upsert_finding(
@@ -148,16 +151,16 @@ def _audit_cms_paths(db: Any, http_engine: Any, project_id: int, base_url: str, 
     return hits
 
 
-def _audit_enterprise_panels(db: Any, http_engine: Any, project_id: int, base_url: str, tech_blob: str, cal: tuple[int, int, str]) -> int:
+def _audit_enterprise_panels(db: Any, http_engine: Any, project_id: int, base_url: str, tech_blob: str, cal: tuple[int, int, str, int]) -> int:
     hits = 0
-    cal_st, cal_ln, cal_sg = cal
+    cal_st, cal_ln, cal_sg, cal_sk = cal
     host_lbl = urllib.parse.urlparse(base_url).netloc or base_url
 
     if any(k in tech_blob for k in ("spring", "java", "tomcat", "jetty")) or any(p in base_url for p in (":808", ":809", ":8443", ":900")):
         for act_p in ("/actuator/env", "/env"):
             try:
                 r_ac = http_engine.request("GET", f"{base_url}{act_p}", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=32768)
-                if not _is_soft_200(r_ac, cal_st, cal_ln, cal_sg) and ("propertySources" in r_ac.text or "activeProfiles" in r_ac.text):
+                if not _is_soft_200(r_ac, cal_st, cal_ln, cal_sg, cal_sk) and ("propertySources" in r_ac.text or "activeProfiles" in r_ac.text):
                     db.upsert_finding(
                         project_id, "Agent-2 (Enterprise-NVT)", f"[CONFIRMED] Unauthenticated Spring Boot Actuator Environment ({host_lbl})",
                         "Sensitive Data Exposure", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
@@ -175,7 +178,7 @@ def _audit_enterprise_panels(db: Any, http_engine: Any, project_id: int, base_ur
     if "laravel" in tech_blob or "php" in tech_blob:
         try:
             r_ig = http_engine.request("GET", f"{base_url}/_ignition/health-check", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=8192)
-            if not _is_soft_200(r_ig, cal_st, cal_ln, cal_sg) and '"can_execute_commands"' in r_ig.text:
+            if not _is_soft_200(r_ig, cal_st, cal_ln, cal_sg, cal_sk) and '"can_execute_commands"' in r_ig.text:
                 db.upsert_finding(
                     project_id, "Agent-2 (Enterprise-NVT)", f"[CONFIRMED] Exposed Laravel Ignition Debug Endpoint ({host_lbl})",
                     "Debug Mode Exposure", "High", 8.6, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
@@ -192,7 +195,7 @@ def _audit_enterprise_panels(db: Any, http_engine: Any, project_id: int, base_ur
     # Grafana /api/health (version feed) & /api/datasources
     try:
         r_gf = http_engine.request("GET", f"{base_url}/api/health", timeout=(2.0, 2.8), allow_redirects=False, max_bytes=8192)
-        if not _is_soft_200(r_gf, cal_st, cal_ln, cal_sg) and '"database"' in r_gf.text and '"version"' in r_gf.text:
+        if not _is_soft_200(r_gf, cal_st, cal_ln, cal_sg, cal_sk) and '"database"' in r_gf.text and '"version"' in r_gf.text:
             gf_obj = json.loads(r_gf.text)
             gf_ver = str(gf_obj.get("version") or "")
             if re.match(r"^\d+\.\d+", gf_ver):
@@ -226,7 +229,7 @@ def _audit_enterprise_panels(db: Any, http_engine: Any, project_id: int, base_ur
         try:
             r_ep = http_engine.request("GET", f"{base_url}{ep_u}", timeout=(2.0, 2.8), allow_redirects=False, max_bytes=24576)
             norm_b = r_ep.text.lower().replace(" ", "")
-            if not _is_soft_200(r_ep, cal_st, cal_ln, cal_sg) and sig_s in norm_b:
+            if not _is_soft_200(r_ep, cal_st, cal_ln, cal_sg, cal_sk) and sig_s in norm_b:
                 if ep_u.startswith("/zabbix") and ("sign-in" in norm_b or "name=\"password\"" in norm_b):
                     continue
                 if ep_u.endswith("debug.log") and not any(k in r_ep.text for k in ("PHP Notice", "PHP Warning", "PHP Fatal", "Stack trace:")):
@@ -274,10 +277,11 @@ def run_cms_and_enterprise_nvts(
 
     def _run_one(item: tuple[str, str]) -> int:
         b_url, tb = item
-        cal = (-1, -1, "")
+        cal = (-1, -1, "", 0)
         try:
             rc = http_engine.request("GET", f"{b_url}/spectre-cal-nvt-8821", timeout=(2.0, 2.8), allow_redirects=False, max_bytes=16384)
-            cal = (rc.status_code, len(rc.text), _body_sig(rc.text))
+            rc_t = rc.text or ""
+            cal = (rc.status_code, len(rc_t), _body_sig(rc_t), fast_structural_hash(rc_t[:16384]))
         except Exception:
             return 0
         return _audit_cms_paths(db, http_engine, project_id, b_url, tb, cal) + _audit_enterprise_panels(db, http_engine, project_id, b_url, tb, cal)

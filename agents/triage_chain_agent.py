@@ -158,7 +158,7 @@ class TriageAndChainSuperAgent:
                 conf_s = str(f.get("confidence") or "")
                 if "Passive Shodan Cache" not in conf_s:
                     g["cves"].append(f)
-            if "data store" in tl or "database / cache" in cat_l:
+            if "data store" in tl or any(k in cat_l for k in ("database / cache", "message broker", "streaming / queue", "cluster coordination")):
                 g["data_stores"].append(f)
 
         # Per-Host Asset-Bound Graph Correlation Rules
@@ -442,6 +442,27 @@ class TriageAndChainSuperAgent:
                 md_lines.append(f"- **`[{ilg.get('tool')}]`** (`{ilg.get('command')}`): {ilg.get('summary')}")
             md_lines.append("")
 
+        from core.compliance_exporter import build_compliance_matrix
+        comp_mat = build_compliance_matrix(bundle)
+        posture_score = comp_mat.get("posture_score", 100)
+        fw_map = comp_mat.get("frameworks", {})
+        md_lines.extend([
+            "---",
+            f"## 5. 🏛️ Xalqaro Standartlar Muvofiqlik Matritsasi (Security Posture Score: {posture_score}/100)",
+        ])
+        for fw_label, fw_key in (
+            ("OWASP Top 10:2021", "owasp_2021"),
+            ("OWASP API Security Top 10:2023", "owasp_api_2023"),
+            ("PCI-DSS v4.0", "pci_dss_v4"),
+            ("ISO/IEC 27001:2022", "iso_27001_2022"),
+        ):
+            ctrls = fw_map.get(fw_key) or {}
+            if ctrls:
+                md_lines.append(f"### {fw_label}")
+                for c_name, c_cnt in ctrls.items():
+                    md_lines.append(f"- `{c_name}`: **{c_cnt}** ta topilma")
+                md_lines.append("")
+
         md_content = "\n".join(md_lines)
         md_path.write_text(md_content, encoding="utf-8")
 
@@ -469,8 +490,22 @@ class TriageAndChainSuperAgent:
         med_c = sum(1 for f in findings if f.get("severity") == "Medium")
         low_c = sum(1 for f in findings if f.get("severity") == "Low")
         kev_c = sum(1 for f in findings if "[CISA-KEV" in str(f.get("evidence", "")))
+        comp_rows_html = ""
+        for fw_lbl, fw_k in (
+            ("OWASP Top 10:2021", "owasp_2021"),
+            ("OWASP API:2023", "owasp_api_2023"),
+            ("PCI-DSS v4.0", "pci_dss_v4"),
+            ("ISO/IEC 27001:2022", "iso_27001_2022"),
+        ):
+            for ctrl_n, cnt_n in (fw_map.get(fw_k) or {}).items():
+                comp_rows_html += (
+                    f"<tr><td><b>{_html.escape(fw_lbl)}</b></td>"
+                    f"<td><code>{_html.escape(ctrl_n)}</code></td>"
+                    f"<td><b>{cnt_n}</b></td></tr>"
+                )
         kpi_bar = (
             f"<div style='display:flex;gap:12px;flex-wrap:wrap;margin:16px 0;'>"
+            f"<div style='background:#0d2116;border:1px solid #22c55e;padding:10px 16px;border-radius:8px;'><b>Posture Score:</b> {posture_score}/100</div>"
             f"<div style='background:#1a1114;border:1px solid #7f1d1d;padding:10px 16px;border-radius:8px;'><b>Critical:</b> {crit_c}</div>"
             f"<div style='background:#1c1410;border:1px solid #9a3412;padding:10px 16px;border-radius:8px;'><b>High:</b> {high_c}</div>"
             f"<div style='background:#1a180f;border:1px solid #854d0e;padding:10px 16px;border-radius:8px;'><b>Medium:</b> {med_c}</div>"
@@ -480,7 +515,7 @@ class TriageAndChainSuperAgent:
             f"</div>"
         )
         html_content = f"""<!DOCTYPE html>
-<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v3.8.0 Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
+<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v5.0.0 Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
 <style>
 body {{ font-family: "Inter", system-ui, sans-serif; background: #090c0a; color: #e2e8f0; padding: 32px; }}
 h1, h2 {{ color: #4ade80; border-bottom: 1px solid #1b2a21; padding-bottom: 8px; }}
@@ -489,7 +524,7 @@ th, td {{ border: 1px solid #1b2a21; padding: 10px 12px; text-align: left; font-
 th {{ background: #13281c; color: #4ade80; font-weight: 700; }}
 code {{ color: #86efac; background: #080b09; padding: 2px 6px; border-radius: 4px; }}
 </style></head><body>
-<h1>SPECTRE v3.8.0 — Enterprise Security &amp; Attack Surface Report: {_html.escape(str(proj.get('name', '')))}</h1>
+<h1>SPECTRE v5.0.0 — Enterprise Security &amp; Attack Surface Report: {_html.escape(str(proj.get('name', '')))}</h1>
 <p><b>Primary Target:</b> <code>{_html.escape(str(proj.get('primary_target', '')))}</code> | <b>In-Scope:</b> <code>{_html.escape(str(proj.get('in_scope', '')))}</code></p>
 {kpi_bar}
 <h2>🔗 Zaifliklar Zanjiri (Bug Chaining Scenarios — {len(chains)})</h2>
@@ -498,6 +533,9 @@ code {{ color: #86efac; background: #080b09; padding: 2px 6px; border-radius: 4p
 <h2>🔍 Aniqlangan Zaifliklar va Tekshiruv Nuqtalari ({len(findings)})</h2>
 <table><thead><tr><th>Severity / CVSS</th><th>Zaiflik Nomi</th><th>Asset</th><th>Dalil (Evidence)</th><th>Remediation</th></tr></thead>
 <tbody>{rows_html}</tbody></table>
+<h2>🏛️ Xalqaro Standartlar Muvofiqlik Matritsasi (OWASP / API:2023 / PCI-DSS v4.0 / ISO 27001)</h2>
+<table><thead><tr><th>Standart (Framework)</th><th>Nazorat Bandi (Control)</th><th>Ta'sirlangan Topilmalar</th></tr></thead>
+<tbody>{comp_rows_html or '<tr><td colspan="3">Nazorat buzilishlari aniqlanmadi (100% Muvofiq).</td></tr>'}</tbody></table>
 </body></html>"""
         html_path.write_text(html_content, encoding="utf-8")
 

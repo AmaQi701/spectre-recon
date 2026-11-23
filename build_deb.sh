@@ -14,7 +14,7 @@ mkdir -p "${DIST_DIR}"
 
 cat << 'EOF' > "${PKG_DIR}/DEBIAN/control"
 Package: spectre-recon
-Version: 4.0.0
+Version: 5.0.0
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -22,8 +22,8 @@ Depends: python3, python3-gi, gir1.2-gtk-3.0, python3-requests, python3-yaml, py
 Recommends: g++, libssl-dev, nmap, whois, dnsutils
 Maintainer: AmaQi701 <67887617+AmaQi701@users.noreply.github.com>
 Description: SPECTRE Hybrid C++17/Python Attack Surface & Security Audit Studio
- Native Linux GTK3 & Headless CLI platform with C++17 epoll/OpenSSL,
- 100 declarative NVTs, 26 socket verifiers, SSH LSC, SCA/OSV, and SARIF/SBOM.
+ Native Linux GTK3 & Headless CLI platform with C++17 v2 epoll/OpenSSL,
+ 130 declarative NVTs, 34 socket verifiers, 150 CPEs, 14-lockfile SCA, and SARIF/SBOM.
 EOF
 
 if command -v g++ >/dev/null 2>&1; then
@@ -44,7 +44,7 @@ Version=1.0
 Type=Application
 Name=SPECTRE Recon Studio
 GenericName=Cyber-Recon & Attack Surface Studio
-Comment=SPECTRE v3.8.0 Hybrid C++17/Python Recon, 100-NVT, SSH LSC, SCA & SARIF/SBOM Studio
+Comment=SPECTRE v5.0.0 Hybrid C++17/Python Recon, 130-NVT, 34-Port NVT, SCA & Compliance Studio
 Exec=/bin/bash /opt/apex-asm-studio/launch_apex.sh
 Path=/opt/apex-asm-studio
 Icon=/opt/apex-asm-studio/ui/apex-icon.svg
@@ -54,5 +54,5 @@ Keywords=pentest;recon;security;audit;spectre;scanner;
 StartupNotify=true
 EOF
 
-dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_3.8.0_amd64.deb"
-echo "[+] Built package: ${DIST_DIR}/spectre-recon_3.8.0_amd64.deb"
+dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_5.0.0_amd64.deb"
+echo "[+] Built package: ${DIST_DIR}/spectre-recon_5.0.0_amd64.deb"

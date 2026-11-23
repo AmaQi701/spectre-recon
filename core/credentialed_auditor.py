@@ -45,6 +45,18 @@ def parse_sshd_posture(config_text: str) -> list[tuple[str, str, float, str, str
             "High", 7.5, "CWE-327",
             "sshd_config faylida faqat `Protocol 2` qoldiring.",
         ))
+    if directives.get("ignorerhosts") == "no":
+        issues.append((
+            "[CONFIRMED] SSH IgnoreRhosts Disabled (.rhosts Trust Enabled)",
+            "High", 7.5, "CWE-287",
+            "sshd_config faylida `IgnoreRhosts yes` o'rnating.",
+        ))
+    if directives.get("hostbasedauthentication") == "yes":
+        issues.append((
+            "[CONFIRMED] SSH HostbasedAuthentication Enabled (CIS Benchmark)",
+            "High", 7.2, "CWE-287",
+            "sshd_config faylida `HostbasedAuthentication no` o'rnating.",
+        ))
     return issues
 
 
