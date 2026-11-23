@@ -248,8 +248,8 @@ def export_project_artifacts(db, project_id: int, reports_dir: str | Path | None
     json_path = out_dir / f"project_{project_id}_full_export.json"
     json_path.write_text(json.dumps(b, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    from core.compliance_exporter import export_sarif_and_sbom
-    sarif_path, sbom_path = export_sarif_and_sbom(b, out_dir, project_id)
+    from core.compliance_exporter import export_compliance_suite
+    comp_paths = export_compliance_suite(b, out_dir, project_id)
 
     return {
         "subdomains_txt": str(subs_path),
@@ -257,8 +257,10 @@ def export_project_artifacts(db, project_id: int, reports_dir: str | Path | None
         "burp_scope_json": str(burp_path),
         "findings_csv": str(csv_path),
         "full_json": str(json_path),
-        "sarif_json": sarif_path,
-        "cyclonedx_sbom_json": sbom_path,
+        "sarif_json": comp_paths["sarif_json"],
+        "cyclonedx_sbom_json": comp_paths["cyclonedx_sbom_json"],
+        "junit_xml": comp_paths["junit_xml"],
+        "compliance_matrix_json": comp_paths["compliance_matrix_json"],
     }
 
 

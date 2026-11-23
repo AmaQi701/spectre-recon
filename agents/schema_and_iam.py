@@ -10,6 +10,7 @@ import pathlib
 import re
 import urllib.parse
 from typing import Any
+from core.http_engine import fetch_cached_text
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 
@@ -172,7 +173,7 @@ def cluster_subdomains_by_dom_structure(db, session, project_id: int, log_fn) ->
     if len(services) < 2:
         return {}
 
-    from core.native_bridge import fast_simhash64
+    from core.native_bridge import fast_hamming64, fast_simhash64
 
     tag_re = re.compile(r"<([a-zA-Z0-9]+)")
     clusters: dict[str, list[str]] = {}
@@ -188,7 +189,7 @@ def cluster_subdomains_by_dom_structure(db, session, project_id: int, log_fn) ->
             sh_val = fast_simhash64(sig_str)
             matched_fp = ""
             for rep_sh, rep_fp in sim_reps:
-                if (sh_val ^ rep_sh).bit_count() <= 3:
+                if fast_hamming64(sh_val, rep_sh) <= 3:
                     matched_fp = rep_fp
                     break
             if not matched_fp:
@@ -228,11 +229,10 @@ def predict_and_fetch_webpack_chunks(db, session, project_id: int, base_url: str
 
     for ju in list(js_urls[:15]):
         try:
-            rj = session.get(ju, timeout=5, verify=False)
-            if rj.status_code != 200:
+            txt_slice = fetch_cached_text(session, project_id, ju, timeout=5.0, max_chars=250000)
+            if not txt_slice:
                 continue
             base_js_dir = ju.rsplit("/", 1)[0] + "/"
-            txt_slice = rj.text[:250000]
 
             direct_rel_cands = set(vite_dyn_re.findall(txt_slice)) | set(nextjs_chunk_re.findall(txt_slice))
             for rel_c in list(direct_rel_cands)[:12]:

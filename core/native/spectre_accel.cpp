@@ -153,7 +153,15 @@ int spectre_epoll_tcp_probe(
     if (!ip_str || !ports || num_ports == 0 || !out_buf || out_cap < 32) return 0;
     out_buf[0] = '\0';
     struct in_addr addr4{};
-    if (inet_pton(AF_INET, ip_str, &addr4) != 1) return 0;
+    struct in6_addr addr6{};
+    bool is_v6 = false;
+    if (inet_pton(AF_INET, ip_str, &addr4) != 1) {
+        if (inet_pton(AF_INET6, ip_str, &addr6) == 1) {
+            is_v6 = true;
+        } else {
+            return 0;
+        }
+    }
 
     int epfd = epoll_create1(EPOLL_CLOEXEC);
     if (epfd < 0) return 0;
@@ -163,13 +171,23 @@ int spectre_epoll_tcp_probe(
     slots.reserve(num_ports);
 
     for (size_t i = 0; i < num_ports && i < 512; ++i) {
-        int fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+        int domain = is_v6 ? AF_INET6 : AF_INET;
+        int fd = socket(domain, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
         if (fd < 0) continue;
-        struct sockaddr_in sa{};
-        sa.sin_family = AF_INET;
-        sa.sin_port = htons(static_cast<uint16_t>(ports[i]));
-        sa.sin_addr = addr4;
-        int rc = connect(fd, reinterpret_cast<struct sockaddr*>(&sa), sizeof(sa));
+        int rc = -1;
+        if (is_v6) {
+            struct sockaddr_in6 sa6{};
+            sa6.sin6_family = AF_INET6;
+            sa6.sin6_port = htons(static_cast<uint16_t>(ports[i]));
+            sa6.sin6_addr = addr6;
+            rc = connect(fd, reinterpret_cast<struct sockaddr*>(&sa6), sizeof(sa6));
+        } else {
+            struct sockaddr_in sa{};
+            sa.sin_family = AF_INET;
+            sa.sin_port = htons(static_cast<uint16_t>(ports[i]));
+            sa.sin_addr = addr4;
+            rc = connect(fd, reinterpret_cast<struct sockaddr*>(&sa), sizeof(sa));
+        }
         if (rc < 0 && errno != EINPROGRESS) {
             close(fd);
             continue;
@@ -359,6 +377,100 @@ uint32_t spectre_js_token_mask(const uint8_t* data, size_t len) {
         if (mask == 0x1FU) break;
     }
     return mask;
+}
+
+int spectre_hamming64(uint64_t a, uint64_t b) {
+    return __builtin_popcountll(a ^ b);
+}
+
+uint64_t spectre_structural_hash(const uint8_t* data, size_t len) {
+    if (!data || len == 0) return 0ULL;
+    size_t pos = 0;
+    while (pos < len && data[pos] <= 0x20) pos++;
+    if (pos >= len) return 0ULL;
+
+    uint64_t h = 14695981039346656037ULL;
+    auto mix = [&](uint8_t b) {
+        h ^= static_cast<uint64_t>(b);
+        h *= 1099511628211ULL;
+    };
+
+    uint8_t first = data[pos];
+    if (first == '{' || first == '[') {
+        bool in_str = false;
+        bool esc = false;
+        uint8_t key_buf[48];
+        size_t key_len = 0;
+        for (size_t i = pos; i < len; ++i) {
+            uint8_t c = data[i];
+            if (in_str) {
+                if (esc) {
+                    esc = false;
+                } else if (c == '\\') {
+                    esc = true;
+                } else if (c == '"') {
+                    in_str = false;
+                    size_t k = i + 1;
+                    while (k < len && data[k] <= 0x20) k++;
+                    if (k < len && data[k] == ':') {
+                        mix('"');
+                        for (size_t m = 0; m < key_len; ++m) mix(key_buf[m]);
+                        mix(':');
+                    }
+                    key_len = 0;
+                } else if (key_len < sizeof(key_buf)) {
+                    if (c >= 'A' && c <= 'Z') c += 32;
+                    key_buf[key_len++] = c;
+                }
+            } else {
+                if (c == '"') {
+                    in_str = true;
+                    key_len = 0;
+                } else if (c == '{' || c == '}' || c == '[' || c == ']') {
+                    mix(c);
+                }
+            }
+        }
+        return h;
+    }
+
+    bool has_lt = false;
+    size_t scan_lim = len < 512 ? len : 512;
+    for (size_t i = pos; i < scan_lim; ++i) {
+        if (data[i] == '<') { has_lt = true; break; }
+    }
+    if (has_lt) {
+        for (size_t i = pos; i < len; ++i) {
+            if (data[i] == '<' && i + 1 < len) {
+                size_t k = i + 1;
+                bool closing = false;
+                if (data[k] == '/') { closing = true; k++; }
+                if (k < len && ((data[k] >= 'a' && data[k] <= 'z') || (data[k] >= 'A' && data[k] <= 'Z'))) {
+                    mix('<');
+                    if (closing) mix('/');
+                    size_t tlen = 0;
+                    while (k < len && tlen < 24) {
+                        uint8_t tc = data[k];
+                        bool ok = (tc >= 'a' && tc <= 'z') || (tc >= 'A' && tc <= 'Z') || (tc >= '0' && tc <= '9');
+                        if (!ok) break;
+                        if (tc >= 'A' && tc <= 'Z') tc += 32;
+                        mix(tc);
+                        k++;
+                        tlen++;
+                    }
+                    while (k < len && data[k] != '>') k++;
+                    i = k;
+                }
+            }
+        }
+        return h;
+    }
+
+    for (size_t i = pos; i < len; ++i) {
+        uint8_t c = data[i];
+        if (c == '\n' || c == ':' || c == '=' || c == '[' || c == ']') mix(c);
+    }
+    return h;
 }
 
 } // extern "C"

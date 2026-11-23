@@ -13,6 +13,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from core.native_bridge import fast_structural_hash
 from core.plugin_runner import QoD
 
 CATALOG_PATH = Path(__file__).resolve().parent.parent / "config" / "nvt_catalog.json"
@@ -35,17 +36,13 @@ def _sig16(text: str) -> str:
     return hashlib.sha256((text or "")[:4096].encode("utf-8", errors="ignore")).hexdigest()[:16]
 
 
-def _is_calibrated_hit(resp: Any, rule: dict[str, Any], cal: tuple[int, int, str]) -> bool:
+def _is_calibrated_hit(resp: Any, rule: dict[str, Any], cal: tuple[int, int, str, int, str]) -> bool:
     exp_st = int(rule.get("status", 200))
     if resp.status_code != exp_st:
         return False
     body = resp.text or ""
     if len(body) < int(rule.get("min_bytes", 16)):
         return False
-    cal_st, cal_ln, cal_sg = cal
-    if cal_st == exp_st:
-        if _sig16(body) == cal_sg or abs(len(body) - cal_ln) < max(128, int(cal_ln * 0.08)):
-            return False
     ct_any = [str(x).lower() for x in (rule.get("content_type_any") or [])]
     if ct_any:
         ct_hdr = str(resp.headers.get("Content-Type") or "").lower()
@@ -55,7 +52,18 @@ def _is_calibrated_hit(resp: Any, rule: dict[str, Any], cal: tuple[int, int, str
     if any(str(ex).lower() in low_b for ex in (rule.get("exclude_any") or [])):
         return False
     req_all = [str(m).lower() for m in (rule.get("match_all") or [])]
-    return bool(req_all) and all(m in low_b for m in req_all)
+    if not req_all or not all(m in low_b for m in req_all):
+        return False
+    cal_st, cal_ln, cal_sg, cal_skel, cal_low = cal
+    if cal_st == exp_st:
+        if _sig16(body) == cal_sg:
+            return False
+        if all(m in cal_low for m in req_all):
+            return False
+        body_skel = fast_structural_hash(body[:16384])
+        if cal_skel and body_skel == cal_skel and abs(len(body) - cal_ln) < max(512, int(cal_ln * 0.35)):
+            return False
+    return True
 
 
 def run_declarative_nvt_catalog(
@@ -98,7 +106,8 @@ def run_declarative_nvt_catalog(
         local_hits: list[tuple[dict[str, Any], str, int]] = []
         try:
             rc = http_engine.request("GET", f"{base_u}/spectre-decl-cal-7741", timeout=(2.0, 2.8), allow_redirects=False, max_bytes=16384)
-            cal = (rc.status_code, len(rc.text), _sig16(rc.text))
+            rc_txt = rc.text or ""
+            cal = (rc.status_code, len(rc_txt), _sig16(rc_txt), fast_structural_hash(rc_txt[:16384]), rc_txt[:2048].lower())
         except Exception:
             return local_hits
         for rl in rules:

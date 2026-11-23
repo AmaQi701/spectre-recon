@@ -12,6 +12,7 @@ import zlib
 import dns.resolver
 import dns.reversename
 import requests
+from core.http_engine import fetch_cached_text
 
 
 # --- / WAF ORIGIN IP UNMASKER (TRUE TLS SNI + HOST INJECTION) ---
@@ -324,10 +325,9 @@ def hunt_deep_secrets_and_uz_ecosystem(db, session: requests.Session, project_id
 
     for t_url in targets_to_scan:
         try:
-            r = session.get(t_url, timeout=6, verify=False)
-            if r.status_code != 200:
+            body = fetch_cached_text(session, project_id, t_url, timeout=6.0, max_chars=350000)
+            if not body:
                 continue
-            body = r.text[:350000]
             for label, sev, cvss, rgx in patterns:
                 for m in re.findall(rgx, body)[:4]:
                     val = m if isinstance(m, str) else m[0]

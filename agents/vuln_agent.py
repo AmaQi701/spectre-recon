@@ -205,21 +205,20 @@ class VulnAssessmentSuperAgent:
                     sig_input = f"{parts[0]}.{parts[1]}".encode("utf-8")
                     pad_s = "=" * ((4 - len(parts[2]) % 4) % 4)
                     raw_sig = base64.urlsafe_b64decode(parts[2] + pad_s)
+                    from agents.active_web_auditor import DEFAULT_JWT_SECRETS
                     from core.native_bridge import fast_jwt_hmac_audit
-                    default_keys = (
-                        "secret", "password", "123456", "jwt_secret", "changeme", "admin",
-                        "secretkey", "mysecret", "key", "token", "supersecret", "dev",
-                        "production", "jwt", "auth_secret", "app_secret", "qwerty", "12345678",
-                    )
-                    matched_k = fast_jwt_hmac_audit(sig_input, raw_sig, alg, default_keys)
+                    matched_k = fast_jwt_hmac_audit(sig_input, raw_sig, alg, DEFAULT_JWT_SECRETS)
                     if matched_k:
                         issues.insert(0, f"CRITICAL [QoD: 99%]: JWT imzosi standart zaif kalit ('{matched_k}') bilan tasdiqlandi!")
             if "exp" not in payload:
                 issues.append("MEDIUM: Token muddati ('exp' claim) belgilanmagan — token doimiy amal qilishi mumkin.")
-            if any(k in str(payload).lower() for k in ("password", "secret", "ssn", "private")):
-                issues.append("HIGH: JWT payload ichida sezgir ma'lumotlar ochiq (Base64) saqlangan.")
-            if "jku" in header or "x5u" in header or "kid" in header:
-                issues.append("INFO/HIGH: Headerda 'kid'/'jku'/'x5u' mavjud — Path Traversal yoki SSRF/Key Injection tekshiruvi tavsiya etiladi.")
+            sens_k = [str(k) for k in payload.keys() if any(sk in str(k).lower() for sk in ("password", "passwd", "secret", "private_key", "api_key", "ssn", "pin_code"))]
+            if sens_k:
+                issues.append(f"HIGH: JWT payload ichida sezgir maydonlar ochiq (Base64) saqlangan: {', '.join(sens_k)}.")
+            if "jwk" in header or "jku" in header or "x5u" in header:
+                issues.append("CRITICAL [QoD: 90%]: JWT headerda tashqi/ichki kalit ('jwk'/'jku'/'x5u') ko'rsatilgan — Key Injection xavfi.")
+            elif "kid" in header:
+                issues.append("MEDIUM: Headerda 'kid' mavjud — kalit identifikatori validatsiyasini tekshiring.")
             return {"valid": True, "header": header, "payload": payload, "issues": issues}
         except Exception as e:
             return {"valid": False, "error": str(e)}
@@ -227,6 +226,7 @@ class VulnAssessmentSuperAgent:
     def _audit_http_services(self, project_id: int, http_services: list[dict], log_fn):
         seen_header_sigs: set[tuple[str, str]] = set()
         missing_header_items: list[tuple[str, list[str]]] = []
+        srv_disclosure_items: list[tuple[str, str]] = []
         seen_cookie_names: set[str] = set()
         seen_cors_templates: set[tuple[str, str, int]] = set()
         cors_dead_hosts: set[str] = set()
@@ -345,19 +345,33 @@ class VulnAssessmentSuperAgent:
                         confidence=QoD.HEADER_CONFIG,
                     )
 
-            # Server Version Disclosure (deduplicated per server string)
-            srv = svc.get("server", "")
-            if srv and re.search(r"\d+\.\d+", srv) and ("srv_disc", srv) not in seen_header_sigs:
+            # Server Version Disclosure (exclude generic OS-family IIS 10.0/8.5 banners; consolidate multi-profile)
+            srv = str(svc.get("server") or "").strip()
+            is_family_only = bool(re.match(r"(?i)^microsoft-iis/(?:10\.0|8\.5)$", srv))
+            if srv and not is_family_only and re.search(r"\d+\.\d+", srv) and ("srv_disc", srv) not in seen_header_sigs:
                 seen_header_sigs.add(("srv_disc", srv))
-                self.db.upsert_finding(
-                    project_id, "Agent-2 (VulnAudit)", f"Web Server Version Information Disclosure ({srv})",
-                    "Information Disclosure", "Low", 3.1, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
-                    "CWE-200", "A05:2021 - Security Misconfiguration", url,
-                    f"Server Header: {srv}",
-                    "Veb-server o'zining aniq versiyasini HTTP javob headerida oshkor qilmoqda.",
-                    "Nginx da 'server_tokens off;' yoki Apache da 'ServerTokens Prod' sozlamasini yoqing.",
-                    confidence=QoD.HEADER_CONFIG,
+                srv_disclosure_items.append((url, srv))
+
+        if srv_disclosure_items:
+            first_su, first_sv = srv_disclosure_items[0]
+            if len(srv_disclosure_items) == 1:
+                sv_title = f"Web Server Version Information Disclosure ({first_sv})"
+                sv_ev = f"Server Header: {first_sv}"
+            else:
+                sv_title = f"Web Server Version Information Disclosure ({len(srv_disclosure_items)} Server Profiles)"
+                sv_ev = " | ".join(
+                    f"{urllib.parse.urlparse(u_s).netloc or u_s}: {s_v}"
+                    for u_s, s_v in srv_disclosure_items[:8]
                 )
+            self.db.upsert_finding(
+                project_id, "Agent-2 (VulnAudit)", sv_title,
+                "Information Disclosure", "Low", 3.1, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                "CWE-200", "A05:2021 - Security Misconfiguration", first_su,
+                sv_ev,
+                "Veb-server o'zining aniq versiyasini HTTP javob headerida oshkor qilmoqda.",
+                "Nginx da 'server_tokens off;' yoki Apache da 'ServerTokens Prod' sozlamasini yoqing.",
+                confidence=QoD.HEADER_CONFIG,
+            )
 
         if missing_header_items:
             first_u, first_mh = missing_header_items[0]
@@ -775,6 +789,49 @@ class VulnAssessmentSuperAgent:
                     "Dinamik CORS javoblariga har doim 'Vary: Origin' sarlavhasini qo'shing.",
                     confidence=QoD.HEADER_CONFIG,
                 )
+            pna = hdrs.get("access-control-allow-private-network", "").lower()
+            if pna == "true" and acao in ("*", "null") and f"pna:{host_k}" not in seen_tls:
+                seen_tls.add(f"pna:{host_k}")
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (CORS-PNA)", f"Permissive Private Network Access CORS Header ({host_k})",
+                    "CORS / Private Network Exposure", "High", 7.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                    "CWE-942", "A05:2021 - Security Misconfiguration", url,
+                    f"Access-Control-Allow-Private-Network: true with ACAO: {acao}",
+                    "Tashqi veb-sahifalarga foydalanuvchi brauzeri orqali lokal/ichki tarmoq resursiga murojaat qilishga ruxsat berilgan.",
+                    "`Access-Control-Allow-Private-Network` sarlavhasini faqat aniq ichki korporativ Origin bilan cheklang.",
+                    confidence=QoD.HEADER_CONFIG,
+                )
+            xfo_val = hdrs.get("x-frame-options", "").upper()
+            if "ALLOWALL" in xfo_val and f"xfo:{host_k}" not in seen_tls:
+                seen_tls.add(f"xfo:{host_k}")
+                self.db.upsert_finding(
+                    project_id, "Agent-2 (Header-Audit)", f"Explicitly Disabled Clickjacking Protection (X-Frame-Options: ALLOWALL on {host_k})",
+                    "UI Redressing / Clickjacking", "Medium", 4.7, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N",
+                    "CWE-1021", "A05:2021 - Security Misconfiguration", url,
+                    f"X-Frame-Options: {xfo_val}",
+                    "Ilova `X-Frame-Options: ALLOWALL` orqali har qanday uchinchi tomon iframe ichida ochilishga ochiq ruxsat bermoqda.",
+                    "`X-Frame-Options: SAMEORIGIN` yoki `CSP: frame-ancestors 'self'` o'rnating.",
+                    confidence=QoD.HEADER_CONFIG,
+                )
+            not_after = str(tls.get("notAfter") or "").strip()
+            if not_after and f"exp:{host_k}" not in seen_tls:
+                try:
+                    import datetime as _dt
+                    exp_dt = _dt.datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=_dt.timezone.utc)
+                    days_rem = (exp_dt - _dt.datetime.now(_dt.timezone.utc)).days
+                    if days_rem < 0:
+                        seen_tls.add(f"exp:{host_k}")
+                        self.db.upsert_finding(
+                            project_id, "Agent-2 (TLS-Audit)", f"[CONFIRMED] Expired X.509 TLS Certificate ({host_k})",
+                            "Cryptographic / Certificate Misconfiguration", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+                            "CWE-298", "A02:2021 - Cryptographic Failures", url,
+                            f"Certificate notAfter: {not_after} (expired {-days_rem} days ago)",
+                            "Xizmatning X.509 TLS sertifikati amal qilish muddati tugagan.",
+                            "ACME/Certbot avtomatik yangilash xizmatini sozlang va sertifikatni yangilang.",
+                            confidence=QoD.PROTOCOL_VERIFIED,
+                        )
+                except Exception:
+                    pass
 
 
 
@@ -1220,7 +1277,7 @@ class VulnAssessmentSuperAgent:
         diag_marker = 'sp7x"<>'
         if canary in base_text:
             return
-        host_k = (p_parsed.hostname or "").lower()
+        host_k = (p_parsed.hostname or "").lower().removeprefix("www.")
         qs_c = dict(qs)
         qs_c[p_name] = [canary]
         test_u = urllib.parse.urlunparse(p_parsed._replace(query=urllib.parse.urlencode(qs_c, doseq=True)))
@@ -1234,13 +1291,16 @@ class VulnAssessmentSuperAgent:
             test_diag_u = urllib.parse.urlunparse(p_parsed._replace(query=urllib.parse.urlencode(qs_d, doseq=True)))
             r_diag = self.http_engine.request("GET", test_diag_u, headers=self.role_a_headers or None, allow_redirects=False)
             if r_diag.status_code == 200 and diag_marker in r_diag.text and diag_marker not in base_text:
-                ctx_lbl = "inline <script> context" if in_script_ctx else "text/html body"
+                if (host_k, f"unenc_refl:{p_name}") in seen_tracker:
+                    return
+                seen_tracker.add((host_k, f"unenc_refl:{p_name}"))
+                ctx_lbl = "inline script context" if in_script_ctx else "text/html body"
                 self.db.upsert_finding(
-                    project_id, "Agent-2 (Differential-Verifier)", f"[CONFIRMED] Unencoded HTML Output Reflection via '{p_name}' Parameter",
+                    project_id, "Agent-2 (Differential-Verifier)", f"[CONFIRMED] Unencoded HTML Output Reflection via '{p_name}' Parameter ({host_k})",
                     "Output Encoding / XSS Verification", "High", 7.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
                     "CWE-79", "A03:2021 - Injection", u,
-                    f"Diagnostic marker '{diag_marker}' reflected unencoded in {ctx_lbl} via '{p_name}'.",
-                    f"'{p_name}' parametriga berilgan HTML ajratuvchi belgilar entity-encoding qilinmasdan ({ctx_lbl}) qaytarilmoqda.",
+                    f"Diagnostic marker reflected unencoded in {ctx_lbl} via '{p_name}' on {host_k}.",
+                    f"'{p_name}' parametriga berilgan maxsus ajratuvchi belgilar entity-encoding qilinmasdan ({ctx_lbl}) qaytarilmoqda.",
                     "Barcha chiqish nuqtalarida kontekstli HTML/JS encoding qo'llang va qat'iy CSP o'rnating.",
                     confidence=QoD.ACTIVE_VERIFIED,
                 )

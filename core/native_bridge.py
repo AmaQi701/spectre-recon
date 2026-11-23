@@ -68,6 +68,12 @@ def get_native_lib() -> ctypes.CDLL | None:
                 if hasattr(lib, "spectre_js_token_mask"):
                     lib.spectre_js_token_mask.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
                     lib.spectre_js_token_mask.restype = ctypes.c_uint32
+                if hasattr(lib, "spectre_hamming64"):
+                    lib.spectre_hamming64.argtypes = [ctypes.c_uint64, ctypes.c_uint64]
+                    lib.spectre_hamming64.restype = ctypes.c_int
+                if hasattr(lib, "spectre_structural_hash"):
+                    lib.spectre_structural_hash.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+                    lib.spectre_structural_hash.restype = ctypes.c_uint64
                 _LIB = lib
         except Exception:
             _LIB = None
@@ -168,5 +174,37 @@ def fast_js_token_mask(text_or_bytes: str | bytes) -> int:
     if b"sourcemappingurl=" in low or b'"sourcescontent"' in low:
         mask |= JS_TOK_SOURCEMAP
     return mask
+
+
+def fast_hamming64(a: int, b: int) -> int:
+    ua = int(a) & 0xFFFFFFFFFFFFFFFF
+    ub = int(b) & 0xFFFFFFFFFFFFFFFF
+    lib = get_native_lib()
+    if lib is not None and hasattr(lib, "spectre_hamming64"):
+        return int(lib.spectre_hamming64(ua, ub))
+    return (ua ^ ub).bit_count()
+
+
+def fast_structural_hash(text_or_bytes: str | bytes) -> int:
+    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+    if not b:
+        return 0
+    lib = get_native_lib()
+    if lib is not None and hasattr(lib, "spectre_structural_hash"):
+        return int(lib.spectre_structural_hash(b, len(b)))
+    import re as _re
+    s = b.decode("utf-8", errors="ignore").lstrip()
+    if not s:
+        return 0
+    if s[0] in "{[":
+        keys = _re.findall(r'"([A-Za-z0-9_\-]{1,48})"\s*:', s)
+        skel = "json:" + ",".join(k.lower() for k in keys)
+    elif "<" in s[:512]:
+        tags = _re.findall(r"<(/?[A-Za-z][A-Za-z0-9]{0,23})", s)
+        skel = "html:" + ",".join(t.lower() for t in tags)
+    else:
+        skel = "txt:" + "".join(ch for ch in s if ch in "\n:=[]")
+    return int.from_bytes(hashlib.blake2b(skel.encode("utf-8"), digest_size=8).digest(), "little")
+
 
 

@@ -20,6 +20,7 @@ from typing import Any
 
 import dns.resolver
 from bs4 import BeautifulSoup
+from core.http_engine import fetch_cached_text
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 
@@ -401,9 +402,9 @@ def analyze_wasm_binaries_and_server_timing(db, session, project_id: int, base_u
 
     for ju in js_urls[:12]:
         try:
-            rj = session.get(ju, timeout=4.5, verify=False)
-            if rj.status_code == 200:
-                for wm in wasm_re.findall(rj.text[:250000]):
+            j_txt = fetch_cached_text(session, project_id, ju, timeout=4.5, max_chars=250000)
+            if j_txt:
+                for wm in wasm_re.findall(j_txt):
                     wasm_urls.add(urllib.parse.urljoin(ju, wm))
         except Exception:
             pass

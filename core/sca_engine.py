@@ -34,6 +34,17 @@ OFFLINE_SCA_RULES: tuple[dict[str, Any], ...] = (
     {"eco": "npm", "pkg": "dompurify", "min": "0.5.0", "max": "2.4.2", "cve": "CVE-2023-47122", "sev": "Medium", "cvss": 6.1},
     {"eco": "npm", "pkg": "moment", "min": "2.0.0", "max": "2.29.4", "cve": "CVE-2022-31129", "sev": "High", "cvss": 7.5},
     {"eco": "npm", "pkg": "angular", "min": "1.0.0", "max": "1.8.0", "cve": "CVE-2022-25869", "sev": "Medium", "cvss": 6.1},
+    {"eco": "npm", "pkg": "minimist", "min": "0.0.1", "max": "1.2.6", "cve": "CVE-2021-44906", "sev": "Critical", "cvss": 9.8},
+    {"eco": "npm", "pkg": "semver", "min": "6.0.0", "max": "7.5.2", "cve": "CVE-2022-25883", "sev": "High", "cvss": 7.5},
+    {"eco": "npm", "pkg": "ws", "min": "7.0.0", "max": "8.17.1", "cve": "CVE-2024-37890", "sev": "High", "cvss": 7.5},
+    {"eco": "npm", "pkg": "socket.io-parser", "min": "3.0.0", "max": "4.2.3", "cve": "CVE-2023-32695", "sev": "High", "cvss": 7.5},
+    {"eco": "npm", "pkg": "xml2js", "min": "0.1.0", "max": "0.5.0", "cve": "CVE-2023-0842", "sev": "Medium", "cvss": 5.3},
+    {"eco": "npm", "pkg": "tough-cookie", "min": "2.0.0", "max": "4.1.3", "cve": "CVE-2023-26136", "sev": "Medium", "cvss": 6.5},
+    {"eco": "npm", "pkg": "postcss", "min": "7.0.0", "max": "8.4.31", "cve": "CVE-2023-44270", "sev": "Medium", "cvss": 5.3},
+    {"eco": "npm", "pkg": "ejs", "min": "2.0.0", "max": "3.1.10", "cve": "CVE-2022-29078", "sev": "Critical", "cvss": 9.8},
+    {"eco": "npm", "pkg": "serialize-javascript", "min": "1.0.0", "max": "3.1.0", "cve": "CVE-2020-7660", "sev": "High", "cvss": 8.1},
+    {"eco": "npm", "pkg": "vm2", "min": "3.0.0", "max": "3.9.20", "cve": "CVE-2023-37466", "sev": "Critical", "cvss": 9.8},
+    {"eco": "npm", "pkg": "next", "min": "13.4.0", "max": "14.1.1", "cve": "CVE-2024-34351", "sev": "High", "cvss": 7.5},
     {"eco": "PyPI", "pkg": "requests", "min": "2.3.0", "max": "2.31.0", "cve": "CVE-2023-32681", "sev": "Medium", "cvss": 6.1},
     {"eco": "PyPI", "pkg": "urllib3", "min": "1.20.0", "max": "2.0.7", "cve": "CVE-2023-45803", "sev": "Medium", "cvss": 4.2},
     {"eco": "PyPI", "pkg": "jinja2", "min": "2.0.0", "max": "3.1.3", "cve": "CVE-2024-22195", "sev": "Medium", "cvss": 6.1},
@@ -42,16 +53,125 @@ OFFLINE_SCA_RULES: tuple[dict[str, Any], ...] = (
     {"eco": "Packagist", "pkg": "guzzlehttp/guzzle", "min": "6.0.0", "max": "7.4.5", "cve": "CVE-2022-31090", "sev": "High", "cvss": 8.1},
     {"eco": "Packagist", "pkg": "firebase/php-jwt", "min": "1.0.0", "max": "6.0.0", "cve": "CVE-2021-46743", "sev": "High", "cvss": 8.1},
     {"eco": "Go", "pkg": "golang.org/x/net", "min": "0.1.0", "max": "0.23.0", "cve": "CVE-2023-45288", "sev": "High", "cvss": 7.5},
+    {"eco": "Go", "pkg": "golang.org/x/crypto", "min": "0.1.0", "max": "0.17.0", "cve": "CVE-2023-48795", "sev": "Medium", "cvss": 5.9},
+    {"eco": "Go", "pkg": "github.com/gin-gonic/gin", "min": "1.0.0", "max": "1.9.0", "cve": "CVE-2023-26125", "sev": "Medium", "cvss": 5.3},
+    {"eco": "PyPI", "pkg": "django", "min": "3.2.0", "max": "4.2.11", "cve": "CVE-2024-27351", "sev": "High", "cvss": 7.5},
+    {"eco": "PyPI", "pkg": "werkzeug", "min": "2.0.0", "max": "3.0.3", "cve": "CVE-2024-34069", "sev": "High", "cvss": 7.5},
+    {"eco": "PyPI", "pkg": "pillow", "min": "8.0.0", "max": "10.2.0", "cve": "CVE-2023-50447", "sev": "High", "cvss": 8.1},
+    {"eco": "PyPI", "pkg": "aiohttp", "min": "3.0.0", "max": "3.9.2", "cve": "CVE-2024-23334", "sev": "High", "cvss": 7.5},
+    {"eco": "PyPI", "pkg": "tornado", "min": "5.0.0", "max": "6.3.3", "cve": "CVE-2023-28370", "sev": "Medium", "cvss": 5.3},
+    {"eco": "PyPI", "pkg": "paramiko", "min": "2.0.0", "max": "3.4.0", "cve": "CVE-2023-48795", "sev": "Medium", "cvss": 5.9},
+    {"eco": "PyPI", "pkg": "lxml", "min": "4.0.0", "max": "4.9.1", "cve": "CVE-2022-2309", "sev": "High", "cvss": 7.5},
+    {"eco": "PyPI", "pkg": "gunicorn", "min": "19.0.0", "max": "22.0.0", "cve": "CVE-2024-1135", "sev": "High", "cvss": 7.5},
+    {"eco": "Packagist", "pkg": "symfony/http-kernel", "min": "4.4.0", "max": "6.4.3", "cve": "CVE-2024-24598", "sev": "High", "cvss": 7.5},
+    {"eco": "Packagist", "pkg": "laravel/framework", "min": "8.0.0", "max": "9.52.16", "cve": "CVE-2024-29291", "sev": "High", "cvss": 7.5},
+    {"eco": "Packagist", "pkg": "monolog/monolog", "min": "1.0.0", "max": "2.8.0", "cve": "CVE-2022-41267", "sev": "High", "cvss": 7.5},
+    {"eco": "Packagist", "pkg": "phpmailer/phpmailer", "min": "5.0.0", "max": "6.5.0", "cve": "CVE-2021-3603", "sev": "High", "cvss": 7.0},
+    {"eco": "Maven", "pkg": "org.apache.logging.log4j:log4j-core", "min": "2.0.0", "max": "2.17.1", "cve": "CVE-2021-44228", "sev": "Critical", "cvss": 10.0},
+    {"eco": "Maven", "pkg": "org.springframework:spring-beans", "min": "5.0.0", "max": "5.3.18", "cve": "CVE-2022-22965", "sev": "Critical", "cvss": 9.8},
+    {"eco": "Maven", "pkg": "com.alibaba:fastjson", "min": "1.1.0", "max": "1.2.83", "cve": "CVE-2022-25845", "sev": "Critical", "cvss": 9.8},
+    {"eco": "Maven", "pkg": "org.apache.commons:commons-text", "min": "1.5.0", "max": "1.10.0", "cve": "CVE-2022-42889", "sev": "Critical", "cvss": 9.8},
+    {"eco": "Maven", "pkg": "com.fasterxml.jackson.core:jackson-databind", "min": "2.0.0", "max": "2.13.4", "cve": "CVE-2022-42003", "sev": "High", "cvss": 7.5},
+    {"eco": "Maven", "pkg": "org.apache.shiro:shiro-core", "min": "1.0.0", "max": "1.6.0", "cve": "CVE-2020-1957", "sev": "Critical", "cvss": 9.8},
+    {"eco": "Maven", "pkg": "org.yaml:snakeyaml", "min": "1.0.0", "max": "2.0.0", "cve": "CVE-2022-1471", "sev": "High", "cvss": 8.3},
+    {"eco": "RubyGems", "pkg": "rails", "min": "6.0.0", "max": "7.0.4", "cve": "CVE-2023-22795", "sev": "High", "cvss": 7.5},
+    {"eco": "RubyGems", "pkg": "nokogiri", "min": "1.8.0", "max": "1.13.9", "cve": "CVE-2022-29181", "sev": "High", "cvss": 7.5},
+    {"eco": "RubyGems", "pkg": "rack", "min": "2.0.0", "max": "2.2.6", "cve": "CVE-2023-27530", "sev": "High", "cvss": 7.5},
+    {"eco": "crates.io", "pkg": "hyper", "min": "0.12.0", "max": "0.14.25", "cve": "CVE-2023-26964", "sev": "High", "cvss": 7.5},
+    {"eco": "crates.io", "pkg": "h2", "min": "0.1.0", "max": "0.3.26", "cve": "CVE-2024-32650", "sev": "High", "cvss": 7.5},
 )
 
 _CLEAN_VER_RE = re.compile(r"(\d+\.\d+(?:\.\d+)?)")
 
 
+SUPPORTED_MANIFEST_NAMES = {
+    "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+    "composer.json", "composer.lock",
+    "requirements.txt", "pipfile.lock", "poetry.lock", "pyproject.toml",
+    "go.mod", "cargo.lock", "gemfile.lock", "pom.xml",
+}
+
+
+def build_purl(eco: str, pkg: str, ver: str) -> str:
+    """Builds standardized Package URL (purl)."""
+    eco_map = {
+        "npm": "npm", "PyPI": "pypi", "Packagist": "composer",
+        "Go": "golang", "Maven": "maven", "RubyGems": "gem", "crates.io": "cargo",
+    }
+    p_type = eco_map.get(eco, eco.lower())
+    clean_p = pkg.strip()
+    if p_type == "maven" and ":" in clean_p:
+        clean_p = clean_p.replace(":", "/", 1)
+    elif p_type == "npm" and clean_p.startswith("@"):
+        clean_p = "%40" + clean_p[1:]
+    return f"pkg:{p_type}/{clean_p}@{ver}"
+
+
+def _parse_extra_lockfiles(fname: str, content: str, _add: Any) -> None:
+    if fname == "package-lock.json":
+        obj = json.loads(content)
+        for p_key, meta in (obj.get("packages") or {}).items():
+            if p_key and isinstance(meta, dict):
+                mv = _CLEAN_VER_RE.search(str(meta.get("version") or ""))
+                if mv:
+                    _add("npm", str(p_key).rsplit("node_modules/", 1)[-1], mv.group(1))
+        for pkg_nm, meta in (obj.get("dependencies") or {}).items():
+            if isinstance(meta, dict):
+                mv = _CLEAN_VER_RE.search(str(meta.get("version") or ""))
+                if mv:
+                    _add("npm", str(pkg_nm), mv.group(1))
+    elif fname == "yarn.lock":
+        for m in re.finditer(r'(?m)^"?(@?[a-zA-Z0-9._\-/]+)@[^":\n]+"?:\s*\n\s+version[:\s]+"?(\d+\.\d+\.\d+)"?', content):
+            _add("npm", m.group(1), m.group(2))
+    elif fname == "pnpm-lock.yaml":
+        for m in re.finditer(r"(?m)^\s*['\"]?/?(@?[a-zA-Z0-9._\-/]+)@(\d+\.\d+\.\d+)['\"(]?\s*:", content):
+            _add("npm", m.group(1), m.group(2))
+    elif fname == "composer.lock":
+        obj = json.loads(content)
+        for item in (obj.get("packages") or []):
+            if isinstance(item, dict) and item.get("name"):
+                mv = _CLEAN_VER_RE.search(str(item.get("version") or ""))
+                if mv:
+                    _add("Packagist", str(item["name"]), mv.group(1))
+    elif fname == "pipfile.lock":
+        obj = json.loads(content)
+        for sec_k in ("default", "develop"):
+            for pkg_nm, meta in (obj.get(sec_k) or {}).items():
+                if isinstance(meta, dict):
+                    mv = _CLEAN_VER_RE.search(str(meta.get("version") or ""))
+                    if mv:
+                        _add("PyPI", str(pkg_nm).lower(), mv.group(1))
+    elif fname in ("poetry.lock", "cargo.lock"):
+        eco = "PyPI" if fname == "poetry.lock" else "crates.io"
+        for blk in content.split("[[package]]")[1:]:
+            mn = re.search(r'(?m)^name\s*=\s*"([^"]+)"', blk)
+            mv = re.search(r'(?m)^version\s*=\s*"(\d+\.\d+(?:\.\d+)?)"', blk)
+            if mn and mv:
+                _add(eco, mn.group(1).lower() if eco == "PyPI" else mn.group(1), mv.group(1))
+    elif fname == "gemfile.lock":
+        for m in re.finditer(r"(?m)^\s{4}([a-zA-Z0-9_\-]+)\s+\((\d+\.\d+(?:\.\d+)?)\)\s*$", content):
+            _add("RubyGems", m.group(1), m.group(2))
+    elif fname == "pom.xml":
+        for dep_blk in re.findall(r"<dependency>(.*?)</dependency>", content, re.S | re.I):
+            mg = re.search(r"<groupId>\s*([^<\s]+)\s*</groupId>", dep_blk, re.I)
+            ma = re.search(r"<artifactId>\s*([^<\s]+)\s*</artifactId>", dep_blk, re.I)
+            mv = re.search(r"<version>\s*(\d+\.\d+(?:\.\d+)?)\s*</version>", dep_blk, re.I)
+            if mg and ma and mv:
+                _add("Maven", f"{mg.group(1)}:{ma.group(1)}", mv.group(1))
+
+
 def parse_manifest_dependencies(filename: str, content: str) -> list[tuple[str, str, str]]:
-    """Extracts `(ecosystem, package_name, clean_version)` tuples from manifest text."""
+    """Extracts `(ecosystem, package_name, clean_version)` tuples from 14 manifest & lockfile formats."""
     fname = filename.lower().split("/")[-1]
     deps: list[tuple[str, str, str]] = []
     seen: set[tuple[str, str]] = set()
+
+    def _add(eco: str, pkg: str, ver: str) -> None:
+        pk = pkg.strip()
+        pk_k = pk.lower() if eco in ("PyPI", "npm", "RubyGems", "crates.io") else pk
+        if pk and ver and (eco, pk_k) not in seen:
+            seen.add((eco, pk_k))
+            deps.append((eco, pk, ver))
 
     if fname in ("package.json", "composer.json"):
         eco = "npm" if fname == "package.json" else "Packagist"
@@ -67,21 +187,22 @@ def parse_manifest_dependencies(filename: str, content: str) -> list[tuple[str, 
                     if pkg == "php" or str(pkg).startswith("ext-"):
                         continue
                     mv = _CLEAN_VER_RE.search(str(raw_v))
-                    if mv and (eco, pkg) not in seen:
-                        seen.add((eco, pkg))
-                        deps.append((eco, str(pkg).strip(), mv.group(1)))
-    elif fname == "requirements.txt":
+                    if mv:
+                        _add(eco, str(pkg), mv.group(1))
+    elif fname in ("requirements.txt", "pyproject.toml"):
         for ln in content.splitlines():
-            s = ln.split("#", 1)[0].strip()
+            s = ln.split("#", 1)[0].strip().strip('"\',')
             m = re.match(r"^([a-zA-Z0-9._\-]+)\s*(?:==|~=)\s*(\d+\.\d+(?:\.\d+)?)", s)
-            if m and ("PyPI", m.group(1).lower()) not in seen:
-                seen.add(("PyPI", m.group(1).lower()))
-                deps.append(("PyPI", m.group(1).lower(), m.group(2)))
+            if m:
+                _add("PyPI", m.group(1).lower(), m.group(2))
     elif fname == "go.mod":
         for m in re.finditer(r"^\s*([a-zA-Z0-9./_\-]+\.[a-zA-Z0-9./_\-]+)\s+v(\d+\.\d+\.\d+)", content, re.M):
-            if ("Go", m.group(1)) not in seen:
-                seen.add(("Go", m.group(1)))
-                deps.append(("Go", m.group(1), m.group(2)))
+            _add("Go", m.group(1), m.group(2))
+    else:
+        try:
+            _parse_extra_lockfiles(fname, content, _add)
+        except Exception:
+            pass
     return deps
 
 
@@ -148,7 +269,7 @@ def run_sca_dependency_audit(
     log_fn: Any,
     allow_online_osv: bool = True,
 ) -> int:
-    manifest_names = {"package.json", "composer.json", "requirements.txt", "go.mod"}
+    manifest_names = SUPPORTED_MANIFEST_NAMES
     skip_parts = ("node_modules", ".git", "__pycache__", "/tests/", "/test/", ".venv", "venv")
     total_written = 0
 
@@ -173,7 +294,10 @@ def run_sca_dependency_audit(
                 continue
             top_cvss = max(x["cvss"] for x in vuln_deps)
             top_sev = "Critical" if top_cvss >= 9.0 else ("High" if top_cvss >= 7.0 else "Medium")
-            ev_items = [f"{x['pkg']}@{x['ver']} ({', '.join(x['cves'][:2])})" for x in vuln_deps[:8]]
+            ev_items = [
+                f"{build_purl(x['eco'], x['pkg'], x['ver'])} ({', '.join(x['cves'][:2])})"
+                for x in vuln_deps[:8]
+            ]
             db.upsert_finding(
                 project_id,
                 "Agent-2 (SCA-Engine)",
@@ -246,7 +370,10 @@ def run_web_and_js_sca_audit(
         if js_vulns:
             top_c = max(x["cvss"] for x in js_vulns)
             top_s = "Critical" if top_c >= 9.0 else ("High" if top_c >= 7.0 else "Medium")
-            ev_s = " | ".join(f"{x['pkg']}@{x['ver']} ({', '.join(x['cves'][:2])})" for x in js_vulns[:8])
+            ev_s = " | ".join(
+                f"{build_purl(x['eco'], x['pkg'], x['ver'])} ({', '.join(x['cves'][:2])})"
+                for x in js_vulns[:8]
+            )
             db.upsert_finding(
                 project_id,
                 "Agent-2 (JS-SCA)",
@@ -267,7 +394,9 @@ def run_web_and_js_sca_audit(
 
     manifest_eps = [
         str(e.get("url") or "") for e in (endpoints or [])
-        if str(e.get("url") or "").lower().endswith(("/package.json", "/composer.json"))
+        if str(e.get("url") or "").lower().endswith(
+            ("/package.json", "/package-lock.json", "/composer.json", "/composer.lock")
+        )
     ][:6]
     for mu in manifest_eps:
         if http_engine.is_host_dead(mu):

@@ -575,7 +575,9 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn, session:
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     }
 
-    def _read_capped(resp, cap: int = 16384) -> tuple[bytes, str]:
+    from core.native_bridge import fast_structural_hash
+
+    def _read_capped(resp, cap: int = 16384) -> tuple[bytes, str, int]:
         buf = bytearray()
         for part in resp.iter_content(chunk_size=4096):
             if not part:
@@ -585,10 +587,11 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn, session:
                 break
         b_out = bytes(buf[:cap])
         h_sig = hashlib.sha256(b_out[:4096]).hexdigest()[:16] if b_out else ""
-        return b_out, h_sig
+        sk_sig = fast_structural_hash(b_out) if b_out else 0
+        return b_out, h_sig, sk_sig
 
-    # Calibrate each origin against a nonexistent path (Status + Capped Length + SHA-256 Hash)
-    host_cal: dict[str, tuple[int, int, str]] = {}
+    # Calibrate each origin against a nonexistent path (Status + Capped Length + SHA-256 + C++17 Structural Hash)
+    host_cal: dict[str, tuple[int, int, str, int]] = {}
     all_probe_urls = [mut_u for mut_u, _ in shadow_candidates] + list(wayback_eps)
     for probe_u in all_probe_urls:
         p_u = urllib.parse.urlparse(probe_u)
@@ -596,22 +599,22 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn, session:
         if origin and p_u.netloc and origin not in host_cal:
             try:
                 with http_client.get(f"{origin}/spectre-nonexistent-99182", headers=req_hdrs, timeout=3.0, verify=False, allow_redirects=False, stream=True) as rc:
-                    cal_b, cal_h = _read_capped(rc)
-                    host_cal[origin] = (rc.status_code, len(cal_b), cal_h)
+                    cal_b, cal_h, cal_sk = _read_capped(rc)
+                    host_cal[origin] = (rc.status_code, len(cal_b), cal_h, cal_sk)
             except Exception:
-                host_cal[origin] = (-1, -1, "")
+                host_cal[origin] = (-1, -1, "", 0)
 
     def check_shadow(item):
         mut_url, orig_url = item
         p_u = urllib.parse.urlparse(mut_url)
         origin = f"{p_u.scheme}://{p_u.netloc}"
-        cal_stat, cal_len, cal_hash = host_cal.get(origin, (-1, -1, ""))
+        cal_stat, cal_len, cal_hash, cal_sk = host_cal.get(origin, (-1, -1, "", 0))
         try:
             with http_client.get(mut_url, headers=req_hdrs, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True) as r:
-                chunk_b, chunk_h = _read_capped(r)
+                chunk_b, chunk_h, chunk_sk = _read_capped(r)
                 ctype = r.headers.get("Content-Type", "").lower()
                 code = r.status_code
-            if code == cal_stat and ((cal_hash and chunk_h == cal_hash) or abs(len(chunk_b) - cal_len) < 80):
+            if code == cal_stat and ((cal_hash and chunk_h == cal_hash) or (cal_sk and chunk_sk == cal_sk) or abs(len(chunk_b) - cal_len) < 80):
                 return
             chunk = chunk_b.decode("utf-8", errors="ignore")
             if code == 200 and len(chunk) > 20 and "text/html" not in ctype:

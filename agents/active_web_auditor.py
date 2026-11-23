@@ -18,6 +18,7 @@ from typing import Any
 
 import dns.resolver
 from bs4 import BeautifulSoup
+from core.http_engine import fetch_cached_text
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 
@@ -197,9 +198,9 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
             continue
         map_candidates = [js_u + ".map"]
         try:
-            rj = session.get(js_u, timeout=6, verify=False)
-            if rj.status_code == 200 and (fast_js_token_mask(rj.text[-2000:]) & JS_TOK_SOURCEMAP):
-                m_dir = re.search(r"//#\s*sourceMappingURL=([^\s'\"`]+)", rj.text[-2000:])
+            j_txt = fetch_cached_text(session, project_id, js_u, timeout=6.0)
+            if j_txt and (fast_js_token_mask(j_txt[-2000:]) & JS_TOK_SOURCEMAP):
+                m_dir = re.search(r"//#\s*sourceMappingURL=([^\s'\"`]+)", j_txt[-2000:])
                 if m_dir:
                     ref_map = m_dir.group(1).strip()
                     if not ref_map.startswith("data:"):
@@ -567,6 +568,51 @@ def introspect_graphql_field_suggestions(db, session, project_id: int, base_url:
             if r_chk.status_code not in (200, 400) or ("data" not in r_chk.text and "errors" not in r_chk.text):
                 continue
 
+            # 7a. Full GraphQL Introspection & Privileged Mutation Exposure Check
+            r_intro = session.post(
+                gurl,
+                json={"query": "{__schema{queryType{name}mutationType{fields{name}}}}"},
+                timeout=4.5,
+                verify=False,
+            )
+            if r_intro.status_code == 200 and '"__schema"' in r_intro.text and '"queryType"' in r_intro.text:
+                priv_muts: list[str] = []
+                all_muts: list[str] = []
+                try:
+                    m_fields = (((r_intro.json().get("data") or {}).get("__schema") or {}).get("mutationType") or {}).get("fields") or []
+                    all_muts = [str(f.get("name") or "") for f in m_fields if isinstance(f, dict) and f.get("name")]
+                    priv_kw = ("admin", "role", "delete", "grant", "perm", "password", "secret", "token", "ban", "config", "export")
+                    priv_muts = [m for m in all_muts if any(pk in m.lower() for pk in priv_kw)]
+                except Exception:
+                    pass
+                sev_i = "High" if priv_muts else "Medium"
+                cvss_i = 7.5 if priv_muts else 5.3
+                mut_ev = f" | Privileged Mutations ({len(priv_muts)}): {', '.join(priv_muts[:8])}" if priv_muts else f" | Mutations: {len(all_muts)}"
+                db.upsert_finding(
+                    project_id, "SPECTRE-Predator (GraphQL-Introspect)",
+                    f"[CONFIRMED] GraphQL Introspection Enabled{' with Privileged Mutations' if priv_muts else ''} ({gp})",
+                    "API Schema Disclosure", sev_i, cvss_i,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
+                    gurl, f"GraphQL __schema introspection succeeded on {gurl}{mut_ev}",
+                    "Production muhitida GraphQL `__schema` introspeksiyasi ochiq qoldirilgan — barcha ichki query va mutation sxemalari ko'rinmoqda.",
+                    "Production serverda GraphQL Introspection opsiyasini o'chirib qo'ying va har bir mutation uchun avtorizatsiya tekshiruvini majburiy qiling.",
+                    confidence="Confirmed-PoC (QoD: 95%)",
+                )
+
+            # 7b. Interactive GraphQL IDE (GraphiQL / Playground / Apollo Sandbox) Check
+            r_ide = session.get(gurl, headers={"Accept": "text/html"}, timeout=4.0, verify=False, allow_redirects=False)
+            if r_ide.status_code == 200 and any(ide_k in r_ide.text[:16384] for ide_k in ("GraphiQL", "GraphQL Playground", "Apollo Sandbox")):
+                db.upsert_finding(
+                    project_id, "SPECTRE-Predator (GraphQL-IDE)",
+                    f"[CONFIRMED] Exposed Interactive GraphQL IDE in Production ({gp})",
+                    "Debug / Development Interface Exposure", "Low", 3.7,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-489", "A05:2021 - Security Misconfiguration",
+                    gurl, f"GET {gurl} (Accept: text/html) rendered interactive GraphQL IDE console",
+                    "Production serverda dasturchilar uchun mo'ljallangan interaktiv GraphQL IDE konsoli ochiq qoldirilgan.",
+                    "GraphiQL / Apollo Sandbox / Playground interfeysini faqat `NODE_ENV=development` muhitida yoqing.",
+                    confidence="Confirmed-PoC (QoD: 95%)",
+                )
+
             for probe_query in ("{ usr adm cfg tok pay ord acc prof sec int }", "mutation { log reg upd del pay rst tok adm }"):
                 r_sug = session.post(gurl, json={"query": probe_query}, timeout=5, verify=False)
                 if "Did you mean" in r_sug.text:
@@ -636,9 +682,9 @@ def hunt_dependency_confusion_risks(db, session, project_id: int, js_urls: list[
 
     for ju in js_urls[:15]:
         try:
-            rj = session.get(ju, timeout=5, verify=False)
-            if rj.status_code == 200:
-                for p in pkg_re.findall(rj.text[:300000]):
+            j_txt = fetch_cached_text(session, project_id, ju, timeout=5.0, max_chars=300000)
+            if j_txt:
+                for p in pkg_re.findall(j_txt):
                     scope_prefix = p.split("/")[0]
                     if scope_prefix not in PUBLIC_SAFE_SCOPES:
                         scoped_pkgs.add(p)
@@ -675,6 +721,18 @@ DEFAULT_JWT_SECRETS = (
     "secret", "123456", "password", "jwt_secret", "changeme", "admin", "default",
     "supersecret", "mysecret", "key", "private", "dev", "development", "production",
     "laravel", "django-insecure", "uzbekistan", "tashkent", "12345678", "qwerty",
+    "your-256-bit-secret", "your-secret-key", "jwt-secret", "jwt-secret-key", "secretkey",
+    "secret123", "admin123", "password123", "changeit", "letmein", "welcome", "test",
+    "testing", "staging", "local", "localhost", "root", "toor", "master", "guest",
+    "token_secret", "auth_secret", "app_secret", "api_secret", "client_secret",
+    "session_secret", "cookie_secret", "nextauth_secret", "nextauth", "supabase",
+    "super-secret-jwt-token-with-at-least-32-characters-long", "hasura", "strapi",
+    "nestjs", "NotSoSecret", "secretKey", "jwtSecret", "mySecretKey", "flask-secret",
+    "rails_secret", "spring-boot-secret", "keycloak", "oauth_secret", "sso_secret",
+    "hmac_secret", "signing_key", "private_key", "000000", "111111", "123456789",
+    "1234567890", "abcdef", "qwerty123", "zaq12wsx", "passw0rd", "P@ssw0rd",
+    "internal", "backend", "microservice", "gateway", "service_secret", "jwt123",
+    "bearer_secret", "refresh_secret", "access_secret", "webapp", "portal_secret",
 )
 
 
@@ -705,9 +763,9 @@ def harvest_and_audit_jwt_tokens(db, session, project_id: int, apex_domain: str,
 
     for ju in js_urls[:10]:
         try:
-            rj = session.get(ju, timeout=5, verify=False)
-            if rj.status_code == 200:
-                for m in jwt_re.findall(rj.text[:250000]):
+            j_txt = fetch_cached_text(session, project_id, ju, timeout=5.0, max_chars=250000)
+            if j_txt:
+                for m in jwt_re.findall(j_txt):
                     found_tokens.add(m)
         except Exception:
             pass
@@ -735,16 +793,17 @@ def harvest_and_audit_jwt_tokens(db, session, project_id: int, apex_domain: str,
 
             matched_secret = ""
             if alg.upper() in ("HS256", "HS384", "HS512") and sig_bytes:
-                hash_mod = {"HS256": hashlib.sha256, "HS384": hashlib.sha384, "HS512": hashlib.sha512}[alg.upper()]
-                for cand in candidate_secrets:
-                    if hmac.compare_digest(hmac.new(cand.encode(), signing_input, hash_mod).digest(), sig_bytes):
-                        matched_secret = cand
-                        break
+                from core.native_bridge import fast_jwt_hmac_audit
+                matched_secret = fast_jwt_hmac_audit(signing_input, sig_bytes, alg, candidate_secrets) or ""
 
             audited += 1
             claims_keys = ", ".join(list(payload.keys())[:10])
             has_exp = "exp" in payload
-            risky_hdrs = [h for h in ("jku", "x5u", "jwk", "kid") if h in hdr]
+            jwk_inject_hdrs = [h for h in ("jwk", "jku", "x5u") if h in hdr]
+            sens_claim_keys = [
+                str(k) for k in payload.keys()
+                if any(sk in str(k).lower() for sk in ("password", "passwd", "secret", "private_key", "api_key", "ssn", "pin_code", "cvv"))
+            ]
 
             if matched_secret or alg.lower() == "none":
                 db.upsert_finding(
@@ -755,9 +814,25 @@ def harvest_and_audit_jwt_tokens(db, session, project_id: int, apex_domain: str,
                     base_url, f"Header: {json.dumps(hdr)} | Claims: [{claims_keys}] | Verified Secret: {matched_secret or 'alg:none'}",
                     "Topilgan JWT token kuchsiz standart kalit (default HMAC secret) yoki 'alg:none' bilan imzolangan — har qanday foydalanuvchi nomidan token yasash (Account Takeover) mumkin.",
                     "JWT imzolash uchun kamida 256-bitli kriptografik tasodifiy kalit yoki RS256/EdDSA asimmetrik kalitlardan foydalaning.",
+                    confidence="Confirmed-PoC (QoD: 99%)",
                 )
                 log_fn(f"  [🔐 JWT CRACKED] {base_url} -> JWT kaliti aniqlandi: '{matched_secret or 'alg:none'}'!")
+            elif jwk_inject_hdrs or sens_claim_keys:
+                sev_j = "High"
+                cvss_j = 8.1 if jwk_inject_hdrs else 7.5
+                cwe_j = "CWE-347" if jwk_inject_hdrs else "CWE-312"
+                db.upsert_finding(
+                    project_id, "SPECTRE-Predator (JWT-Auditor)",
+                    f"JWT Header Key-Injection / Sensitive Claim Risk ({','.join(jwk_inject_hdrs or sens_claim_keys)})",
+                    "Cryptographic / Token Posture", sev_j, cvss_j,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N", cwe_j, "A02:2021 - Cryptographic Failures",
+                    base_url, f"Header: {json.dumps(hdr)} | Sensitive Claims: {sens_claim_keys} | Dynamic Key Headers: {jwk_inject_hdrs}",
+                    "JWT token sarlavhasida tashqi/ichki kalit ko'rsatkichi (`jwk`/`jku`/`x5u`) yoki shifrlanmagan Base64 payload ichida sezgir maydonlar aniqlandi.",
+                    "JWT tekshiruvida sarlavhadagi `jwk`/`jku`/`x5u` ni rad etib serverdagi statik JWKS dan foydalaning va sezgir maydonlarni JWS ichida saqlamang.",
+                    confidence="Protocol-Verified (QoD: 90%)",
+                )
             else:
+                risky_hdrs = [h for h in ("kid",) if h in hdr]
                 if not has_exp or risky_hdrs:
                     db.upsert_finding(
                         project_id, "SPECTRE-Predator (JWT-Auditor)",

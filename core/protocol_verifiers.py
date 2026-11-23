@@ -18,7 +18,11 @@ from typing import Any
 
 from core.plugin_runner import QoD
 
-SUPPORTED_ACTIVE_PORTS = {21, 22, 25, 389, 587, 636, 873, 1022, 1433, 2375, 2376, 2379, 3306, 5432, 5900, 6379, 6380, 6443, 8500, 9042, 9100, 9200, 10250, 11211, 15672, 27017}
+SUPPORTED_ACTIVE_PORTS = {
+    21, 22, 25, 389, 587, 636, 873, 1022, 1433, 1883, 2181, 2375, 2376, 2379,
+    3306, 4222, 5432, 5672, 5900, 6379, 6380, 6443, 8086, 8123, 8500, 8883,
+    9042, 9092, 9100, 9200, 10250, 11211, 15672, 27017,
+}
 
 
 def parse_ssh_kexinit_packet(raw_stream: bytes) -> dict[str, list[str]]:
@@ -372,6 +376,164 @@ def _probe_binary_db_and_ldap(db: Any, project_id: int, connect_target: str, tar
     return hits
 
 
+def _probe_messaging_and_tsdb(
+    db: Any,
+    http_engine: Any,
+    project_id: int,
+    connect_target: str,
+    target_ip: str,
+    disp_host: str,
+    port: int,
+    log_fn: Any,
+) -> int:
+    hits = 0
+    if port in (1883, 8883):
+        mqtt_conn = b"\x10\x10\x00\x04MQTT\x04\x02\x00\x1e\x00\x04spct"
+        with socket.create_connection((connect_target, port), timeout=2.5) as raw_m:
+            if port == 8883:
+                ctx_m = ssl.create_default_context()
+                ctx_m.check_hostname = False
+                ctx_m.verify_mode = ssl.CERT_NONE
+                s_m: socket.socket = ctx_m.wrap_socket(raw_m, server_hostname=disp_host)
+            else:
+                s_m = raw_m
+            s_m.settimeout(2.2)
+            s_m.sendall(mqtt_conn)
+            resp = s_m.recv(16)
+            try:
+                s_m.sendall(b"\xe0\x00")
+            except Exception:
+                pass
+        if len(resp) >= 4 and resp[0] == 0x20 and resp[1] == 0x02:
+            rc_code = resp[3]
+            db.upsert_port(project_id, disp_host, port, "tcp", ip=target_ip, service="mqtts" if port == 8883 else "mqtt", version="MQTT v3.1.1", banner=f"CONNACK rc={rc_code}", source="socket_nvt")
+            if rc_code == 0x00:
+                db.upsert_finding(
+                    project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated MQTT Message Broker Access ({disp_host}:{port})",
+                    "Message Broker Exposure", "High", 8.6, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+                    "CWE-306", "A05:2021 - Security Misconfiguration", f"{disp_host}:{port}",
+                    "MQTT v3.1.1 anonymous CONNECT returned CONNACK returnCode=0x00 (Connection Accepted)",
+                    "MQTT broker parolsiz anonim obuna va xabar yuborishga ruxsat bermoqda.",
+                    "Mosquitto/EMQX da `allow_anonymous false` o'rnating va TLS + ACL yoqing.",
+                    confidence=QoD.ACTIVE_VERIFIED,
+                )
+                hits += 1
+    elif port == 2181:
+        out = _tcp_exchange(connect_target, 2181, [b"envi"], timeout=2.5)
+        if "Environment:" in out or "zookeeper.version=" in out:
+            mv = re.search(r"zookeeper\.version=([0-9]+\.[0-9]+\.[0-9]+)", out)
+            zk_v = f"Apache ZooKeeper {mv.group(1)}" if mv else "Apache ZooKeeper"
+            db.upsert_port(project_id, disp_host, 2181, "tcp", ip=target_ip, service="zookeeper", version=zk_v, banner=out[:200], source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated ZooKeeper Cluster Environment Exposure ({disp_host}:2181)",
+                "Cluster Coordination Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                "CWE-306", "A05:2021 - Security Misconfiguration", f"{disp_host}:2181",
+                f"ZooKeeper 'envi' command succeeded without ACL: {zk_v}",
+                "ZooKeeper 4-harfli ma'muriy buyrug'i autentifikatsiyasiz tizim va klaster muhitini oshkor qilmoqda.",
+                "`4lw.commands.whitelist` ni cheklang va SASL autentifikatsiya hamda tarmoq ACL o'rnating.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
+    elif port == 4222:
+        out = _tcp_exchange(connect_target, 4222, [], timeout=2.4, read_initial=True)
+        if out.startswith("INFO {"):
+            try:
+                info_json = json.loads(out[5:].splitlines()[0])
+                nv = str(info_json.get("version") or "")
+                db.upsert_port(project_id, disp_host, 4222, "tcp", ip=target_ip, service="nats", version=f"nats-server {nv}".strip(), banner=out[:200], source="socket_nvt")
+                if info_json.get("auth_required") is False:
+                    db.upsert_finding(
+                        project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated NATS Messaging Bus ({disp_host}:4222)",
+                        "Message Broker Exposure", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                        "CWE-306", "A05:2021 - Security Misconfiguration", f"{disp_host}:4222",
+                        f"NATS INFO banner confirmed auth_required=false (version={nv})",
+                        "NATS xabar almashish shinasida autentifikatsiya o'chirilgan (`auth_required: false`).",
+                        "NATS konfiguratsiyasida NKey/JWT yoki token autentifikatsiyani majburiy yoqing.",
+                        confidence=QoD.ACTIVE_VERIFIED,
+                    )
+                    hits += 1
+            except Exception:
+                pass
+    return hits + _probe_kafka_amqp_tsdb(db, http_engine, project_id, connect_target, target_ip, disp_host, port)
+
+
+def _probe_kafka_amqp_tsdb(
+    db: Any,
+    http_engine: Any,
+    project_id: int,
+    connect_target: str,
+    target_ip: str,
+    disp_host: str,
+    port: int,
+) -> int:
+    hits = 0
+    if port == 5672:
+        with socket.create_connection((connect_target, 5672), timeout=2.5) as s_amq:
+            s_amq.settimeout(2.2)
+            s_amq.sendall(b"AMQP\x00\x00\x09\x01")
+            resp = s_amq.recv(1024)
+        if len(resp) > 12 and resp[0] == 0x01:
+            txt_a = resp.decode("latin-1", errors="ignore")
+            mr = re.search(r"RabbitMQ[^a-zA-Z0-9]{0,8}(\d+\.\d+\.\d+)", txt_a)
+            av = f"RabbitMQ {mr.group(1)}" if mr else "AMQP 0-9-1 Broker"
+            db.upsert_port(project_id, disp_host, 5672, "tcp", ip=target_ip, service="amqp", version=av, banner=av, source="socket_nvt")
+    elif port == 9092:
+        k_body = struct.pack("!hhih", 3, 0, 7742, 2) + b"sp" + struct.pack("!i", 0)
+        k_pkt = struct.pack("!i", len(k_body)) + k_body
+        with socket.create_connection((connect_target, 9092), timeout=2.5) as s_kf:
+            s_kf.settimeout(2.2)
+            s_kf.sendall(k_pkt)
+            hdr = s_kf.recv(8)
+            rest = s_kf.recv(2048) if len(hdr) == 8 else b""
+        if len(hdr) == 8 and len(rest) >= 8:
+            r_len, corr_id = struct.unpack("!ii", hdr)
+            broker_cnt = struct.unpack("!i", rest[:4])[0]
+            if corr_id == 7742 and 8 <= r_len <= 1048576 and 1 <= broker_cnt <= 256:
+                db.upsert_port(project_id, disp_host, 9092, "tcp", ip=target_ip, service="kafka", version="Apache Kafka", banner=f"Plaintext Brokers={broker_cnt}", source="socket_nvt")
+                db.upsert_finding(
+                    project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated Apache Kafka Broker Metadata Access ({disp_host}:9092)",
+                    "Streaming / Queue Exposure", "High", 8.6, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                    "CWE-306", "A05:2021 - Security Misconfiguration", f"{disp_host}:9092",
+                    f"Kafka MetadataRequest v0 returned {broker_cnt} active cluster broker(s) over unauthenticated PLAINTEXT",
+                    "Apache Kafka brokeri SASL autentifikatsiyasiz klaster va topic metama'lumotlarini ochiq qaytarmoqda.",
+                    "`SASL_SSL` tinglovchisiga o'ting va Kafka `AclAuthorizer` ni yoqing.",
+                    confidence=QoD.ACTIVE_VERIFIED,
+                )
+                hits += 1
+    elif port == 8086:
+        rp = http_engine.request("GET", f"http://{connect_target}:8086/query?q=SHOW+DATABASES", timeout=(2.0, 2.8), allow_redirects=False)
+        inf_v = rp.headers.get("X-Influxdb-Version", "")
+        if inf_v:
+            db.upsert_port(project_id, disp_host, 8086, "tcp", ip=target_ip, service="influxdb", version=f"InfluxDB {inf_v}", banner=f"InfluxDB {inf_v}", source="socket_nvt")
+        if rp.status_code == 200 and '"results"' in rp.text and '"databases"' in rp.text:
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated InfluxDB Database Access ({disp_host}:8086)",
+                "Database / Cache Exposure", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                "CWE-306", "A05:2021 - Security Misconfiguration", f"{disp_host}:8086",
+                f"GET /query?q=SHOW+DATABASES returned HTTP 200 (Version: {inf_v or 'detected'})",
+                "InfluxDB ma'lumotlar bazasida HTTP autentifikatsiya o'chirilgan (`auth-enabled = false`).",
+                "`[http] auth-enabled = true` sozlamasini yoqing va tashqi kirishni yoping.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
+    elif port == 8123:
+        rc = http_engine.request("GET", f"http://{connect_target}:8123/?query=SELECT%20version()", timeout=(2.0, 2.8), allow_redirects=False)
+        ch_ver = (rc.text or "").strip()
+        if rc.status_code == 200 and "X-ClickHouse-Summary" in rc.headers and re.match(r"^\d+\.\d+\.\d+", ch_ver):
+            db.upsert_port(project_id, disp_host, 8123, "tcp", ip=target_ip, service="clickhouse", version=f"ClickHouse {ch_ver[:24]}", banner=f"ClickHouse {ch_ver[:24]}", source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated ClickHouse SQL Interface ({disp_host}:8123)",
+                "Database / Cache Exposure", "Critical", 9.4, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                "CWE-306", "A05:2021 - Security Misconfiguration", f"{disp_host}:8123",
+                f"Unauthenticated SQL SELECT version() returned ClickHouse {ch_ver[:24]}",
+                "ClickHouse HTTP SQL interfeysi parolsiz (`default` foydalanuvchi) so'rovlarni bajarmoqda.",
+                "`users.xml` da `default` foydalanuvchiga parol va IP cheklovi o'rnating.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
+    return hits
+
+
 def _probe_single_port(
     db: Any,
     http_engine: Any,
@@ -385,6 +547,8 @@ def _probe_single_port(
     hits = 0
     connect_target = target_ip or disp_host
     try:
+        if port in (1883, 2181, 4222, 5672, 8086, 8123, 8883, 9092):
+            return _probe_messaging_and_tsdb(db, http_engine, project_id, connect_target, target_ip, disp_host, port, log_fn)
         if port in (6379, 6380, 11211, 9200, 9100, 2375, 2376, 2379, 6443, 8500, 10250, 15672):
             return _probe_data_and_metrics(db, http_engine, project_id, connect_target, target_ip, disp_host, port, log_fn)
         if port in (1433, 3306, 5432, 5900, 9042, 27017, 389, 636):

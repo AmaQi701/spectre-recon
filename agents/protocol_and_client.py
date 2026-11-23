@@ -11,6 +11,7 @@ import urllib.parse
 from typing import Any
 
 import dns.resolver
+from core.http_engine import fetch_cached_text
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 
@@ -101,10 +102,9 @@ def extract_grpc_and_protobuf_schemas(db, session, project_id: int, base_url: st
 
     for ju in js_urls[:20]:
         try:
-            rj = session.get(ju, timeout=5, verify=False)
-            if rj.status_code != 200:
+            txt = fetch_cached_text(session, project_id, ju, timeout=5.0, max_chars=350000)
+            if not txt:
                 continue
-            txt = rj.text[:350000]
             if any(k in txt.lower() for k in ("grpc", "protobuf", "jspb", "proto.")):
                 for full_m, pkg_svc, _ in method_re.findall(txt):
                     if "." in pkg_svc and not pkg_svc.endswith((".js", ".css", ".png", ".svg")):

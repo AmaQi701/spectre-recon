@@ -740,6 +740,8 @@ class ReconSuperAgent:
                     tls_info["version"] = ssock.version()
                     tls_info["cipher"] = ssock.cipher()[0] if ssock.cipher() else ""
                     tls_info["notAfter"] = cert.get("notAfter", "")
+                    issuer_dict = {k: v for tup in cert.get("issuer", ()) for k, v in tup}
+                    tls_info["issuer"] = issuer_dict.get("organizationName") or issuer_dict.get("commonName") or ""
                     sans = [v for k, v in cert.get("subjectAltName", []) if k == "DNS"]
         except ssl.SSLCertVerificationError:
             # Self-signed or expired certificate fallback: extract SANs via unverified DER cert

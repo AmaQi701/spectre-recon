@@ -8,12 +8,48 @@ or firewall-tarpitted origins, and non-blocking parallel batch fetching.
 from __future__ import annotations
 
 import concurrent.futures
+import hashlib
+from pathlib import Path
 import threading
 import time
 import urllib.parse
 from typing import Any
 
 import requests
+
+
+def fetch_cached_text(
+    session: Any,
+    project_id: int,
+    url: str,
+    timeout: float = 5.5,
+    max_chars: int = 350000,
+) -> str:
+    """Fetches a JS/HTML asset once per project using disk + session LRU cache."""
+    if not url:
+        return ""
+    url_hash = hashlib.sha256(url.encode("utf-8", errors="ignore")).hexdigest()[:20]
+    cache_dir = Path(f"/tmp/spectre_js_cache_{int(project_id)}")
+    cache_file = cache_dir / f"u_{url_hash}.cache"
+    if project_id > 0 and cache_file.is_file():
+        try:
+            return cache_file.read_text(encoding="utf-8", errors="ignore")[:max_chars]
+        except Exception:
+            pass
+    try:
+        resp = session.get(url, timeout=timeout, verify=False)
+        if getattr(resp, "status_code", 0) != 200:
+            return ""
+        txt = (resp.text or "")[:max_chars]
+        if project_id > 0 and txt:
+            try:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cache_file.write_text(txt, encoding="utf-8", errors="ignore")
+            except Exception:
+                pass
+        return txt
+    except Exception:
+        return ""
 
 
 class RateLimitedHttpEngine:
