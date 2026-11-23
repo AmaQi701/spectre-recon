@@ -208,6 +208,8 @@ def run_benchmark() -> None:
                 json.dumps({"lockfileVersion": 3, "packages": {"node_modules/minimist": {"version": "1.2.5"}}}),
                 encoding="utf-8",
             )
+            (sast_dir / "Dockerfile").write_text("FROM python:3.12-slim\nCOPY . /app\nCMD [\"python\", \"/app/main.py\"]\n", encoding="utf-8")
+            (sast_dir / "main.tf").write_text('resource "aws_db_instance" "db" {\n  publicly_accessible = true\n}\n', encoding="utf-8")
 
             db = DatabaseManager(str(tmp_path / "bench.db"))
             base_url = f"http://127.0.0.1:{port}"
@@ -275,6 +277,9 @@ def run_benchmark() -> None:
             assert any("Vulnerable Open-Source Dependencies in requirements.txt" in t for t in titles), f"SCA engine missed requirements.txt: {titles}"
             assert any("Vulnerable Open-Source Dependencies in pom.xml" in t for t in titles), f"SCA engine missed pom.xml Log4Shell: {titles}"
             assert any("Vulnerable Open-Source Dependencies in package-lock.json" in t for t in titles), f"SCA engine missed package-lock.json: {titles}"
+            assert any("Container Image Runs as Root User" in t for t in titles), f"IaC engine missed root Dockerfile: {titles}"
+            assert any("Terraform Database Instance Configured as Publicly Accessible" in t for t in titles), f"IaC engine missed Terraform RDS: {titles}"
+            assert any("[EPSS:" in str(f.get("evidence", "")) for f in bundle["findings"]), "EPSS enrichment tag missing from CVE findings"
             assert not any("safe_q" in t for t in titles), f"False positive on properly HTML-escaped safe_q: {titles}"
             assert any("Unvalidated X-Forwarded-Host" in t for t in titles), f"XFH verifier missed flaw: {titles}"
             assert any("Verbose Python Stack Trace Disclosed" in t for t in titles), f"Debug stack-trace detector missed 500 trace: {titles}"

@@ -81,7 +81,7 @@ progressbar progress { min-height: 22px; background-image: none; background-colo
 
 class ApexNativeWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="SPECTRE Recon & Attack Surface Studio v5.0.0")
+        super().__init__(title="SPECTRE Recon & Attack Surface Studio v5.2.0")
         self.set_default_size(1340, 800)
         self.maximize()
         self.set_wmclass("spectre-recon", "spectre-recon")
@@ -271,7 +271,7 @@ class ApexNativeWindow(Gtk.Window):
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
         hb.props.title = "SPECTRE  —  Kiber-Razvedka va Hujum Yuzasi Platformasi"
-        hb.props.subtitle = "●  v5.0.0  •  Hybrid C++17 v2, 130-NVT Engine, 34-Port Socket NVTs, 150-CPE, 14-Lockfile SCA & Drift Studio"
+        hb.props.subtitle = "●  v5.2.0  •  Hybrid C++17 v2, 150-NVT Engine, 34-Port Socket NVTs, 150-CPE, IaC/SCA/EPSS & Drift Studio"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -666,7 +666,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v5.0.0 Hybrid Workstation] C++17 v2 Kernel, 130-NVT Catalog, 34-Port Socket NVTs, 150-CPE, 14-Lockfile SCA & Drift/Compliance Studio initialized.\n")
+        self.term_buf.set_text("[SPECTRE v5.2.0 Hybrid Workstation] C++17 v2 Kernel, 150-NVT Catalog, 34-Port Socket NVTs, 150-CPE, IaC/SCA/EPSS & Drift/Compliance Studio initialized.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)

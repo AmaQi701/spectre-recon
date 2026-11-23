@@ -158,10 +158,9 @@ def analyze_postmessage_handlers(db, session, project_id: int, base_url: str, js
     targets = [base_url] + list(js_urls[:20])
     for tu in targets:
         try:
-            r = session.get(tu, timeout=5, verify=False)
-            if r.status_code != 200:
+            txt = fetch_cached_text(session, project_id, tu, timeout=5.0, max_chars=400000)
+            if not txt:
                 continue
-            txt = r.text[:400000]
             for m in listener_re.finditer(txt):
                 block = _extract_brace_block(txt, m.end())
                 has_origin_check = (".origin" in block) or ("origin" in block and "===" in block)
@@ -294,6 +293,19 @@ def validate_spf_dmarc_recursive(db, project_id: int, apex_domain: str, log_fn) 
                 break
     except Exception:
         pass
+
+    mta_sts_txt = ""
+    try:
+        ans_m = resolver.resolve(f"_mta-sts.{apex_domain}", "TXT")
+        for rdata in ans_m:
+            s = b"".join(rdata.strings).decode("utf-8", errors="ignore")
+            if "v=sts" in s.lower():
+                mta_sts_txt = s
+                break
+    except Exception:
+        pass
+    if mta_sts_txt:
+        db.log_task(project_id, "SPECTRE-Intel", "mta_sts", "COMPLETED", apex_domain, f"MTA-STS Enabled: {mta_sts_txt[:100]}")
 
     issues = []
     if not root_spf:

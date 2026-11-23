@@ -14,7 +14,7 @@ mkdir -p "${DIST_DIR}"
 
 cat << 'EOF' > "${PKG_DIR}/DEBIAN/control"
 Package: spectre-recon
-Version: 5.0.0
+Version: 5.2.0
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -44,7 +44,7 @@ Version=1.0
 Type=Application
 Name=SPECTRE Recon Studio
 GenericName=Cyber-Recon & Attack Surface Studio
-Comment=SPECTRE v5.0.0 Hybrid C++17/Python Recon, 130-NVT, 34-Port NVT, SCA & Compliance Studio
+Comment=SPECTRE v5.2.0 Hybrid C++17/Python Recon, 150-NVT, 34-Port NVT, IaC/SCA/EPSS & Compliance Studio
 Exec=/bin/bash /opt/apex-asm-studio/launch_apex.sh
 Path=/opt/apex-asm-studio
 Icon=/opt/apex-asm-studio/ui/apex-icon.svg
@@ -54,5 +54,5 @@ Keywords=pentest;recon;security;audit;spectre;scanner;
 StartupNotify=true
 EOF
 
-dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_5.0.0_amd64.deb"
-echo "[+] Built package: ${DIST_DIR}/spectre-recon_5.0.0_amd64.deb"
+dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_5.2.0_amd64.deb"
+echo "[+] Built package: ${DIST_DIR}/spectre-recon_5.2.0_amd64.deb"

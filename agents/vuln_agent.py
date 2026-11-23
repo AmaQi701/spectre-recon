@@ -22,6 +22,7 @@ from core.http_engine import RateLimitedHttpEngine
 from core.nvt_declarative_engine import run_declarative_nvt_catalog
 from core.plugin_runner import PhaseOrchestrator, QoD, ScanContextKB, ScanPhase
 from core.protocol_verifiers import run_active_protocol_verifiers
+from core.iac_auditor import run_iac_security_audit
 from core.sca_engine import run_sca_dependency_audit, run_web_and_js_sca_audit
 
 
@@ -1625,9 +1626,10 @@ class VulnAssessmentSuperAgent:
         sca_dirs = [p_s for p_s in (proj.get("source_code_path", ""), str(smap_dir) if smap_dir.is_dir() else "") if p_s]
         if sca_dirs:
             run_sca_dependency_audit(self.db, project_id, sca_dirs, log_fn, allow_online_osv=enable_cli)
+            run_iac_security_audit(self.db, project_id, sca_dirs, log_fn)
         run_web_and_js_sca_audit(self.db, self.http_engine, project_id, eps, log_fn, allow_online_osv=enable_cli)
 
-        enrich_project_findings_with_kev(self.db, project_id, log_fn)
+        enrich_project_findings_with_kev(self.db, project_id, log_fn, allow_online_epss=enable_cli)
         cpe_cnt = len(kb.get_facts("CPE/inventory"))
         log_fn(f"  [KB-GATEKEEPER] Executed: {kb.executed_plugins} | Skipped (0 ms): {kb.skipped_plugins} | CPE 2.3 Inventory: {cpe_cnt}")
         self.db.update_project_status(project_id, "VULN_AUDIT_COMPLETED")

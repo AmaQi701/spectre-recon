@@ -2,9 +2,9 @@
 
 <img src="ui/apex-icon.svg" width="105" alt="SPECTRE Logo" />
 
-# SPECTRE (`spectre-recon`) v5.0.0
+# SPECTRE (`spectre-recon`) v5.2.0
 
-**Hybrid C++17 v2 / Python Attack Surface Management (ASM), 130-Rule Declarative NVT, 34-Port Socket NVT, 150-Product CPE 2.3, 14-Lockfile SCA/OSV, Surface-Drift & SARIF/CycloneDX/JUnit/Compliance Platform (GTK3 Desktop + Headless CLI)**
+**Hybrid C++17 v2 / Python Attack Surface Management (ASM), 150-Rule Declarative NVT, 34-Port Socket NVT, 150-Product CPE 2.3, Cloud IaC Auditor, 14-Lockfile SCA, KEV+EPSS & Compliance/Drift Platform (GTK3 Desktop + Headless CLI)**
 
 [![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Kali%20%7C%20Debian-0ea5e9?style=for-the-badge&logo=linux)](https://github.com/AmaQi701/spectre-recon)
 [![Engine](https://img.shields.io/badge/Core-C%2B%2B17%20epoll%20%2B%20OpenSSL-ef4444?style=for-the-badge&logo=cplusplus)](https://isocpp.org/)
@@ -38,8 +38,8 @@ Instead of chaining fragile shell scripts or running heavy browser-bound wrapper
 ### 3. Agent 2 — Hybrid C++17 & KB-Gated Vulnerability Assessment (`agents/vuln_agent.py`)
 - **Native C++17 Accelerator v2 (`core/native/spectre_accel.cpp`, `core/native_bridge.py`):** Dual-stack IPv4/IPv6 Linux `epoll` multi-port TCP/banner sweep, single-pass `spectre_structural_hash` HTML/JSON skeleton engine, `spectre_js_token_mask` byte pre-scanner, OpenSSL `HMAC` JWT key validation, hardware `popcount` `SimHash64` Hamming distance, `MurmurHash3`, and Shannon entropy scanning.
 - **Active Socket Protocol NVTs (`core/protocol_verifiers.py`):** Direct read-only TCP & TLS protocol handshakes across 34 services (`RFC 4253 SSH_MSG_KEXINIT`, `MySQL/MariaDB`, `PostgreSQL`, `MongoDB`, `LDAP/LDAPS`, `Redis/Redis-TLS`, `Memcached`, `Elasticsearch`, `etcd`, `Consul`, `RabbitMQ`, `5672/AMQP`, `1883/8883/MQTT`, `2181/ZooKeeper`, `4222/NATS`, `9092/Kafka`, `8086/InfluxDB`, `8123/ClickHouse`, `Prometheus`, `Docker API`, `Kubernetes Kubelet`, `5900/VNC`, `1433/MSSQL`, `9042/Cassandra`, `Rsync`, `FTP`, and `SMTP`).
-- **130-Rule Declarative & CMS NVT Engine (`core/nvt_declarative_engine.py`, `config/nvt_catalog.json`, `core/cms_enterprise_nvts.py`):** C++17 structural-hash calibrated checks across 130+ enterprise gateways, AI/ML & Vector DB servers (`Ollama`, `vLLM`, `MLflow`, `Ray`, `Triton`, `Gradio`, `Langflow`, `Flowise`, `Qdrant`, `ChromaDB`, `Milvus`, `Weaviate`), DevOps control planes, databases, and CMS platforms.
-- **150-Product CPE 2.3, CISA KEV & 14-Lockfile SCA/OSV Engine (`core/advisory_kb.py`, `core/sca_engine.py`, `core/feed_updater.py`):** Deterministic SemVer advisory matching across 150 enterprise products, transitive lockfile & manifest auditing (`package.json`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `composer.json`, `composer.lock`, `requirements.txt`, `Pipfile.lock`, `poetry.lock`, `pyproject.toml`, `go.mod`, `Cargo.lock`, `Gemfile.lock`, `pom.xml`, plus client-side JS banners) with standardized `purl` identifiers and CISA `KEV` correlation.
+- **150-Rule Declarative & CMS NVT Engine (`core/nvt_declarative_engine.py`, `config/nvt_catalog.json`, `core/cms_enterprise_nvts.py`):** C++17 structural-hash calibrated checks across 150 enterprise gateways, AI/ML & Vector DB servers (`Ollama`, `vLLM`, `MLflow`, `Ray`, `Triton`, `Gradio`, `Langflow`, `Flowise`, `Qdrant`, `ChromaDB`, `Milvus`, `Weaviate`), DevOps control planes, databases, and CMS platforms.
+- **150-Product CPE 2.3, Cloud-Native IaC, CISA KEV + FIRST.org EPSS & 14-Lockfile SCA Engine (`core/advisory_kb.py`, `core/iac_auditor.py`, `core/sca_engine.py`, `core/feed_updater.py`):** Deterministic SemVer advisory matching across 150 enterprise products, multi-stage `Dockerfile` / `docker-compose` / Kubernetes / Terraform IaC security checks, transitive lockfile auditing (`purl` + VEX), and CISA `KEV` + `EPSS` exploit probability correlation.
 - **Differential Access Control (Multi-Role & Autonomous Guest BOLA Matrix):** Compares `Guest`, `Role A`, and `Role B` responses across API routes to confirm Broken Object Level Authorization (`CWE-639`) and unauthenticated API exposure (`CWE-306`), alongside calibrated GET/POST output encoding, `X-Forwarded-Host`, Open Redirect, OAuth2, JWT/JWS key-injection, GraphQL introspection, and Python AST / SourceMap SAST checks.
 
 ### 4. Agent 3 — Asset-Bound Attack Graph, Surface Drift & Compliance Studio (`agents/triage_chain_agent.py`, `core/compliance_exporter.py`, `core/surface_diff_engine.py`)

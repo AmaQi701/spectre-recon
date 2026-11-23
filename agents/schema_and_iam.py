@@ -107,6 +107,39 @@ def resolve_openapi_schema_refs(db, session, project_id: int, base_url: str, log
             if not isinstance(paths, dict) or not paths:
                 continue
             global_sec = spec.get("security")
+            sec_schemes = ((spec.get("components") or {}).get("securitySchemes") or spec.get("securityDefinitions") or {})
+            if isinstance(sec_schemes, dict):
+                q_keys = [
+                    str(sk_nm) for sk_nm, sk_cfg in sec_schemes.items()
+                    if isinstance(sk_cfg, dict) and str(sk_cfg.get("type") or "").lower() == "apikey" and str(sk_cfg.get("in") or "").lower() == "query"
+                ]
+                if q_keys:
+                    db.upsert_finding(
+                        project_id, "SPECTRE-Schema (OpenAPI-Audit)",
+                        f"OpenAPI Security Scheme Transmits API Key in URL Query ({', '.join(q_keys[:4])})",
+                        "API Credential Exposure", "Medium", 5.3,
+                        "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-598", "A07:2021 - Identification and Authentication Failures",
+                        u, f"securitySchemes in=query: {', '.join(q_keys[:6])}",
+                        "OpenAPI spetsifikatsiyasida API kalitni URL query parametri orqali yuborish belgilangan — kalit proksi loglari va Referer sarlavhasida oshkor bo'ladi.",
+                        "API kalitlarni URL query o'rniga `Authorization` yoki maxsus HTTP sarlavha (`in: header`) orqali uzating.",
+                        confidence="Header/Config-Verified (QoD: 90%)",
+                    )
+            servers_arr = spec.get("servers") or []
+            priv_srvs = [
+                str(sv.get("url") or "") for sv in servers_arr
+                if isinstance(sv, dict) and re.search(r"https?://(?:10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|[a-z0-9.\-]+\.(?:internal|local|corp|lan))\b", str(sv.get("url") or ""), re.I)
+            ]
+            if priv_srvs:
+                db.upsert_finding(
+                    project_id, "SPECTRE-Schema (OpenAPI-Audit)",
+                    f"Internal Network Backend Host Leaked in OpenAPI 'servers' ({len(priv_srvs)} URLs)",
+                    "Internal Topology Disclosure", "Low", 3.7,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
+                    u, f"Leaked Internal Server URLs: {', '.join(priv_srvs[:4])}",
+                    "Ommaviy OpenAPI hujjatining `servers` bo'limida ichki RFC-1918 IP yoki korporativ `.internal/.local` xost manzillari qolib ketgan.",
+                    "Production OpenAPI spetsifikatsiyasida faqat ommaviy API Gateway manzilini qoldiring.",
+                    confidence="Header/Config-Verified (QoD: 90%)",
+                )
             all_dto_fields: set[str] = set()
             unauth_mutations: list[str] = []
             auth_skip_paths = ("/login", "/signin", "/auth", "/register", "/signup", "/token", "/refresh", "/forgot", "/reset", "/public", "/webhook")
