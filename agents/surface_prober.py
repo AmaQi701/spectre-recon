@@ -680,23 +680,23 @@ def classify_auth_portals_and_schema(db, project_id: int, log_fn):
 
 
     priv_keys = set()
-    priv_patterns = ("role", "admin", "is_admin", "isadmin", "permission", "priv", "balance", "status", "verified", "org", "tenant", "group", "type", "level", "access")
+    strict_priv_keys = {
+        "is_admin", "isadmin", "is_superuser", "is_staff", "user_role", "role_id",
+        "permissions", "privilege", "privileges", "account_balance", "wallet_balance",
+        "credit_limit", "tenant_id", "org_id", "discount_percent",
+    }
     for js in bundle.get("js_assets", []):
         for p in json.loads(js.get("params_json") or "[]"):
-            if any(pk in p.lower() for pk in priv_patterns):
+            if str(p).strip().lower() in strict_priv_keys:
                 priv_keys.add(p)
     if priv_keys:
         sorted_pk = sorted(priv_keys)
-        db.upsert_finding(
-            project_id, "SPECTRE-Agent1 (SchemaMiner)", f"Reconstructed Privileged / Mass-Assignment Parameters ({len(sorted_pk)} keys)",
-            "Mass Assignment / Data Schema (Manual Guide)", "Medium", 6.3, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
-            "CWE-915", "A04:2021 - Insecure Design", bundle.get("project", {}).get("primary_target", ""),
-            f"Candidate Mass-Assignment JSON Keys: {', '.join(sorted_pk[:20])}",
-            "JS bundle fayllaridan foydalanuvchi huquqi, holati yoki tashkilotga oid JSON parametr nomlari tiklandi.",
-            "POST/PUT/PATCH so'rovlarida DTO / White-list schema validatsiyasini qo'llang.",
-            confidence="Manual-Review",
+        p_targ = bundle.get("project", {}).get("primary_target", "") or f"project:{project_id}"
+        db.log_task(
+            project_id, "SPECTRE-Intel", "mass_assignment_schema", "COMPLETED", p_targ,
+            f"Privileged DTO Keys ({len(sorted_pk)}): {', '.join(sorted_pk[:15])}",
         )
-        log_fn(f"  [🧩 SCHEMA MINER] Mass-Assignment uchun {len(sorted_pk)} ta imtiyozli parametr tiklandi: {', '.join(sorted_pk[:10])}")
+        log_fn(f"  [🧩 SCHEMA MINER] {len(sorted_pk)} ta imtiyozli DTO kaliti qayd etildi: {', '.join(sorted_pk[:10])}")
 
 
 

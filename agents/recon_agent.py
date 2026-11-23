@@ -1895,6 +1895,10 @@ class ReconSuperAgent:
                         continue
                     scanned_app_sigs[app_sig] = dom
                     deep_scanned_count += 1
+                    total_deep_cap = max(1, min(16, len(live_sorted)))
+                    base_frac = 0.68 + 0.20 * ((deep_scanned_count - 1) / total_deep_cap)
+                    step_span = 0.20 / total_deep_cap
+                    _prog(base_frac, f"Host {deep_scanned_count}/{total_deep_cap} ({dom}): BFS Crawl, Katana & JS Deconstruction...")
                     host_t0 = time.monotonic()
                     is_high_val = (_dom_priority(dom) >= 60) and (deep_scanned_count <= 8)
                     collected_html.append(html[:50000])
@@ -1905,12 +1909,15 @@ class ReconSuperAgent:
                     )
                     run_plugin_safely(self.db, project_id, "r1_stage6_js_deconstruct", self._stage6_js_analyzer, project_id, js_list[:35], url, scope, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
                     if is_high_val:
+                        _prog(base_frac + step_span * 0.35, f"Host {deep_scanned_count}/{total_deep_cap} ({dom}): OpenAPI, ActiveWeb & Protocol Suites...")
                         run_plugin_safely(self.db, project_id, "r1_stage5_openapi", self._stage5_openapi_discovery, project_id, url, scope, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
                         run_plugin_safely(self.db, project_id, "r1_active_web_suite", active_web_auditor.run_active_web_suite, self, project_id, apex_domain, url, js_list, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
                         run_plugin_safely(self.db, project_id, "r1_protocol_suite", protocol_and_client.run_protocol_client_suite, self, project_id, apex_domain, url, js_list, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+                        _prog(base_frac + step_span * 0.65, f"Host {deep_scanned_count}/{total_deep_cap} ({dom}): Schema/IAM & Headless V8 Runtime...")
                         run_plugin_safely(self.db, project_id, "r1_schema_iam_suite", schema_and_iam.run_schema_iam_suite, self, project_id, apex_domain, url, js_list, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
                         run_plugin_safely(self.db, project_id, "r1_runtime_suite", runtime_and_network.run_runtime_network_suite, self, project_id, apex_domain, primary_host, url, js_list, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
                     if dom == primary_host or (time.monotonic() - host_t0) < 90.0:
+                        _prog(base_frac + step_span * 0.85, f"Host {deep_scanned_count}/{total_deep_cap} ({dom}): Deep FFUF & Arjun Parameter Discovery...")
                         cli_orchestrator.run_deep_web_and_fuzz_tools(
                             self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn, phase="fuzz_only"
                         )

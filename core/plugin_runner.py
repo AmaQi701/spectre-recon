@@ -265,9 +265,19 @@ class PhaseOrchestrator:
         self._tasks.append((p_ord, self._seq, plugin_name, phase, fn, args, kwargs, gate_cfg))
         self._seq += 1
 
-    def execute_all(self) -> dict[str, Any]:
+    def execute_all(
+        self,
+        progress_fn: Callable[[float, str], None] | None = None,
+        start_frac: float = 0.89,
+        end_frac: float = 0.96,
+    ) -> dict[str, Any]:
         results: dict[str, Any] = {}
-        for _, _, p_name, phase, fn, args, kwargs, gate_cfg in sorted(self._tasks, key=lambda x: (x[0], x[1])):
+        ordered = sorted(self._tasks, key=lambda x: (x[0], x[1]))
+        total = max(1, len(ordered))
+        for idx, (_, _, p_name, phase, fn, args, kwargs, gate_cfg) in enumerate(ordered, start=1):
+            if progress_fn:
+                frac = start_frac + (end_frac - start_frac) * ((idx - 1) / total)
+                progress_fn(frac, f"2-SuperAgent ({idx}/{total}): {p_name}...")
             results[p_name] = run_plugin_safely(
                 self.db,
                 self.project_id,

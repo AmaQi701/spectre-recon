@@ -799,34 +799,19 @@ class VulnAssessmentSuperAgent:
                 biz_by_host.setdefault(host, []).append(entry_str)
 
         for host, routes in idor_by_host.items():
-            self.db.upsert_finding(
-                project_id, "Agent-2 (ManualTestGuide)", f"High-Priority IDOR / BOLA Testing Points ({len(routes)} routes on {host})",
-                "Access Control (Manual Verification)", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
-                "CWE-639", "A01:2021 - Broken Access Control", host,
-                " | ".join(routes[:10]),
-                "Ushbu endpointlar obyekt identifikatorini qabul qiladi — avtorizatsiya tekshiruvi yo'qligi IDOR/BOLA ga olib kelishi mumkin.",
-                "Har bir so'rovda foydalanuvchining obyektga egalik huquqini server tomonida tekshiring.",
-                confidence=QoD.HEURISTIC,
+            self.db.log_task(
+                project_id, "SPECTRE-Intel", "idor_surface_guide", "COMPLETED", host,
+                f"Object-ID Routes ({len(routes)}): {' | '.join(routes[:4])[:200]}",
             )
         for host, routes in ssrf_by_host.items():
-            self.db.upsert_finding(
-                project_id, "Agent-2 (ManualTestGuide)", f"SSRF / Open Redirect Candidate Parameters ({len(routes)} routes on {host})",
-                "SSRF / Redirect (Manual Verification)", "High", 7.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:N",
-                "CWE-918", "A10:2021 - Server-Side Request Forgery", host,
-                " | ".join(routes[:10]),
-                "Tashqi manzil yoki yo'naltirish qabul qiluvchi parametrlar aniqlandi.",
-                "URL manzillarini oq ro'yxat asosida tekshiring va ichki IP diapazonlarini bloklang.",
-                confidence=QoD.HEURISTIC,
+            self.db.log_task(
+                project_id, "SPECTRE-Intel", "redirect_ssrf_surface", "COMPLETED", host,
+                f"URL/Redirect Params ({len(routes)}): {' | '.join(routes[:4])[:200]}",
             )
         for host, routes in biz_by_host.items():
-            self.db.upsert_finding(
-                project_id, "Agent-2 (ManualTestGuide)", f"Business Logic / Mass Assignment Testing Points ({len(routes)} routes on {host})",
-                "Business Logic (Manual Verification)", "Medium", 6.3, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
-                "CWE-840", "A04:2021 - Insecure Design", host,
-                " | ".join(routes[:10]),
-                "Narx, miqdor, chegirma yoki foydalanuvchi roli bilan bog'liq parametrlar aniqlandi.",
-                "Moliya va rolga oid qiymatlarni mijoz so'rovidan emas, faqat server bazasidan hisoblang.",
-                confidence=QoD.HEURISTIC,
+            self.db.log_task(
+                project_id, "SPECTRE-Intel", "business_logic_surface", "COMPLETED", host,
+                f"Role/Numeric Params ({len(routes)}): {' | '.join(routes[:4])[:200]}",
             )
 
         sink_bundles: list[tuple[str, str, list[str]]] = []
@@ -1056,6 +1041,21 @@ class VulnAssessmentSuperAgent:
                 except Exception:
                     pass
 
+    @staticmethod
+    def _extract_hidden_form_defaults(html_body: str) -> dict[str, str]:
+        defaults: dict[str, str] = {}
+        if not html_body:
+            return defaults
+        for tag_m in re.finditer(r"<input\b[^>]*type=['\"]?hidden['\"]?[^>]*>", html_body[:65000], re.I):
+            tag_s = tag_m.group(0)
+            nm = re.search(r"\bname=['\"]([^'\"]{1,64})['\"]", tag_s, re.I)
+            vl = re.search(r"\bvalue=['\"]([^'\"]{0,256})['\"]", tag_s, re.I)
+            if nm and vl and nm.group(1) not in defaults:
+                defaults[nm.group(1)] = vl.group(1)
+                if len(defaults) >= 8:
+                    break
+        return defaults
+
     def _audit_safe_differential_verifiers(self, project_id: int, endpoints: list[dict], log_fn):
         redir_params = {"url", "redirect", "redirect_uri", "next", "return", "returnurl", "return_to", "goto", "dest", "destination", "continue"}
         seen_auth_cache_hosts: set[str] = set()
@@ -1075,6 +1075,7 @@ class VulnAssessmentSuperAgent:
             key=_ep_prio,
         )
 
+        form_defaults_by_host: dict[str, dict[str, str]] = {}
         for ep in cand_eps[:45]:
             raw_u = ep["url"]
             u = raw_u.replace("{param}", "1")
@@ -1089,12 +1090,25 @@ class VulnAssessmentSuperAgent:
             is_api_ep = str(ep.get("category") or "") == "api_endpoint"
             p_parsed = urllib.parse.urlparse(u)
             host_k = (p_parsed.hostname or "").lower()
+            origin_u = f"{p_parsed.scheme}://{p_parsed.netloc}/"
+
+            form_defaults: dict[str, str] = {}
+            if method_ep in ("POST", "PUT", "PATCH") and not is_api_ep and host_k:
+                if host_k not in form_defaults_by_host:
+                    try:
+                        r_frm = self.http_engine.request("GET", origin_u, headers=self.role_a_headers or None, allow_redirects=True)
+                        form_defaults_by_host[host_k] = self._extract_hidden_form_defaults(r_frm.text or "")
+                    except Exception:
+                        form_defaults_by_host[host_k] = {}
+                form_defaults = form_defaults_by_host.get(host_k, {})
 
             base_text = ""
             base_loc = ""
             try:
                 if method_ep in ("POST", "PUT", "PATCH"):
-                    base_payload = {pk: "spectrebase1" for pk in params[:6]}
+                    base_payload = dict(form_defaults)
+                    for pk in params[:6]:
+                        base_payload[pk] = "spectrebase1"
                     if is_api_ep:
                         r_base = self.http_engine.request(method_ep, u, json=base_payload, headers=self.role_a_headers or None, allow_redirects=False)
                     else:
@@ -1129,7 +1143,7 @@ class VulnAssessmentSuperAgent:
                     r_post = (
                         self.http_engine.request(method_ep, u, json=diag_body, headers=self.role_a_headers or None, allow_redirects=False)
                         if is_api_ep
-                        else self.http_engine.request(method_ep, u, data=diag_body, headers=self.role_a_headers or None, allow_redirects=False)
+                        else self.http_engine.request(method_ep, u, data={**form_defaults, **diag_body}, headers=self.role_a_headers or None, allow_redirects=False)
                     )
                     self._inspect_verbose_debug_trace(project_id, u, host_k, r_post.status_code, r_post.text or "", seen_debug_hosts, log_fn)
                     if r_post.status_code == 200 and "text/html" in r_post.headers.get("Content-Type", "").lower() and 'sp7x"<>' in (r_post.text or "") and 'sp7x"<>' not in base_text:
@@ -1143,6 +1157,21 @@ class VulnAssessmentSuperAgent:
                             "Barcha chiqish nuqtalarida kontekstli HTML/JS encoding qo'llang va qat'iy CSP o'rnating.",
                             confidence=QoD.ACTIVE_VERIFIED,
                         )
+                    if is_api_ep and "application/json" in r_post.headers.get("Content-Type", "").lower() and host_k not in seen_debug_hosts:
+                        j_obj = json.loads(r_post.text or "{}")
+                        if isinstance(j_obj, dict):
+                            leak_keys = [k for k in ("stackTrace", "sqlState", "exceptionClass", "debugTrace") if k in j_obj and k not in base_text]
+                            if leak_keys:
+                                seen_debug_hosts.add(host_k)
+                                self.db.upsert_finding(
+                                    project_id, "Agent-2 (Differential-Verifier)", f"Verbose JSON Diagnostic Exception Keys Exposed ({host_k})",
+                                    "Information Exposure Through Error Message", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                                    "CWE-209", "A05:2021 - Security Misconfiguration", u,
+                                    f"HTTP {r_post.status_code} JSON keys exposed: {', '.join(leak_keys)}",
+                                    "API javobida ichki istisno sxema kalitlari tashqariga uzatilmoqda.",
+                                    "Production muhitda stackTrace/sqlState maydonlarini yashiring.",
+                                    confidence=QoD.ACTIVE_VERIFIED,
+                                )
                 except Exception:
                     pass
                 continue
@@ -1463,7 +1492,7 @@ class VulnAssessmentSuperAgent:
             log_fn,
         )
 
-    def run_assessment(self, project_id: int, log_fn, enable_cli: bool = True):
+    def run_assessment(self, project_id: int, log_fn, enable_cli: bool = True, progress_fn=None):
         bundle = self.db.get_project_bundle(project_id)
         proj = bundle.get("project", {})
         if not proj:
@@ -1475,7 +1504,7 @@ class VulnAssessmentSuperAgent:
         kb = ScanContextKB(project_id, str(proj.get("primary_target", "")))
         kb.hydrate_from_bundle(bundle, has_auth_a=bool(self.role_a_headers), has_auth_b=bool(self.role_b_headers))
 
-        log_fn(f"═══ 2-SUPERAGENT (SPECTRE v3.0): KB-GATED CVE, POSTURE & BOLA AUDIT ({proj['name']}) ═══")
+        log_fn(f"═══ 2-SUPERAGENT (SPECTRE v4.0): KB-GATED CVE, POSTURE & BOLA AUDIT ({proj['name']}) ═══")
         http_svcs = bundle.get("http_services", [])
         ports = bundle.get("ports", [])
         eps = bundle.get("endpoints", [])
@@ -1524,8 +1553,10 @@ class VulnAssessmentSuperAgent:
         orch.register("nvt_multi_role_bola", ScanPhase.ACT_VERIFY, self._audit_multi_role_access_control, project_id, eps, log_fn, require_keys=["Endpoints/api"])
         orch.register("nvt_differential_verifier", ScanPhase.ACT_VERIFY, self._audit_safe_differential_verifiers, project_id, eps, log_fn, require_keys=["Endpoints/parameterized"])
         orch.register("nvt_cli_scanners", ScanPhase.ACT_VERIFY, self._run_cli_vuln_scanners, project_id, bundle, log_fn, enable_cli=enable_cli, require_keys=["Services/www"])
-        orch.execute_all()
+        orch.execute_all(progress_fn=progress_fn, start_frac=0.89, end_frac=0.95)
 
+        if progress_fn:
+            progress_fn(0.95, "2-SuperAgent: SourceMap SAST, SCA/OSV & CISA KEV Enrichment...")
         smap_dir = Path(__file__).resolve().parent.parent / "workspaces" / "sourcemaps" / f"project_{project_id}"
         if smap_dir.is_dir() and any(smap_dir.rglob("*")):
             log_fn(f"  [SOURCEMAP->SAST] 1-SuperAgent tiklagan asl manba kodlari ({smap_dir.name}) White-Box SAST orqali tekshirilmoqda...")

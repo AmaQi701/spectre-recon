@@ -12,6 +12,7 @@ import hmac
 import json
 import pathlib
 import re
+import threading
 import urllib.parse
 from typing import Any
 
@@ -128,10 +129,12 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
                 pass
 
     from core.scope_guard import ScopeGuard
-    seen_favs = _SEEN_SOURCEMAPS_BY_PROJ.setdefault(-project_id - 1000, set())
-    fav_key = str(fav_hash)
-    if fav_key not in seen_favs:
-        seen_favs.add(fav_key)
+    with _DEDUP_LOCK:
+        seen_favs = _SEEN_FAVICONS_BY_PROJ.setdefault(project_id, set())
+        is_new_fav = str(fav_hash) not in seen_favs
+        if is_new_fav:
+            seen_favs.add(str(fav_hash))
+    if is_new_fav:
         apex_asset = ScopeGuard.extract_apex_domain(urllib.parse.urlparse(base_url).hostname or base_url)
         desc_extra = f" | Origin IP Match: {', '.join(matched_origins)}" if matched_origins else ""
         if matched_origins:
@@ -160,7 +163,17 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
 
 # 2. JAVASCRIPT SOURCEMAP (*.js.map) UNPACKER & SOURCE CODE RECONSTRUCTOR
 
+_DEDUP_LOCK = threading.RLock()
 _SEEN_SOURCEMAPS_BY_PROJ: dict[int, set[str]] = {}
+_SEEN_FAVICONS_BY_PROJ: dict[int, set[str]] = {}
+_SEEN_SRI_BY_PROJ: dict[int, set[str]] = {}
+
+
+def clear_project_dedup_state(project_id: int) -> None:
+    with _DEDUP_LOCK:
+        _SEEN_SOURCEMAPS_BY_PROJ.pop(project_id, None)
+        _SEEN_FAVICONS_BY_PROJ.pop(project_id, None)
+        _SEEN_SRI_BY_PROJ.pop(project_id, None)
 
 
 def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_url: str, log_fn) -> int:
@@ -803,10 +816,13 @@ def hunt_broken_external_links_and_script_hijack(db, session, project_id: int, b
                         missing_sri_urls.append(full_s)
 
         if missing_sri_urls:
-            seen_sri = _SEEN_SOURCEMAPS_BY_PROJ.setdefault(-project_id - 2000, set())
             sri_sig = ",".join(sorted(urllib.parse.urlparse(u).hostname or u for u in missing_sri_urls[:6]))
-            if sri_sig not in seen_sri:
-                seen_sri.add(sri_sig)
+            with _DEDUP_LOCK:
+                seen_sri = _SEEN_SRI_BY_PROJ.setdefault(project_id, set())
+                is_new_sri = sri_sig not in seen_sri
+                if is_new_sri:
+                    seen_sri.add(sri_sig)
+            if is_new_sri:
                 db.upsert_finding(
                     project_id, "SPECTRE-ActiveWeb (SRI-Auditor)",
                     f"External Third-Party Scripts Without Subresource Integrity ({len(missing_sri_urls)} scripts)",

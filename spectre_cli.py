@@ -82,7 +82,12 @@ def main(argv: list[str] | None = None) -> int:
         recon.run_full_recon(pid, active_override, _log, recon_mode=args.mode)
         if args.ssh_audit.strip():
             run_credentialed_ssh_audit(db, pid, args.ssh_audit.strip(), _log, ssh_key=args.ssh_key.strip())
-        vuln.run_assessment(pid, _log, enable_cli=not args.no_cli)
+        vuln.run_assessment(
+            pid,
+            _log,
+            enable_cli=not args.no_cli,
+            progress_fn=lambda f, m: _log(f"[PROGRESS {int(f * 100)}%] {m}"),
+        )
         triage.run_triage_and_chaining(pid, _log)
         rep = triage.generate_reports(pid)
         art = cli_orchestrator.export_project_artifacts(db, pid, reports_dir=args.reports_dir)

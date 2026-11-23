@@ -29,7 +29,7 @@ sys.path.insert(0, str(BASE_DIR))
 from agents.recon_agent import ReconSuperAgent
 from agents.triage_chain_agent import TriageAndChainSuperAgent
 from agents.vuln_agent import VulnAssessmentSuperAgent
-from agents import cli_orchestrator, surface_prober
+from agents import active_web_auditor, cli_orchestrator, surface_prober
 from core.database import DatabaseManager
 from core.scope_guard import ScopeGuard
 
@@ -81,7 +81,7 @@ progressbar progress { min-height: 22px; background-image: none; background-colo
 
 class ApexNativeWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="SPECTRE Recon & Attack Surface Studio v3.0")
+        super().__init__(title="SPECTRE Recon & Attack Surface Studio v4.0.0")
         self.set_default_size(1280, 760)
         self.maximize()
         self.set_wmclass("spectre-recon", "spectre-recon")
@@ -256,7 +256,7 @@ class ApexNativeWindow(Gtk.Window):
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
         hb.props.title = "SPECTRE  —  Kiber-Razvedka va Hujum Yuzasi Platformasi"
-        hb.props.subtitle = "●  v3.0.0  •  Phased KB-Orchestrator, 27-Product CPE 2.3 Engine & Attack Graph Studio"
+        hb.props.subtitle = "●  v4.0.0  •  Hybrid C++17 epoll, 100-NVT Engine, 26-Port Socket NVTs, 120-CPE & SARIF/SBOM Studio"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -688,6 +688,7 @@ class ApexNativeWindow(Gtk.Window):
             return
         old_id = self.current_project_id
         self.db.delete_project(old_id)
+        active_web_auditor.clear_project_dedup_state(old_id)
         self.current_project_id = None
         self._last_data_sig = None
         self.refresh_projects()
@@ -928,13 +929,12 @@ class ApexNativeWindow(Gtk.Window):
                 continue
             if f_mode == "no_noise" and sev in ("Low", "Info"):
                 continue
-            if f_mode == "confirmed" and not ("[CONFIRMED]" in title_str or "Confirmed" in conf_str or triage_str == "Verified"):
+            m_qod = re.search(r"QoD:\s*(\d+)%", conf_str)
+            qod_num = int(m_qod.group(1)) if m_qod else (95 if "[CONFIRMED]" in title_str or "Confirmed" in conf_str else 80 if conf_str == "High" else 65)
+            if f_mode == "confirmed" and not ("[CONFIRMED]" in title_str or "Confirmed" in conf_str or triage_str == "Verified" or qod_num >= 90):
                 continue
-            if f_mode == "qod_80":
-                m_qod = re.search(r"QoD:\s*(\d+)%", conf_str)
-                qod_num = int(m_qod.group(1)) if m_qod else (95 if "[CONFIRMED]" in title_str or "Confirmed" in conf_str else 80 if conf_str == "High" else 65)
-                if qod_num < 80:
-                    continue
+            if f_mode == "qod_80" and qod_num < 80:
+                continue
             raw_str = f"{sev} {title_str} {f['cwe']} {f['asset']} {f['evidence']}".lower()
             if not q or q in raw_str:
                 t_col = "#34d399" if triage_str == "Verified" else ("#fbbf24" if triage_str == "Manual-Review" else "#64748b")
@@ -1188,8 +1188,8 @@ class ApexNativeWindow(Gtk.Window):
                 if agent_type in ("recon", "all"):
                     self.recon_agent.run_full_recon(pid, None, self.log_msg, recon_mode=rec_mode or "full", progress_fn=update_prog)
                 if agent_type in ("vuln", "all"):
-                    update_prog(0.92, "2-SuperAgent: Vulnerability & SAST Audit...")
-                    self.vuln_agent.run_assessment(pid, self.log_msg)
+                    update_prog(0.89, "2-SuperAgent: Vulnerability, NVT, SCA & SAST Audit...")
+                    self.vuln_agent.run_assessment(pid, self.log_msg, progress_fn=update_prog)
                 if agent_type in ("triage", "all"):
                     update_prog(0.96, "3-SuperAgent: Triage, Dynamic Bug Chaining & Report Generation...")
                     self.triage_agent.run_triage_and_chaining(pid, self.log_msg)

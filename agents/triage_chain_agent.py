@@ -148,10 +148,11 @@ class TriageAndChainSuperAgent:
                 g["proto_debug"].append(f)
             if (
                 cat_l != "hidden attack surface"
+                and "manualtestguide" not in str(f.get("agent") or "").lower()
                 and (re.search(r"\b(?:bola|idor)\b", tl) or "unauthenticated access" in tl or "access control" in cat_l)
             ):
                 g["bola_authz"].append(f)
-            if "redirect" in tl or "oauth" in tl or "ssrf" in tl:
+            if ("redirect" in tl or "oauth" in tl or "ssrf" in tl) and "manualtestguide" not in str(f.get("agent") or "").lower():
                 g["redirects"].append(f)
             if "cve" in tl or "nuclei:" in tl or "advisory" in tl or "end-of-life" in tl:
                 conf_s = str(f.get("confidence") or "")
