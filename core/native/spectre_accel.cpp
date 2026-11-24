@@ -473,4 +473,62 @@ uint64_t spectre_structural_hash(const uint8_t* data, size_t len) {
     return h;
 }
 
+static inline bool match_cs(const uint8_t* p, size_t rem, const char* lit, size_t n) {
+    if (rem < n) return false;
+    return std::memcmp(p, lit, n) == 0;
+}
+
+uint32_t spectre_secret_prefilter_mask(const uint8_t* data, size_t len) {
+    if (!data || len < 4) return 0U;
+    uint32_t mask = 0U;
+    for (size_t i = 0; i + 3 < len; ++i) {
+        const uint8_t* p = data + i;
+        const size_t rem = len - i;
+        switch (p[0]) {
+            case 'A':
+                if (!(mask & 1U) && (match_cs(p, rem, "AKIA", 4) || match_cs(p, rem, "ASIA", 4) || match_cs(p, rem, "AIza", 4))) {
+                    mask |= 1U;
+                }
+                break;
+            case 'g':
+                if (!(mask & 2U) && (match_cs(p, rem, "ghp_", 4) || match_cs(p, rem, "github_pat_", 11) || match_cs(p, rem, "glpat-", 6))) {
+                    mask |= 2U;
+                }
+                if (!(mask & 8U) && match_cs(p, rem, "gsk_", 4)) {
+                    mask |= 8U;
+                }
+                break;
+            case 'n':
+                if (!(mask & 2U) && match_cs(p, rem, "npm_", 4)) mask |= 2U;
+                break;
+            case 's':
+                if (!(mask & 4U) && match_cs(p, rem, "sk_live_", 8)) mask |= 4U;
+                if (!(mask & 8U) && (match_cs(p, rem, "sk-ant-", 7) || match_cs(p, rem, "sk-proj-", 8))) mask |= 8U;
+                break;
+            case 'r':
+                if (!(mask & 4U) && match_cs(p, rem, "rk_live_", 8)) mask |= 4U;
+                break;
+            case 'x':
+                if (!(mask & 4U) && (match_cs(p, rem, "xoxb-", 5) || match_cs(p, rem, "xoxp-", 5))) mask |= 4U;
+                break;
+            case 'S':
+                if (!(mask & 4U) && match_cs(p, rem, "SG.", 3) && rem >= 24) mask |= 4U;
+                break;
+            case 'h':
+                if (!(mask & 8U) && match_cs(p, rem, "hf_", 3) && rem >= 24) mask |= 8U;
+                break;
+            case '-':
+                if (!(mask & 16U) && match_cs(p, rem, "-----BEGIN ", 11)) mask |= 16U;
+                break;
+            case 'e':
+                if (!(mask & 16U) && match_cs(p, rem, "eyJ", 3) && rem >= 24) mask |= 16U;
+                break;
+            default:
+                break;
+        }
+        if (mask == 0x1FU) break;
+    }
+    return mask;
+}
+
 } // extern "C"

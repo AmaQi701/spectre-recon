@@ -81,7 +81,7 @@ progressbar progress { min-height: 22px; background-image: none; background-colo
 
 class ApexNativeWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="SPECTRE Recon & Attack Surface Studio v6.2.0")
+        super().__init__(title="SPECTRE Recon & Attack Surface Studio v7.0.0")
         self.set_default_size(1340, 800)
         self.maximize()
         self.set_wmclass("spectre-recon", "spectre-recon")

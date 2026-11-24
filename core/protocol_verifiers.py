@@ -19,10 +19,10 @@ from typing import Any
 from core.plugin_runner import QoD
 
 SUPPORTED_ACTIVE_PORTS = {
-    21, 22, 25, 110, 143, 389, 587, 636, 873, 1022, 1099, 1433, 1883, 2181,
-    2375, 2376, 2379, 3306, 3389, 4222, 5000, 5005, 5432, 5672, 5900, 5985,
-    6379, 6380, 6443, 8086, 8123, 8500, 8883, 9000, 9042, 9092, 9100, 9200,
-    10250, 11211, 15672, 27017,
+    21, 22, 25, 110, 143, 389, 587, 636, 873, 1022, 1080, 1099, 1433, 1521, 1883,
+    2049, 2181, 2375, 2376, 2379, 3306, 3389, 4222, 5000, 5005, 5060, 5432, 5672,
+    5900, 5985, 6379, 6380, 6443, 7001, 8086, 8123, 8500, 8883, 9000, 9042, 9092,
+    9100, 9200, 10050, 10250, 11211, 15672, 27017, 50070, 61616,
 }
 
 
@@ -670,6 +670,157 @@ def _probe_enterprise_rpc_and_mgmt(
     return hits
 
 
+def _probe_middleware_and_infra_v7(
+    db: Any, http_engine: Any, project_id: int, connect_target: str, target_ip: str, disp_host: str, port: int, connect_port: int | None = None
+) -> int:
+    hits = 0
+    cp = connect_port or port
+    if port == 1080:
+        with socket.create_connection((connect_target, cp), timeout=2.5) as s_sk:
+            s_sk.settimeout(2.2)
+            s_sk.sendall(b"\x05\x01\x00")
+            resp = s_sk.recv(16)
+        if len(resp) >= 2 and resp[0] == 0x05 and resp[1] == 0x00:
+            db.upsert_port(project_id, disp_host, 1080, "tcp", ip=target_ip, service="socks5", version="SOCKS5 (No-Auth)", banner="SOCKS5 0x05 0x00", source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated SOCKS5 Open Proxy ({disp_host}:1080)",
+                "Network Relay / Proxy Exposure", "High", 8.6, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N",
+                "CWE-287", "A05:2021 - Security Misconfiguration", f"{disp_host}:1080",
+                "RFC 1928 greeting accepted Method 0x00 (NO AUTHENTICATION REQUIRED)",
+                "SOCKS5 proksi xizmati autentifikatsiyasiz ochiq holatda ishlamoqda.",
+                "`:1080` portini yoping va RFC 1929 autentifikatsiyasini majburiy qiling.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
+    elif port == 1521:
+        tns_cmd = b"(DESCRIPTION=(CONNECT_DATA=(COMMAND=ping)))"
+        pkt_len = 58 + len(tns_cmd)
+        tns_hdr = struct.pack(">HHBBH", pkt_len, 0, 1, 0, 0) + struct.pack(">HHHHHHHHII", 0x0139, 0x012C, 0, 2048, 32767, 0x4F98, 0, 1, len(tns_cmd), 58) + (b"\x00" * 24)
+        with socket.create_connection((connect_target, cp), timeout=2.5) as s_tns:
+            s_tns.settimeout(2.2)
+            s_tns.sendall(tns_hdr + tns_cmd)
+            resp = s_tns.recv(256)
+        if len(resp) >= 8 and resp[4] in (2, 4, 11) and (b"ERR=0" in resp or b"ALIAS=" in resp or b"VSNNUM=" in resp):
+            db.upsert_port(project_id, disp_host, 1521, "tcp", ip=target_ip, service="oracle-tns", version="Oracle TNS Listener", banner=resp[8:96].decode("ascii", errors="ignore"), source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Exposed Oracle TNS Listener Diagnostics ({disp_host}:1521)",
+                "Database Listener Exposure", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+                "CWE-284", "A05:2021 - Security Misconfiguration", f"{disp_host}:1521",
+                f"TNS Connect ping returned type={resp[4]}",
+                "Oracle TNS Listener Valid Node Checking cheklovisiz diagnostika so'rovlariga javob bermoqda.",
+                "`sqlnet.ora` ichida `TCP.VALIDNODE_CHECKING = YES` yoqing.",
+                confidence=QoD.PROTOCOL_VERIFIED,
+            )
+            hits += 1
+    elif port == 2049:
+        rpc_call = struct.pack(">IIIIIIIIII", 0x80000028, 0x53504354, 0, 2, 100003, 4, 0, 0, 0, 0) + struct.pack(">II", 0, 0)
+        with socket.create_connection((connect_target, cp), timeout=2.5) as s_nfs:
+            s_nfs.settimeout(2.2)
+            s_nfs.sendall(rpc_call)
+            resp = s_nfs.recv(64)
+        if len(resp) >= 28 and resp[4:8] == b"SPCT" and struct.unpack(">II", resp[8:16]) == (1, 0):
+            db.upsert_port(project_id, disp_host, 2049, "tcp", ip=target_ip, service="nfs", version="NFSv4 ONC-RPC", banner="ONC-RPC NFSPROC4_NULL Accepted", source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Exposed NFSv4 ONC-RPC File Service ({disp_host}:2049)",
+                "Network File Share Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                "CWE-284", "A05:2021 - Security Misconfiguration", f"{disp_host}:2049",
+                "RFC 5531 ONC-RPC prog=100003 (NFSv4) proc=0 returned MSG_ACCEPTED",
+                "NFS tarmoq fayl tizimi tashqi tarmoqdan ochiq RPC chaqiruvlarini qabul qilmoqda.",
+                "`:2049` portini firewall orqali yoping va `/etc/exports` da qat'iy subnet qo'llang.",
+                confidence=QoD.PROTOCOL_VERIFIED,
+            )
+            hits += 1
+    elif port == 5060:
+        sip_opt = (
+            b"OPTIONS sip:status@spectre.local SIP/2.0\r\nVia: SIP/2.0/TCP 127.0.0.1:5060;branch=z9hG4bK776\r\n"
+            b"Max-Forwards: 0\r\nTo: <sip:status@spectre.local>\r\nFrom: <sip:audit@spectre.local>;tag=19283\r\n"
+            b"Call-ID: sp7060check@spectre.local\r\nCSeq: 1 OPTIONS\r\nContent-Length: 0\r\n\r\n"
+        )
+        out = _tcp_exchange(connect_target, cp, [sip_opt], timeout=2.5, read_initial=False)
+        if out.startswith("SIP/2.0 200"):
+            m_srv = re.search(r"(?im)^(?:Server|User-Agent):\s*(.+)$", out)
+            sv = m_srv.group(1).strip()[:80] if m_srv else "SIP UAS"
+            db.upsert_port(project_id, disp_host, 5060, "tcp", ip=target_ip, service="sip", version=sv, banner=out.splitlines()[0][:80], source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated SIP Signaling OPTIONS Disclosure ({disp_host}:5060)",
+                "VoIP / Signaling Exposure", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                "CWE-200", "A05:2021 - Security Misconfiguration", f"{disp_host}:5060",
+                f"SIP/2.0 200 OK | Agent: {sv}",
+                "SIP xizmati autentifikatsiyasiz `OPTIONS` so'roviga dastur versiyasini ochiq qaytarmoqda.",
+                "SIP trunk ACL o'rnating va SIPS TLS (`:5061`) ishlating.",
+                confidence=QoD.PROTOCOL_VERIFIED,
+            )
+            hits += 1
+    elif port == 7001:
+        out = _tcp_exchange(connect_target, cp, [b"t3 12.2.1\nAS:255\nHL:19\nMS:10000000\n\n"], timeout=2.5, read_initial=False)
+        if out.startswith("HELO:"):
+            ver_s = out.splitlines()[0].split(":", 1)[1].strip()[:48]
+            db.upsert_port(project_id, disp_host, 7001, "tcp", ip=target_ip, service="weblogic-t3", version=f"WebLogic {ver_s}", banner=out.splitlines()[0][:80], source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Exposed Oracle WebLogic T3 Protocol Endpoint ({disp_host}:7001)",
+                "RPC / Deserialization Surface", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                "CWE-502", "A08:2021 - Software and Data Integrity Failures", f"{disp_host}:7001",
+                f"WebLogic T3 Handshake succeeded: {out.splitlines()[0][:80]}",
+                "Oracle WebLogic T3 kanali ConnectionFilter himoyasisiz tashqi tarmoqqa ochiq qoldirilgan.",
+                "`weblogic.security.net.ConnectionFilterImpl` orqali T3 protokolini ichki tarmoqqa cheklang.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
+    elif port == 10050:
+        zbx_req = b"ZBXD\x01" + struct.pack("<Q", 13) + b"agent.version"
+        with socket.create_connection((connect_target, cp), timeout=2.5) as s_zb:
+            s_zb.settimeout(2.2)
+            s_zb.sendall(zbx_req)
+            resp = s_zb.recv(128)
+        if len(resp) > 13 and resp.startswith(b"ZBXD\x01"):
+            zv = resp[13:].decode("utf-8", errors="ignore").strip("\x00\r\n ")[:48]
+            if zv and "ZBX_NOTSUPPORTED" not in zv:
+                db.upsert_port(project_id, disp_host, 10050, "tcp", ip=target_ip, service="zabbix-agent", version=f"Zabbix Agent {zv}", banner=f"ZBXD {zv}", source="socket_nvt")
+                db.upsert_finding(
+                    project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated Zabbix Agent Passive Telemetry ({disp_host}:10050)",
+                    "Monitoring Agent Exposure", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+                    "CWE-284", "A05:2021 - Security Misconfiguration", f"{disp_host}:10050",
+                    f"ZBXD v1 passive query 'agent.version' returned '{zv}'",
+                    "Zabbix monitoring agenti shifrlashsiz tashqi IP manzillardan so'rovlarni qabul qilmoqda.",
+                    "`zabbix_agentd.conf` da `Server=` IP ro'yxatini cheklang va `TLSConnect=psk` yoqing.",
+                    confidence=QoD.ACTIVE_VERIFIED,
+                )
+                hits += 1
+    elif port == 50070:
+        rh = http_engine.request("GET", f"http://{connect_target}:{cp}/jmx?qry=Hadoop:service=NameNode,name=NameNodeInfo", timeout=(2.0, 2.8), allow_redirects=False)
+        if rh.status_code == 200 and ("NameNodeInfo" in (rh.text or "") or "ClusterId" in (rh.text or "")):
+            db.upsert_port(project_id, disp_host, 50070, "tcp", ip=target_ip, service="hadoop-namenode", version="Apache Hadoop HDFS NameNode", banner="NameNode /jmx 200", source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated Apache Hadoop NameNode JMX Console ({disp_host}:50070)",
+                "Big Data Cluster Exposure", "High", 8.6, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                "CWE-306", "A05:2021 - Security Misconfiguration", f"{disp_host}:50070",
+                "GET /jmx?qry=Hadoop:service=NameNode,name=NameNodeInfo returned HTTP 200",
+                "Hadoop HDFS NameNode JMX konsoli Kerberos autentifikatsiyasiz ochiq ishlamoqda.",
+                "`hadoop.security.authentication=kerberos` sozlamasini yoqing.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
+    elif port == 61616:
+        with socket.create_connection((connect_target, cp), timeout=2.5) as s_mq:
+            s_mq.settimeout(2.2)
+            resp = s_mq.recv(256)
+        if b"ActiveMQ" in resp:
+            m_ver = re.search(rb"ProviderVersion[^\x20-\x7e]*([0-9]+\.[0-9]+\.[0-9]+)", resp)
+            av = m_ver.group(1).decode("ascii") if m_ver else "OpenWire"
+            db.upsert_port(project_id, disp_host, 61616, "tcp", ip=target_ip, service="activemq", version=f"Apache ActiveMQ {av}", banner=f"ActiveMQ {av}", source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Exposed Apache ActiveMQ OpenWire Broker ({disp_host}:61616)",
+                "Message Broker Exposure", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                "CWE-306", "A05:2021 - Security Misconfiguration", f"{disp_host}:61616",
+                f"TCP 61616 advertised OpenWire WireFormatInfo magic (ActiveMQ {av})",
+                "Apache ActiveMQ OpenWire transport porti tashqi tarmoqqa ochiq qoldirilgan.",
+                "`activemq.xml` da JAAS autentifikatsiyasini yoqing va 5.18.3+ ga yangilang.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
+    return hits
+
+
 def _probe_single_port(
     db: Any,
     http_engine: Any,
@@ -683,6 +834,8 @@ def _probe_single_port(
     hits = 0
     connect_target = target_ip or disp_host
     try:
+        if port in (1080, 1521, 2049, 5060, 7001, 10050, 50070, 61616):
+            return _probe_middleware_and_infra_v7(db, http_engine, project_id, connect_target, target_ip, disp_host, port)
         if port in (110, 143, 1099, 3389, 5000, 5005, 5985, 9000):
             return _probe_enterprise_rpc_and_mgmt(db, http_engine, project_id, connect_target, target_ip, disp_host, port)
         if port in (1883, 2181, 4222, 5672, 8086, 8123, 8883, 9092):

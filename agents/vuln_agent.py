@@ -15,6 +15,7 @@ from pathlib import Path
 import requests
 
 from core.advisory_kb import extract_cpe_inventory, match_version_advisories
+from core.ai_llm_auditor import audit_ai_code_and_mcp_configs, audit_ai_llm_web_surface
 from core.cms_enterprise_nvts import run_cms_and_enterprise_nvts
 from core.database import DatabaseManager
 from core.feed_updater import enrich_project_findings_with_kev
@@ -27,6 +28,7 @@ from core.iac_auditor import run_iac_security_audit
 from core.sast_ast_engine import (
     analyze_go_java_taint_flow,
     analyze_js_ts_taint_flow,
+    analyze_php_csharp_taint_flow,
     analyze_python_ast_taint,
     is_sanitized_sast_line,
 )
@@ -140,7 +142,7 @@ class VulnAssessmentSuperAgent:
             "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
             "cwe": "CWE-79",
             "owasp": "A03:2021 - Injection",
-            "pattern": re.compile(r"""(?i)(\.innerHTML\s*=|\.outerHTML\s*=|dangerouslySetInnerHTML|document\.write\s*\(|v-html\s*=|bypassSecurityTrust(?:Html|Script|ResourceUrl))"""),
+            "pattern": re.compile(r"""(?i)(\.(?:innerHTML|outerHTML)\s*=(?!\s*['"`][^$+{<]*['"`]\s*[;,\r\n])|dangerouslySetInnerHTML|document\.write\s*\((?!\s*['"`][^$+{<]*['"`]\s*\))|v-html\s*=|bypassSecurityTrust(?:Html|Script|ResourceUrl))"""),
             "remediation": "innerHTML o'rniga textContent ishlating yoki DOMPurify orqali HTML kiritmani sanitizatsiya qiling.",
         },
         {
@@ -981,7 +983,7 @@ class VulnAssessmentSuperAgent:
             log_fn(f"  [!] SAST: Ko'rsatilgan kod papkasi topilmadi ({code_path_str})")
             return
         log_fn(f"[SAST] White-box Source Code tahlili boshlandi: {root}")
-        exts = {".py", ".php", ".js", ".ts", ".tsx", ".jsx", ".vue", ".go", ".java", ".rb", ".env"}
+        exts = {".py", ".php", ".cs", ".js", ".ts", ".tsx", ".jsx", ".vue", ".go", ".java", ".rb", ".env"}
         skip_dirs = ("node_modules", ".git", "__pycache__", "/tests/", "/test/", "/__tests__/", "/mocks/", ".spec.", ".test.")
         static_dom_re = re.compile(r"""\.(?:inner|outer)HTML\s*\+?=\s*(?:""|''|``|"[^"$+{]*"|'[^'$+{]*')\s*(?:[;,\)\}\n]|$)""")
         files = [
@@ -1002,6 +1004,8 @@ class VulnAssessmentSuperAgent:
                     ast_flows, safe_sast_lns = analyze_js_ts_taint_flow(raw_src)
                 elif sfx in (".go", ".java"):
                     ast_flows, safe_sast_lns = analyze_go_java_taint_flow(raw_src, sfx)
+                elif sfx in (".php", ".cs"):
+                    ast_flows, safe_sast_lns = analyze_php_csharp_taint_flow(raw_src, sfx)
                 else:
                     ast_flows, safe_sast_lns = ([], set())
                 lines = raw_src.splitlines()
@@ -1312,12 +1316,27 @@ class VulnAssessmentSuperAgent:
                 return True
         return False
 
+    @staticmethod
+    def _has_unescaped_script_quote(html_txt: str, marker_prefix: str = "sp7x") -> bool:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup((html_txt or "")[:120000], "html.parser")
+        pat = re.compile(r'(?<!\\)' + re.escape(marker_prefix) + r'["\'<>]')
+        for sc in soup.find_all("script"):
+            sc_type = str(sc.get("type") or "").strip().lower()
+            sc_id = str(sc.get("id") or "").strip().lower()
+            if sc_id == "__next_data__" or "json" in sc_type:
+                continue
+            if pat.search(sc.string or sc.get_text() or ""):
+                return True
+        return False
+
     def _verify_param_output_encoding(self, project_id: int, u: str, p_parsed, qs: dict, p_name: str, base_text: str, seen_tracker: set, log_fn):
         canary = "spectrecheck9182"
         diag_marker = 'sp7x"<>'
         if canary in base_text:
             return
         host_k = (p_parsed.hostname or "").lower().removeprefix("www.")
+        host_origin = f"{p_parsed.scheme}://{p_parsed.netloc}" if p_parsed.scheme and p_parsed.netloc else u
         qs_c = dict(qs)
         qs_c[p_name] = [canary]
         test_u = urllib.parse.urlunparse(p_parsed._replace(query=urllib.parse.urlencode(qs_c, doseq=True)))
@@ -1338,21 +1357,26 @@ class VulnAssessmentSuperAgent:
                 self.db.upsert_finding(
                     project_id, "Agent-2 (Differential-Verifier)", f"[CONFIRMED] Unencoded HTML Output Reflection via '{p_name}' Parameter ({host_k})",
                     "Output Encoding / XSS Verification", "High", 7.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
-                    "CWE-79", "A03:2021 - Injection", u,
-                    f"Diagnostic marker reflected unencoded in {ctx_lbl} via '{p_name}' on {host_k}.",
+                    "CWE-79", "A03:2021 - Injection", host_origin,
+                    f"Diagnostic marker reflected unencoded in {ctx_lbl} via '{p_name}' on {u}.",
                     f"'{p_name}' parametriga berilgan maxsus ajratuvchi belgilar entity-encoding qilinmasdan ({ctx_lbl}) qaytarilmoqda.",
                     "Barcha chiqish nuqtalarida kontekstli HTML/JS encoding qo'llang va qat'iy CSP o'rnating.",
                     confidence=QoD.ACTIVE_VERIFIED,
                 )
                 log_fn(f"  [CONFIRMED UNENCODED REFLECTION] {u} ({p_name}) in {ctx_lbl}")
-            elif in_script_ctx and (host_k, f"sc_refl:{p_name}") not in seen_tracker:
+            elif (
+                in_script_ctx
+                and r_diag.status_code == 200
+                and self._has_unescaped_script_quote(r_diag.text, "sp7x")
+                and (host_k, f"sc_refl:{p_name}") not in seen_tracker
+            ):
                 seen_tracker.add((host_k, f"sc_refl:{p_name}"))
                 self.db.upsert_finding(
                     project_id, "Agent-2 (Differential-Verifier)", f"[CONFIRMED] Parameter Reflection Inside Inline Script ({host_k}: '{p_name}')",
                     "Script Context Reflection", "Medium", 6.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
-                    "CWE-79", "A03:2021 - Injection", u,
-                    f"Canary '{canary}' reflected inside inline <script> block via '{p_name}' (HTML encoding alone does not neutralize JS string context).",
-                    f"'{p_name}' parametri to'g'ridan-to'g'ri <script> tegi ichida aks etmoqda.",
+                    "CWE-79", "A03:2021 - Injection", host_origin,
+                    f"Unescaped script delimiter reflected inside inline <script> block via '{p_name}' on {u}.",
+                    f"'{p_name}' parametri <script> bloki ichida JS string ajratuvchilarini ekranlashtirmasdan aks etmoqda.",
                     "Foydalanuvchi ma'lumotlarini inline <script> ichiga joylashtirmang; `JSON.stringify` yoki `data-*` atributlaridan foydalaning.",
                     confidence=QoD.PROTOCOL_VERIFIED,
                 )
@@ -1580,6 +1604,13 @@ class VulnAssessmentSuperAgent:
             svcs_cur,
             log_fn,
         )
+        audit_ai_llm_web_surface(
+            self.db,
+            self.http_engine,
+            project_id,
+            svcs_cur,
+            log_fn,
+        )
 
     def _audit_active_socket_protocols(self, project_id: int, log_fn):
         b_cur = self.db.get_project_bundle(project_id)
@@ -1667,6 +1698,7 @@ class VulnAssessmentSuperAgent:
             run_sca_dependency_audit(self.db, project_id, sca_dirs, log_fn, allow_online_osv=enable_cli)
             run_iac_security_audit(self.db, project_id, sca_dirs, log_fn)
             run_cicd_and_registry_audit(self.db, project_id, sca_dirs, log_fn)
+            audit_ai_code_and_mcp_configs(self.db, project_id, sca_dirs, log_fn)
         run_web_and_js_sca_audit(self.db, self.http_engine, project_id, eps, log_fn, allow_online_osv=enable_cli)
 
         enrich_project_findings_with_kev(self.db, project_id, log_fn, allow_online_epss=enable_cli)

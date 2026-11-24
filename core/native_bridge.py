@@ -31,6 +31,12 @@ JS_TOK_SECRET = 4
 JS_TOK_CHUNK = 8
 JS_TOK_SOURCEMAP = 16
 
+SEC_MASK_CLOUD_IAM = 1
+SEC_MASK_VCS_CICD = 2
+SEC_MASK_SAAS_PAYMENT = 4
+SEC_MASK_AI_LLM = 8
+SEC_MASK_CRYPTO_JWT = 16
+
 
 def get_native_lib() -> ctypes.CDLL | None:
     global _LIB, _TRIED_LOAD
@@ -74,6 +80,9 @@ def get_native_lib() -> ctypes.CDLL | None:
                 if hasattr(lib, "spectre_structural_hash"):
                     lib.spectre_structural_hash.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
                     lib.spectre_structural_hash.restype = ctypes.c_uint64
+                if hasattr(lib, "spectre_secret_prefilter_mask"):
+                    lib.spectre_secret_prefilter_mask.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+                    lib.spectre_secret_prefilter_mask.restype = ctypes.c_uint32
                 _LIB = lib
         except Exception:
             _LIB = None
@@ -205,6 +214,27 @@ def fast_structural_hash(text_or_bytes: str | bytes) -> int:
     else:
         skel = "txt:" + "".join(ch for ch in s if ch in "\n:=[]")
     return int.from_bytes(hashlib.blake2b(skel.encode("utf-8"), digest_size=8).digest(), "little")
+
+
+def fast_secret_prefilter_mask(text_or_bytes: str | bytes) -> int:
+    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+    if len(b) < 4:
+        return 0
+    lib = get_native_lib()
+    if lib is not None and hasattr(lib, "spectre_secret_prefilter_mask"):
+        return int(lib.spectre_secret_prefilter_mask(b, len(b)))
+    mask = 0
+    if any(t in b for t in (b"AKIA", b"ASIA", b"AIza")):
+        mask |= SEC_MASK_CLOUD_IAM
+    if any(t in b for t in (b"ghp_", b"github_pat_", b"glpat-", b"npm_")):
+        mask |= SEC_MASK_VCS_CICD
+    if any(t in b for t in (b"sk_live_", b"rk_live_", b"xoxb-", b"xoxp-", b"SG.")):
+        mask |= SEC_MASK_SAAS_PAYMENT
+    if any(t in b for t in (b"sk-ant-", b"sk-proj-", b"hf_", b"gsk_")):
+        mask |= SEC_MASK_AI_LLM
+    if b"-----BEGIN " in b or b"eyJ" in b:
+        mask |= SEC_MASK_CRYPTO_JWT
+    return mask
 
 
 

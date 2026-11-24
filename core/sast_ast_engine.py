@@ -200,6 +200,95 @@ def analyze_go_java_taint_flow(src_text: str, ext: str) -> tuple[list[dict[str, 
     return findings, safe_lines
 
 
+_PHP_SRC_RE = re.compile(r"(?:\$_(?:GET|POST|REQUEST|COOKIE|SERVER)\s*\[|\$request->(?:input|query|post|get)\s*\(|Request::input\s*\()")
+_CS_SRC_RE = re.compile(r"(?:Request\.(?:Query|Form|Headers|RouteValues)\s*\[|HttpContext\.Request\.)")
+
+
+def analyze_php_csharp_taint_flow(src_text: str, ext: str) -> tuple[list[dict[str, Any]], set[int]]:
+    """Multi-line PHP (*.php) & C# (*.cs) taint tracker with PDO / SqlParameter zero-FP suppression."""
+    findings: list[dict[str, Any]] = []
+    safe_lines: set[int] = set()
+    tainted: set[str] = set()
+    sql_tainted: set[str] = set()
+    seen: set[tuple[int, str]] = set()
+    is_php = ext == ".php"
+
+    for lineno, raw_ln in enumerate((src_text or "").splitlines(), start=1):
+        s = raw_ln.strip()
+        if not s or s.startswith(("//", "#", "/*", "*")):
+            continue
+        if is_php:
+            if re.search(r"(?i)(?:->prepare\s*\(|bindParam\s*\(|bindValue\s*\(|htmlspecialchars\s*\(|escapeshellarg\s*\()", s):
+                safe_lines.add(lineno)
+            m_pa = re.match(r"^(\$[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?);\s*$", s)
+            if m_pa:
+                vname, rhs = m_pa.group(1), m_pa.group(2)
+                if re.search(r"(?i)\b(?:intval|floatval|escapeshellarg|htmlspecialchars)\s*\(|^\(int\)", rhs):
+                    tainted.discard(vname)
+                    sql_tainted.discard(vname)
+                    continue
+                has_ext = bool(_PHP_SRC_RE.search(rhs)) or any(tv in rhs for tv in tainted)
+                if has_ext:
+                    tainted.add(vname)
+                    if _SQL_KW_RE.search(rhs) and ("." in rhs or '"' in rhs):
+                        sql_tainted.add(vname)
+            m_psq = re.search(r"(?:->query|mysqli_query|pg_query|DB::select|DB::statement)\s*\(\s*(?:\$[A-Za-z_][A-Za-z0-9_]*\s*,\s*)?(\$[A-Za-z_][A-Za-z0-9_]*)\s*[\),]", s)
+            if m_psq and m_psq.group(1) in sql_tainted and (lineno, "CWE-89") not in seen:
+                seen.add((lineno, "CWE-89"))
+                findings.append({
+                    "lineno": lineno, "title": "Potential SQL Injection (PHP Multi-Line Data-Flow)",
+                    "category": "Injection (SAST)", "severity": "High", "cvss": 8.6,
+                    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+                    "cwe": "CWE-89", "owasp": "A03:2021 - Injection",
+                    "remediation": "PDO `$pdo->prepare('SELECT ... WHERE id = :id')` va `bindValue()` ishlating.",
+                })
+            m_pcmd = re.search(r"\b(?:system|passthru|proc_open|popen|exec|shell_exec)\s*\(\s*(\$[A-Za-z_][A-Za-z0-9_]*)\s*[\),]", s)
+            if m_pcmd and m_pcmd.group(1) in tainted and (lineno, "CWE-78") not in seen:
+                seen.add((lineno, "CWE-78"))
+                findings.append({
+                    "lineno": lineno, "title": "Potential OS Command Injection (PHP Multi-Line Data-Flow)",
+                    "category": "RCE / Command Injection (SAST)", "severity": "Critical", "cvss": 9.8,
+                    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                    "cwe": "CWE-78", "owasp": "A03:2021 - Injection",
+                    "remediation": "`escapeshellarg()` yoki Symfony Process massiv argumentlaridan foydalaning.",
+                })
+        else:
+            if re.search(r"(?i)(?:Parameters\.Add(?:WithValue)?\s*\(|new\s+SqlParameter\s*\(|FromSqlInterpolated\s*\()", s):
+                safe_lines.add(lineno)
+            for m_fp in re.finditer(r"\[From(?:Query|Body|Route|Header)\]\s*string\s+([A-Za-z_][A-Za-z0-9_]*)", s):
+                tainted.add(m_fp.group(1))
+            m_ca = re.match(r"^(?:string|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?);\s*$", s)
+            if m_ca:
+                vname, rhs = m_ca.group(1), m_ca.group(2)
+                has_ext = bool(_CS_SRC_RE.search(rhs)) or any(re.search(rf"\b{re.escape(tv)}\b", rhs) for tv in tainted)
+                if has_ext:
+                    tainted.add(vname)
+                    if _SQL_KW_RE.search(rhs) and ("+" in rhs or rhs.lstrip().startswith('$"') or "string.Format" in rhs):
+                        sql_tainted.add(vname)
+            m_csq = re.search(r"(?:new\s+SqlCommand|ExecuteSqlRaw(?:Async)?|QueryAsync)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*[\),]", s)
+            if m_csq and m_csq.group(1) in sql_tainted and (lineno, "CWE-89") not in seen:
+                seen.add((lineno, "CWE-89"))
+                findings.append({
+                    "lineno": lineno, "title": "Potential SQL Injection (C#/.NET Multi-Line Data-Flow)",
+                    "category": "Injection (SAST)", "severity": "High", "cvss": 8.6,
+                    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+                    "cwe": "CWE-89", "owasp": "A03:2021 - Injection",
+                    "remediation": "`SqlCommand` bilan `@param` (`Parameters.AddWithValue`) yoki `FromSqlInterpolated` ishlating.",
+                })
+            m_ccmd = re.search(r"Process\.Start\s*\(\s*(?:\"(?:cmd|cmd\.exe|/bin/sh)\"\s*,\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*[\),]", s)
+            if m_ccmd and m_ccmd.group(1) in tainted and (lineno, "CWE-78") not in seen:
+                seen.add((lineno, "CWE-78"))
+                findings.append({
+                    "lineno": lineno, "title": "Potential OS Command Injection (C#/.NET Multi-Line Data-Flow)",
+                    "category": "RCE / Command Injection (SAST)", "severity": "Critical", "cvss": 9.8,
+                    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                    "cwe": "CWE-78", "owasp": "A03:2021 - Injection",
+                    "remediation": "`ProcessStartInfo.ArgumentList` va `UseShellExecute = false` ishlating.",
+                })
+
+    return findings, safe_lines
+
+
 def analyze_python_ast_taint(src_text: str) -> tuple[list[dict[str, Any]], set[int]]:
     """Returns `(multiline_ast_findings, safe_parameterized_sql_lines)`."""
     try:
