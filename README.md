@@ -2,9 +2,9 @@
 
 <img src="ui/apex-icon.svg" width="105" alt="SPECTRE Logo" />
 
-# SPECTRE (`spectre-recon`) v7.0.0
+# SPECTRE (`spectre-recon`) v7.5.0
 
-**Hybrid C++17 v3 / Python Attack Surface Management (ASM), AI/LLM & MCP Auditor, 225-Rule Declarative NVT, 50-Port Socket NVT, 225-Product CPE 2.3, 6-Language Taint SAST, K8s RBAC IaC & CI/CD Auditor, 16-Format SCA, KEV+EPSS & 6-Framework Compliance Platform (GTK3 Desktop + Headless CLI)**
+**Hybrid C++17 v3 / Python Attack Surface Management (ASM), AI/LLM & MCP Auditor, 240-Rule Declarative + Custom YAML NVT, 50-Port Socket NVT, 240-Product CPE 2.3, 6-Language Taint SAST, Helm/Nginx/Ansible/K8s IaC v3, 18-Format 90-CVE SCA & 6-Framework Compliance Platform**
 
 [![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Kali%20%7C%20Debian-0ea5e9?style=for-the-badge&logo=linux)](https://github.com/AmaQi701/spectre-recon)
 [![Engine](https://img.shields.io/badge/Core-C%2B%2B17%20epoll%20%2B%20OpenSSL-ef4444?style=for-the-badge&logo=cplusplus)](https://isocpp.org/)

@@ -31,7 +31,7 @@ FIND_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI v7.0.0")
+    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI v7.5.0")
     p.add_argument("-t", "--target", default="", help="Primary target domain, host, or URL (required unless --export-project is set)")
     p.add_argument("--export-project", type=int, default=0, help="Re-generate HTML/SARIF/SBOM/JUnit/Compliance artifacts for an existing project ID without re-scanning")
     p.add_argument("-n", "--name", default="", help="Project name (defaults to target host)")

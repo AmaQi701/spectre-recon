@@ -243,6 +243,21 @@ _PRODUCT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("redpanda", re.compile(r"(?i)\bredpanda[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
     ("pulsar", re.compile(r"(?i)\b(?:apache[-_\s]+)?pulsar[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
     ("temporal", re.compile(r"(?i)\btemporal[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("forgejo", re.compile(r"(?i)\bforgejo[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("defectdojo", re.compile(r"(?i)\bdefectdojo[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("thanos", re.compile(r"(?i)\bthanos[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("cortex", re.compile(r"(?i)\bcortex[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("alertmanager", re.compile(r"(?i)\balertmanager[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("seaweedfs", re.compile(r"(?i)\bseaweedfs[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("pinot", re.compile(r"(?i)\b(?:apache[-_\s]+)?pinot[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("questdb", re.compile(r"(?i)\bquestdb[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("camunda", re.compile(r"(?i)\bcamunda[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("postgrest", re.compile(r"(?i)\bpostgrest[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("pyroscope", re.compile(r"(?i)\bpyroscope[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("vector_obs", re.compile(r"(?i)\bvector[:/\s=\-_(]+v?(0\.\d+\.\d+)(?![.\d])")),
+    ("kamailio", re.compile(r"(?i)\bkamailio[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("opensips", re.compile(r"(?i)\bopensips[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("haproxy_dataplane", re.compile(r"(?i)\bdataplaneapi[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
 )
 
 _CPE_VENDOR_PRODUCT: dict[str, tuple[str, str]] = {
@@ -471,6 +486,21 @@ _CPE_VENDOR_PRODUCT: dict[str, tuple[str, str]] = {
     "redpanda": ("redpanda", "redpanda"),
     "pulsar": ("apache", "pulsar"),
     "temporal": ("temporal", "server"),
+    "forgejo": ("forgejo", "forgejo"),
+    "defectdojo": ("owasp", "defectdojo"),
+    "thanos": ("thanos", "thanos"),
+    "cortex": ("cortexmetrics", "cortex"),
+    "alertmanager": ("prometheus", "alertmanager"),
+    "seaweedfs": ("seaweedfs", "seaweedfs"),
+    "pinot": ("apache", "pinot"),
+    "questdb": ("questdb", "questdb"),
+    "camunda": ("camunda", "camunda_bpm"),
+    "postgrest": ("postgrest", "postgrest"),
+    "pyroscope": ("grafana", "pyroscope"),
+    "vector_obs": ("timberio", "vector"),
+    "kamailio": ("kamailio", "kamailio"),
+    "opensips": ("opensips", "opensips"),
+    "haproxy_dataplane": ("haproxy", "dataplaneapi"),
 }
 
 

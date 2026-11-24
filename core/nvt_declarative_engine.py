@@ -17,19 +17,82 @@ from core.native_bridge import fast_structural_hash
 from core.plugin_runner import QoD
 
 CATALOG_PATH = Path(__file__).resolve().parent.parent / "config" / "nvt_catalog.json"
+CUSTOM_NVTS_DIR = Path(__file__).resolve().parent.parent / "config" / "custom_nvts"
 _CACHED_RULES: list[dict[str, Any]] | None = None
 
 
-def load_nvt_catalog() -> list[dict[str, Any]]:
+def parse_custom_yaml_nvt(raw_yaml: str) -> list[dict[str, Any]]:
+    """Parses native SPECTRE YAML rules or simplified Nuclei-compatible HTTP YAML templates."""
+    import yaml
+    try:
+        doc = yaml.safe_load(raw_yaml)
+    except Exception:
+        return []
+    if isinstance(doc, list):
+        return [r for r in doc if isinstance(r, dict) and r.get("id") and r.get("path") and r.get("match_all")]
+    if not isinstance(doc, dict):
+        return []
+    if isinstance(doc.get("rules"), list):
+        return [r for r in doc["rules"] if isinstance(r, dict) and r.get("id") and r.get("path") and r.get("match_all")]
+    if doc.get("id") and doc.get("path") and doc.get("match_all"):
+        return [doc]
+    # Simplified Nuclei HTTP template compatibility
+    info = doc.get("info") if isinstance(doc.get("info"), dict) else {}
+    reqs = doc.get("http") or doc.get("requests") or []
+    if doc.get("id") and info.get("name") and isinstance(reqs, list) and reqs:
+        r0 = reqs[0] if isinstance(reqs[0], dict) else {}
+        paths = r0.get("path") or []
+        raw_p = str(paths[0]) if isinstance(paths, list) and paths else ""
+        clean_p = "/" + raw_p.split("}}/", 1)[-1].lstrip("/") if raw_p else ""
+        words: list[str] = []
+        status_code = 200
+        for mt in (r0.get("matchers") or []):
+            if isinstance(mt, dict) and mt.get("type") == "word":
+                words.extend(str(w) for w in (mt.get("words") or []) if w)
+            elif isinstance(mt, dict) and mt.get("type") == "status" and mt.get("status"):
+                status_code = int(mt["status"][0])
+        sev_map = {"critical": ("Critical", 9.1), "high": ("High", 7.8), "medium": ("Medium", 5.8), "low": ("Low", 3.7)}
+        sev_lbl, cvss_v = sev_map.get(str(info.get("severity") or "medium").lower(), ("Medium", 5.8))
+        if clean_p.startswith("/") and words:
+            return [{
+                "id": f"CUSTOM-{doc['id']}",
+                "title": str(info["name"]),
+                "category": "Custom YAML NVT",
+                "severity": sev_lbl,
+                "cvss": cvss_v,
+                "cwe": str((info.get("classification") or {}).get("cwe-id", ["CWE-200"])[0] if isinstance((info.get("classification") or {}).get("cwe-id"), list) else "CWE-200"),
+                "path": clean_p,
+                "status": status_code,
+                "match_all": words,
+                "exclude_any": [],
+                "remediation": str(info.get("remediation") or "Custom YAML NVT qoidasi asosida ushbu endpoint ruxsatini cheklang."),
+            }]
+    return []
+
+
+def load_nvt_catalog(extra_dir: Path | None = None) -> list[dict[str, Any]]:
     global _CACHED_RULES
-    if _CACHED_RULES is not None:
+    if _CACHED_RULES is not None and extra_dir is None:
         return _CACHED_RULES
-    if not CATALOG_PATH.is_file():
-        _CACHED_RULES = []
-        return _CACHED_RULES
-    data = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
-    _CACHED_RULES = list(data.get("rules", [])) if isinstance(data, dict) else []
-    return _CACHED_RULES
+    rules: list[dict[str, Any]] = []
+    if CATALOG_PATH.is_file():
+        data = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+        rules.extend(list(data.get("rules", [])) if isinstance(data, dict) else [])
+    scan_dir = extra_dir or CUSTOM_NVTS_DIR
+    if scan_dir.is_dir():
+        for pf in sorted(scan_dir.glob("*")):
+            if pf.suffix.lower() in (".yaml", ".yml"):
+                rules.extend(parse_custom_yaml_nvt(pf.read_text(encoding="utf-8", errors="ignore")))
+            elif pf.suffix.lower() == ".json":
+                try:
+                    jd = json.loads(pf.read_text(encoding="utf-8", errors="ignore"))
+                    if isinstance(jd, dict) and isinstance(jd.get("rules"), list):
+                        rules.extend(jd["rules"])
+                except Exception:
+                    pass
+    if extra_dir is None:
+        _CACHED_RULES = rules
+    return rules
 
 
 def _sig16(text: str) -> str:

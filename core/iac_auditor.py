@@ -143,6 +143,17 @@ def audit_k8s_yaml(content: str) -> list[tuple[str, str, float, str, str]]:
                     "Git repozitoriyda ochiq `kind: Secret` saqlamang; `SealedSecrets` yoki `ExternalSecrets` ishlating.",
                 ))
             continue
+        if kind == "Ingress":
+            ann = (doc.get("metadata") or {}).get("annotations") or {}
+            if isinstance(ann, dict):
+                bad_snips = [k for k in ann if any(s in str(k).lower() for s in ("configuration-snippet", "server-snippet", "stream-snippet", "modsecurity-snippet"))]
+                if bad_snips:
+                    issues.append((
+                        f"Kubernetes Ingress Dangerous Snippet Annotation ({res_name})",
+                        "Critical", 9.0, "CWE-94",
+                        "`allow-snippet-annotations: \"false\"` o'rnating va `configuration-snippet`/`server-snippet` annotatsiyalarini olib tashlang.",
+                    ))
+            continue
         if kind not in k8s_kinds:
             continue
         spec_root = doc.get("spec") or {}
@@ -206,6 +217,74 @@ def audit_terraform_hcl(content: str) -> list[tuple[str, str, float, str, str]]:
     return issues
 
 
+def audit_helm_or_ansible_yaml(filename: str, content: str) -> list[tuple[str, str, float, str, str]]:
+    issues: list[tuple[str, str, float, str, str]] = []
+    fn = filename.lower()
+    try:
+        doc = yaml.safe_load(content)
+    except Exception:
+        return issues
+    if fn.startswith("values") and isinstance(doc, dict):
+        sc = doc.get("securityContext") or doc.get("containerSecurityContext") or {}
+        if isinstance(sc, dict) and sc.get("privileged") is True:
+            issues.append((
+                f"Helm Chart Values Enables Privileged Container ({filename})",
+                "Critical", 9.1, "CWE-250",
+                "`values.yaml` da `securityContext.privileged: false` o'rnating.",
+            ))
+        for k, v in doc.items():
+            if any(s in str(k).lower() for s in ("password", "secretkey", "apikey")) and isinstance(v, str):
+                vs = v.strip()
+                if len(vs) >= 8 and vs.lower() not in ("changeme", "password", "secret") and not vs.startswith(("{{", "${", "ENC(")):
+                    issues.append((
+                        f"Hardcoded Credential in Helm Values ({filename}: {k})",
+                        "High", 8.1, "CWE-798",
+                        "`values.yaml` da ochiq parol saqlamang; `existingSecret` dan foydalaning.",
+                    ))
+                    break
+    elif isinstance(doc, list) and any(isinstance(p, dict) and ("tasks" in p or "hosts" in p) for p in doc):
+        if re.search(r"(?im)^\s*validate_certs\s*:\s*(?:false|no)\b", content):
+            issues.append((
+                f"Ansible Playbook Disables TLS Certificate Validation ({filename})",
+                "Medium", 5.9, "CWE-295",
+                "Ansible vazifalarida `validate_certs: true` saqlang.",
+            ))
+        if re.search(r"(?im)^\s*(?:shell|command)\s*:.*?\b(?:curl|wget)\b[^|\n]*\|\s*(?:ba)?sh\b", content):
+            issues.append((
+                f"Ansible Playbook Pipes Unverified Remote Script to Shell ({filename})",
+                "High", 8.2, "CWE-829",
+                "`get_url` moduli orqali `checksum:` tekshiruvi bilan yuklab oling.",
+            ))
+    return issues
+
+
+def audit_nginx_conf_text(content: str) -> list[tuple[str, str, float, str, str]]:
+    issues: list[tuple[str, str, float, str, str]] = []
+    clean = "\n".join(ln.split("#", 1)[0] for ln in (content or "").splitlines())
+    if re.search(r"\bautoindex\s+on\s*;", clean):
+        issues.append((
+            "Nginx Configuration Enables Directory Listing (autoindex on)",
+            "Medium", 5.3, "CWE-548",
+            "`nginx.conf` ichida `autoindex off;` o'rnating.",
+        ))
+    if re.search(r"\bssl_protocols\b[^;]*\bTLSv1(?:\.0\b|\.1\b|(?!\.[0-9])\b)", clean):
+        issues.append((
+            "Nginx Enables Deprecated TLSv1.0 / TLSv1.1 Protocols",
+            "Medium", 5.9, "CWE-326",
+            "`ssl_protocols TLSv1.2 TLSv1.3;` o'rnating.",
+        ))
+    for m_loc in re.finditer(r"location\s+(/[a-zA-Z0-9_\-]+)\s*\{([^}]*)\}", clean, re.S):
+        loc_p, body = m_loc.group(1), m_loc.group(2)
+        if not loc_p.endswith("/") and re.search(r"\balias\s+/[^;]+/\s*;", body):
+            issues.append((
+                f"Nginx Off-By-Slash Alias Path Traversal Misconfiguration ({loc_p})",
+                "High", 7.5, "CWE-22",
+                f"`location {loc_p}/` oxiriga `/` belgisini qo'shing (alias bilan mos bo'lsin).",
+            ))
+            break
+    return issues
+
+
 def run_iac_security_audit(db: Any, project_id: int, code_paths: list[str], log_fn: Any) -> int:
     skip_parts = ("node_modules", ".git", "__pycache__", "/tests/", "/test/", ".terraform", ".venv", "venv")
     written = 0
@@ -222,8 +301,9 @@ def run_iac_security_audit(db: Any, project_id: int, code_paths: list[str], log_
             is_docker = fn == "dockerfile" or fn.startswith("dockerfile.")
             is_compose = fn in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
             is_tf = fn.endswith(".tf")
+            is_nginx = fn == "nginx.conf" or (fn.endswith(".conf") and "nginx" in str(fp).lower())
             is_yaml = fn.endswith((".yml", ".yaml")) and not is_compose
-            if not (is_docker or is_compose or is_tf or is_yaml):
+            if not (is_docker or is_compose or is_tf or is_nginx or is_yaml):
                 continue
             try:
                 txt = fp.read_text(encoding="utf-8", errors="ignore")[:200000]
@@ -236,8 +316,12 @@ def run_iac_security_audit(db: Any, project_id: int, code_paths: list[str], log_
                 found = audit_compose_yaml(txt)
             elif is_tf:
                 found = audit_terraform_hcl(txt)
+            elif is_nginx:
+                found = audit_nginx_conf_text(txt)
             elif is_yaml and "apiVersion:" in txt and "kind:" in txt:
                 found = audit_k8s_yaml(txt)
+            elif is_yaml:
+                found = audit_helm_or_ansible_yaml(fp.name, txt)
             for title, sev, cvss, cwe, rem in found:
                 db.upsert_finding(
                     project_id, "Agent-2 (IaC-Auditor)", title,

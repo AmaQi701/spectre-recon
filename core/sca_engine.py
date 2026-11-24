@@ -93,6 +93,26 @@ OFFLINE_SCA_RULES: tuple[dict[str, Any], ...] = (
     {"eco": "npm", "pkg": "tar", "min": "4.0.0", "max": "6.2.1", "cve": "CVE-2024-28863", "sev": "Medium", "cvss": 6.5},
     {"eco": "PyPI", "pkg": "fastapi", "min": "0.60.0", "max": "0.109.1", "cve": "CVE-2024-24762", "sev": "High", "cvss": 7.5},
     {"eco": "crates.io", "pkg": "rustls", "min": "0.20.0", "max": "0.22.4", "cve": "CVE-2024-32650", "sev": "High", "cvss": 7.5},
+    {"eco": "Pub", "pkg": "dio", "min": "4.0.0", "max": "5.3.2", "cve": "CVE-2021-31402", "sev": "High", "cvss": 7.4},
+    {"eco": "Pub", "pkg": "http", "min": "0.12.0", "max": "0.13.6", "cve": "CVE-2023-32681", "sev": "Medium", "cvss": 5.9},
+    {"eco": "Pub", "pkg": "archive", "min": "2.0.0", "max": "3.3.8", "cve": "CVE-2023-37265", "sev": "High", "cvss": 7.5},
+    {"eco": "Hex", "pkg": "plug", "min": "1.0.0", "max": "1.14.1", "cve": "CVE-2022-42969", "sev": "Medium", "cvss": 6.1},
+    {"eco": "Hex", "pkg": "phoenix", "min": "1.5.0", "max": "1.7.11", "cve": "CVE-2024-25120", "sev": "High", "cvss": 7.5},
+    {"eco": "Hex", "pkg": "jose", "min": "1.8.0", "max": "1.11.7", "cve": "CVE-2024-28868", "sev": "High", "cvss": 7.5},
+    {"eco": "PyPI", "pkg": "langchain", "min": "0.0.100", "max": "0.1.17", "cve": "CVE-2024-36480", "sev": "High", "cvss": 8.6},
+    {"eco": "PyPI", "pkg": "langchain-core", "min": "0.1.0", "max": "0.1.53", "cve": "CVE-2024-5565", "sev": "Critical", "cvss": 9.1},
+    {"eco": "PyPI", "pkg": "llama-index", "min": "0.9.0", "max": "0.10.38", "cve": "CVE-2024-34359", "sev": "Critical", "cvss": 9.3},
+    {"eco": "PyPI", "pkg": "gradio", "min": "3.0.0", "max": "4.31.3", "cve": "CVE-2024-4325", "sev": "High", "cvss": 8.1},
+    {"eco": "PyPI", "pkg": "mlflow", "min": "2.0.0", "max": "2.12.2", "cve": "CVE-2024-37059", "sev": "Critical", "cvss": 9.6},
+    {"eco": "PyPI", "pkg": "ray", "min": "2.0.0", "max": "2.10.0", "cve": "CVE-2023-48022", "sev": "Critical", "cvss": 9.8},
+    {"eco": "PyPI", "pkg": "sqlparse", "min": "0.3.0", "max": "0.5.0", "cve": "CVE-2024-4340", "sev": "High", "cvss": 7.5},
+    {"eco": "PyPI", "pkg": "certifi", "min": "2020.1.0", "max": "2024.7.4", "cve": "CVE-2024-39689", "sev": "Medium", "cvss": 6.5},
+    {"eco": "npm", "pkg": "vite", "min": "4.0.0", "max": "5.2.6", "cve": "CVE-2024-31207", "sev": "Medium", "cvss": 6.5},
+    {"eco": "npm", "pkg": "braces", "min": "2.0.0", "max": "3.0.3", "cve": "CVE-2024-4068", "sev": "High", "cvss": 7.5},
+    {"eco": "npm", "pkg": "micromatch", "min": "4.0.0", "max": "4.0.8", "cve": "CVE-2024-4067", "sev": "High", "cvss": 7.5},
+    {"eco": "npm", "pkg": "path-to-regexp", "min": "4.0.0", "max": "6.3.0", "cve": "CVE-2024-45296", "sev": "High", "cvss": 7.5},
+    {"eco": "Go", "pkg": "github.com/docker/docker", "min": "20.0.0", "max": "25.0.6", "cve": "CVE-2024-41110", "sev": "Critical", "cvss": 9.9},
+    {"eco": "Maven", "pkg": "ch.qos.logback:logback-core", "min": "1.2.0", "max": "1.4.14", "cve": "CVE-2023-6378", "sev": "High", "cvss": 7.5},
 )
 
 _CLEAN_VER_RE = re.compile(r"(\d+\.\d+(?:\.\d+)?)")
@@ -104,6 +124,7 @@ SUPPORTED_MANIFEST_NAMES = {
     "requirements.txt", "pipfile.lock", "poetry.lock", "pyproject.toml",
     "go.mod", "cargo.lock", "gemfile.lock", "pom.xml",
     "build.gradle", "build.gradle.kts", "packages.lock.json",
+    "pubspec.lock", "mix.lock",
 }
 
 
@@ -112,7 +133,7 @@ def build_purl(eco: str, pkg: str, ver: str) -> str:
     eco_map = {
         "npm": "npm", "PyPI": "pypi", "Packagist": "composer",
         "Go": "golang", "Maven": "maven", "RubyGems": "gem",
-        "crates.io": "cargo", "NuGet": "nuget",
+        "crates.io": "cargo", "NuGet": "nuget", "Pub": "pub", "Hex": "hex",
     }
     p_type = eco_map.get(eco, eco.lower())
     clean_p = pkg.strip()
@@ -188,6 +209,12 @@ def _parse_extra_lockfiles(fname: str, content: str, _add: Any) -> None:
                     mv = _CLEAN_VER_RE.search(str((meta or {}).get("resolved") or "")) if isinstance(meta, dict) else None
                     if mv:
                         _add("NuGet", str(p_nm), mv.group(1))
+    elif fname == "pubspec.lock":
+        for m in re.finditer(r'(?ms)^\s{2}([a-zA-Z0-9_]+):\s*\n(?:.*?\n)*?\s{4}version:\s*"(\d+\.\d+(?:\.\d+)?)"', content):
+            _add("Pub", m.group(1), m.group(2))
+    elif fname == "mix.lock":
+        for m in re.finditer(r'"([a-zA-Z0-9_]+)"\s*:\s*\{:hex,\s*:[a-zA-Z0-9_]+,\s*"(\d+\.\d+(?:\.\d+)?)"', content):
+            _add("Hex", m.group(1), m.group(2))
 
 
 def parse_manifest_dependencies(filename: str, content: str) -> list[tuple[str, str, str]]:
@@ -198,7 +225,7 @@ def parse_manifest_dependencies(filename: str, content: str) -> list[tuple[str, 
 
     def _add(eco: str, pkg: str, ver: str) -> None:
         pk = pkg.strip()
-        pk_k = pk.lower() if eco in ("PyPI", "npm", "RubyGems", "crates.io", "NuGet") else pk
+        pk_k = pk.lower() if eco in ("PyPI", "npm", "RubyGems", "crates.io", "NuGet", "Pub", "Hex") else pk
         if pk and ver and (eco, pk_k) not in seen:
             seen.add((eco, pk_k))
             deps.append((eco, pk, ver))

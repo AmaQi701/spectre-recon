@@ -180,6 +180,11 @@ class _BenchmarkHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
             self.wfile.write(b"Contact: mailto:sec@127.0.0.1\nExpires: 2030-01-01T00:00:00Z\n")
+        elif parsed.path == "/api/tags":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"models":[{"name":"qwen2.5:14b","digest":"sha256:9911"}]}')
         else:
             self.send_response(404)
             self.end_headers()
@@ -252,6 +257,13 @@ def run_benchmark() -> None:
                 'package main\nfunc load(db DB, r Req) {\n  uid := r.URL.Query().Get("uid")\n  q := fmt.Sprintf("SELECT * FROM users WHERE id = %s", uid)\n  db.Query(q)\n}\n',
                 encoding="utf-8",
             )
+            (sast_dir / "legacy.php").write_text(
+                "<?php\n$acct = $_GET['acct'];\n$sql = \"SELECT * FROM ledger WHERE id = '\" . $acct . \"'\";\nmysqli_query($conn, $sql);\n",
+                encoding="utf-8",
+            )
+            (sast_dir / "nginx.conf").write_text("server { location /assets { alias /var/www/assets/; } }\n", encoding="utf-8")
+            (sast_dir / "pubspec.lock").write_text('packages:\n  dio:\n    dependency: "direct main"\n    version: "5.1.0"\n', encoding="utf-8")
+            (sast_dir / "mcp.json").write_text('{"mcpServers":{"rag":{"command":"npx","args":["-y","unpinned-rag-mcp"]}}}', encoding="utf-8")
 
             db = DatabaseManager(str(tmp_path / "bench.db"))
             base_url = f"http://127.0.0.1:{port}"
@@ -332,6 +344,11 @@ def run_benchmark() -> None:
             assert any("Wildcard / Cluster-Admin Privileges" in t for t in titles), f"K8s RBAC auditor missed wildcard ClusterRole: {titles}"
             assert any("Billing.csproj" in t for t in titles), f"NuGet .csproj SCA missed Newtonsoft.Json: {titles}"
             assert any("Supply-Chain & Deployment Risk" in c for c in chains), f"CI/CD->Infra supply-chain correlation missing: {chains}"
+            assert any("Ollama LLM Model Registry" in t for t in titles), f"AI/LLM auditor missed /api/tags: {titles}"
+            assert any("PHP Multi-Line Data-Flow" in t for t in titles), f"PHP taint engine missed legacy.php: {titles}"
+            assert any("Off-By-Slash Alias" in t for t in titles), f"Nginx IaC auditor missed off-by-slash alias: {titles}"
+            assert any("pubspec.lock" in t for t in titles), f"Dart pubspec.lock SCA missed dio: {titles}"
+            assert any("Agentic RAG & Model Exposure Chain" in c for c in chains), f"AI/MCP->Data attack chain missing: {chains}"
             assert any("/internal-ops/metrics" in u for u in ep_urls), f"robots.txt Disallow harvester missed /internal-ops/metrics: {ep_urls}"
             html_out = pathlib.Path(rep_paths["html_path"]).read_text(encoding="utf-8")
             assert "spSetSev(" in html_out and "NIST CSF 2.0" in html_out and "AICPA SOC 2 TSC" in html_out, "HTML v6.0 filter or 6-framework table missing"

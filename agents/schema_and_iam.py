@@ -50,16 +50,18 @@ def map_iam_and_keycloak_realms(db, session, project_id: int, base_url: str, log
                 mapped += 1
                 has_reg = "registration_endpoint" in data
                 has_direct_grant = "password" in grants
-                if has_reg or has_direct_grant:
+                pkce_methods = data.get("code_challenge_methods_supported") or []
+                missing_pkce = ("authorization_code" in grants) and ("S256" not in pkce_methods)
+                if has_reg or has_direct_grant or missing_pkce:
                     db.upsert_finding(
                         project_id, "SPECTRE-v11 (IAM-Mapper)",
                         f"Keycloak / OIDC Realm Configuration Weakness ({realm_name})",
                         "IAM & SSO Architecture", "Medium", 5.3,
                         "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A07:2021 - Identification and Authentication Failures",
                         oidc_url,
-                        f"Realm: {realm_name} | Grants: {', '.join(grants[:6])} | Registration Endpoint: {'Yes' if has_reg else 'No'}",
-                        "Keycloak/OIDC realm konfiguratsiyasida ochiq ro'yxatdan o'tish yoki Direct Access Grants ('password') yoqilgan.",
-                        "Production realm'larda 'Direct Access Grants (password)' va ochiq ro'yxatdan o'tishni faqat zarur bo'lgandagina yoqing.",
+                        f"Realm: {realm_name} | Grants: {', '.join(grants[:6])} | PKCE S256: {'No' if missing_pkce else 'Yes'} | Registration: {'Yes' if has_reg else 'No'}",
+                        "OIDC realm konfiguratsiyasida ochiq ro'yxatdan o'tish, Direct Access Grants ('password') yoki OAuth 2.1 PKCE ('S256') yo'qligi aniqlandi.",
+                        "Production OIDC provayderda PKCE (`S256`) ni majburiy qiling va `password` grant turini o'chiring.",
                     )
                 else:
                     db.log_task(
@@ -465,6 +467,60 @@ def discover_related_sister_domains(db, project_id: int, apex_domain: str, log_f
     return sorted(sister_apexes)
 
 
+def audit_jwt_header_posture(token: str) -> list[tuple[str, str, float, str]]:
+    """Checks JWT Jose Header for untrusted remote key URLs (`jku`, `x5u`) or path traversal `kid`."""
+    import base64
+    issues: list[tuple[str, str, float, str]] = []
+    parts = (token or "").strip().split(".")
+    if len(parts) < 2:
+        return issues
+    pad = parts[0] + "=" * (-len(parts[0]) % 4)
+    try:
+        hdr = json.loads(base64.urlsafe_b64decode(pad.encode("ascii")).decode("utf-8", errors="ignore"))
+    except Exception:
+        return issues
+    if not isinstance(hdr, dict):
+        return issues
+    for uk in ("jku", "x5u"):
+        if str(hdr.get(uk) or "").startswith(("http://", "https://")):
+            issues.append((f"JWT Header Embeds Dynamic Remote Key URL ({uk})", "High", 8.2, "CWE-347"))
+    kid = str(hdr.get("kid") or "")
+    if "../" in kid or "..\\" in kid or "'" in kid or ";" in kid:
+        issues.append(("JWT Header 'kid' Contains Path Traversal or SQL Metacharacters", "Critical", 9.1, "CWE-22"))
+    if isinstance(hdr.get("jwk"), dict):
+        issues.append(("JWT Header Embeds Self-Signed Inline JWK Key", "Critical", 9.4, "CWE-347"))
+    return issues
+
+
+def audit_graphql_batching_and_suggestions(db, session, project_id: int, base_url: str, log_fn) -> int:
+    from core.plugin_runner import QoD
+    hits = 0
+    for gp in ("/graphql", "/api/graphql"):
+        gu = urllib.parse.urljoin(base_url, gp)
+        try:
+            batch_q = [{"query": "{__typename}"}, {"query": "{__typename}"}, {"query": "{__typename}"}]
+            r = session.post(gu, json=batch_q, timeout=4.5, verify=False, allow_redirects=False)
+            if r.status_code == 200 and "json" in r.headers.get("Content-Type", "").lower():
+                arr = r.json()
+                if isinstance(arr, list) and len(arr) == 3 and all(isinstance(x, dict) and "data" in x for x in arr):
+                    db.upsert_finding(
+                        project_id, "SPECTRE-Schema (GraphQL-Audit)",
+                        f"[CONFIRMED] GraphQL Array Query Batching Enabled ({urllib.parse.urlparse(gu).netloc})",
+                        "GraphQL Rate-Limit / DoS Posture", "Medium", 5.8,
+                        "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:L", "CWE-770",
+                        "API4:2023 - Unrestricted Resource Consumption", gu,
+                        "POST [3x {__typename}] executed as batched JSON array response",
+                        "GraphQL serveri bitta HTTP so'rov ichida massiv (batch) so'rovlarni cheklovsiz bajarmoqda (2FA/OTP brute-force va DoS xavfi).",
+                        "GraphQL Gateway da query batching limitini (`allowBatchedHttpRequests: false`) o'chiring.",
+                        confidence=QoD.ACTIVE_VERIFIED,
+                    )
+                    hits += 1
+                    break
+        except Exception:
+            pass
+    return hits
+
+
 def run_schema_iam_suite(agent, project_id: int, apex_domain: str, base_url: str, js_urls: list[str], log_fn) -> None:
     from core.plugin_runner import ScanPhase, run_plugin_safely
 
@@ -480,6 +536,7 @@ def run_schema_iam_suite(agent, project_id: int, apex_domain: str, base_url: str
 
     run_plugin_safely(db, project_id, "si_iam_keycloak", map_iam_and_keycloak_realms, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
     run_plugin_safely(db, project_id, "si_openapi_refs", resolve_openapi_schema_refs, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
+    run_plugin_safely(db, project_id, "si_graphql_batch", audit_graphql_batching_and_suggestions, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
     run_plugin_safely(db, project_id, "si_webpack_chunks", predict_and_fetch_webpack_chunks, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
     run_plugin_safely(db, project_id, "si_i18n_miner", mine_i18n_translation_dictionaries, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
     run_plugin_safely(db, project_id, "si_lb_etag", fingerprint_load_balancer_and_etag, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
