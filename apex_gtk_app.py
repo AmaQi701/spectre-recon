@@ -776,7 +776,7 @@ class ApexNativeWindow(Gtk.Window):
             detail_lines.append(cpe_line)
         detail_lines.extend([
             f"Taxonomy    : {f_obj.get('cwe', '')}   |   {f_obj.get('owasp', '')}",
-            f"MITRE v15   : {comp_c.get('mitre_attack_v15', '-')}   |   NIST CSF 2.0: {comp_c.get('nist_csf_2_0', '-')}",
+            f"MITRE v15   : {comp_c.get('mitre_attack_v15', '-')}   |   NIST CSF 2.0: {comp_c.get('nist_csf_2', '-')}",
             f"Compliance  : {comp_c['owasp_api_2023']}  |  {comp_c['pci_dss_v4']}  |  {comp_c['iso_27001_2022']}  |  {comp_c.get('soc2_tsc', '-')}",
             f"CVSS Vector : {f_obj.get('cvss_vector', '')}",
             f"Target Asset: {asset_s}",
