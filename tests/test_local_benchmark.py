@@ -170,6 +170,16 @@ class _BenchmarkHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html")
             self.end_headers()
             self.wfile.write(b"Types of profiles available:\n12 goroutine\n4 heap\n")
+        elif parsed.path == "/robots.txt":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"User-agent: *\nDisallow: /internal-ops/metrics\n")
+        elif parsed.path == "/.well-known/security.txt":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"Contact: mailto:sec@127.0.0.1\nExpires: 2030-01-01T00:00:00Z\n")
         else:
             self.send_response(404)
             self.end_headers()
@@ -194,9 +204,20 @@ def run_benchmark() -> None:
             sast_dir.mkdir()
             (sast_dir / "repo_sample.py").write_text(
                 "def get_order(cursor, uid):\n"
-                "    cursor.execute(f'SELECT * FROM orders WHERE id = {uid}')\n",
+                "    cursor.execute('SELECT id FROM orders WHERE id = %s', (uid,))\n"
+                "    raw_sql = f'SELECT * FROM orders WHERE owner = {uid}'\n"
+                "    cursor.execute(raw_sql)\n",
                 encoding="utf-8",
             )
+            wf_dir = sast_dir / ".github" / "workflows"
+            wf_dir.mkdir(parents=True)
+            (wf_dir / "ci.yml").write_text(
+                "on: pull_request_target\njobs:\n  build:\n    steps:\n"
+                "      - uses: actions/checkout@v4\n"
+                "        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n",
+                encoding="utf-8",
+            )
+            (sast_dir / ".npmrc").write_text("//registry.npmjs.org/:_authToken=npm_benchToken9876543210\n", encoding="utf-8")
             (sast_dir / "requirements.txt").write_text("pyyaml==5.3.1\nrequests==2.25.0\n", encoding="utf-8")
             (sast_dir / "pom.xml").write_text(
                 "<project><dependencies><dependency>"
@@ -236,6 +257,8 @@ def run_benchmark() -> None:
             js_urls = recon._stage4_html_and_wayback(pid, base_url, html, "127.0.0.1", scope, logs.append)
             recon._stage5_openapi_discovery(pid, base_url, scope, logs.append)
             recon._stage6_js_analyzer(pid, js_urls, base_url, scope, logs.append)
+            from agents import origin_and_spa
+            origin_and_spa.mine_well_known_and_mobile_links(db, recon.session, pid, scope, logs.append, recon._record_discovered_url)
             surface_prober.probe_api_versions_and_ghost_endpoints(db, pid, logs.append, recon.session)
             r_404 = recon.session.get(f"{base_url}/nonexistent-404-cache-check")
             assert r_404.status_code == 404 and (f"{base_url}/nonexistent-404-cache-check", True) in recon._http_get_cache, "404 GET cache failed"
@@ -279,6 +302,11 @@ def run_benchmark() -> None:
             assert any("Vulnerable Open-Source Dependencies in package-lock.json" in t for t in titles), f"SCA engine missed package-lock.json: {titles}"
             assert any("Container Image Runs as Root User" in t for t in titles), f"IaC engine missed root Dockerfile: {titles}"
             assert any("Terraform Database Instance Configured as Publicly Accessible" in t for t in titles), f"IaC engine missed Terraform RDS: {titles}"
+            assert any("AST Multi-Line Data-Flow" in t for t in titles), f"Multi-line AST SAST engine missed taint flow: {titles}"
+            assert any("pull_request_target" in t for t in titles), f"CI/CD workflow auditor missed pwn-request: {titles}"
+            assert any("Hardcoded Package Registry Auth Token in .npmrc" in t for t in titles), f"Registry config auditor missed .npmrc: {titles}"
+            assert any("/internal-ops/metrics" in u for u in ep_urls), f"robots.txt Disallow harvester missed /internal-ops/metrics: {ep_urls}"
+            assert "spSetSev(" in pathlib.Path(rep_paths["html_path"]).read_text(encoding="utf-8"), "HTML v5.5 interactive filter bar missing"
             assert any("[EPSS:" in str(f.get("evidence", "")) for f in bundle["findings"]), "EPSS enrichment tag missing from CVE findings"
             assert not any("safe_q" in t for t in titles), f"False positive on properly HTML-escaped safe_q: {titles}"
             assert any("Unvalidated X-Forwarded-Host" in t for t in titles), f"XFH verifier missed flaw: {titles}"

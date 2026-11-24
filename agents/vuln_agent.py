@@ -22,7 +22,9 @@ from core.http_engine import RateLimitedHttpEngine
 from core.nvt_declarative_engine import run_declarative_nvt_catalog
 from core.plugin_runner import PhaseOrchestrator, QoD, ScanContextKB, ScanPhase
 from core.protocol_verifiers import run_active_protocol_verifiers
+from core.cicd_workflow_auditor import run_cicd_and_registry_audit
 from core.iac_auditor import run_iac_security_audit
+from core.sast_ast_engine import analyze_python_ast_taint, is_sanitized_sast_line
 from core.sca_engine import run_sca_dependency_audit, run_web_and_js_sca_audit
 
 
@@ -986,11 +988,31 @@ class VulnAssessmentSuperAgent:
         for fpath in files[:180]:
             try:
                 raw_src = fpath.read_text(encoding="utf-8", errors="ignore")
-                py_dyn = self._py_ast_dynamic_sink_lines(raw_src) if fpath.suffix.lower() == ".py" else None
+                is_py = fpath.suffix.lower() == ".py"
+                py_dyn = self._py_ast_dynamic_sink_lines(raw_src) if is_py else None
+                ast_flows, safe_sql_lns = analyze_python_ast_taint(raw_src) if is_py else ([], set())
                 lines = raw_src.splitlines()
+                ast_reported_lines: set[int] = set()
+                for af in ast_flows:
+                    a_ln = int(af["lineno"])
+                    r_title = af["title"]
+                    if rule_counts.get(r_title, 0) >= 5 or not (1 <= a_ln <= len(lines)):
+                        continue
+                    rule_counts[r_title] = rule_counts.get(r_title, 0) + 1
+                    ast_reported_lines.add(a_ln)
+                    self.db.upsert_finding(
+                        project_id, "Agent-2 (WhiteBox-SAST)", r_title,
+                        af["category"], af["severity"], af["cvss"], af["vector"],
+                        af["cwe"], af["owasp"], f"{fpath}:{a_ln}",
+                        f"Line {a_ln}: {lines[a_ln - 1].strip()[:160]}",
+                        f"AST ma'lumotlar oqimi (taint-flow) tahlili {a_ln}-qatordagi xavfli chaqiruvga tashqi o'zgaruvchi yetib kelganini tasdiqladi.",
+                        af["remediation"],
+                        confidence=QoD.STATIC_SAST,
+                    )
+                    hits += 1
                 for idx, line in enumerate(lines, start=1):
                     s_line = line.strip()
-                    if not s_line or len(s_line) > 900 or s_line.startswith(("//", "#", "/*", "*")):
+                    if not s_line or len(s_line) > 900 or s_line.startswith(("//", "#", "/*", "*")) or idx in ast_reported_lines:
                         continue
                     if py_dyn is not None and idx not in py_dyn:
                         continue
@@ -998,7 +1020,11 @@ class VulnAssessmentSuperAgent:
                         r_title = rule["title"]
                         if rule_counts.get(r_title, 0) >= 5:
                             continue
+                        if idx in safe_sql_lns and "SQL Injection" in r_title:
+                            continue
                         if "DOM-Based XSS" in r_title and static_dom_re.search(line):
+                            continue
+                        if is_sanitized_sast_line(line, r_title):
                             continue
                         if rule["pattern"].search(line):
                             rule_counts[r_title] = rule_counts.get(r_title, 0) + 1
@@ -1627,6 +1653,7 @@ class VulnAssessmentSuperAgent:
         if sca_dirs:
             run_sca_dependency_audit(self.db, project_id, sca_dirs, log_fn, allow_online_osv=enable_cli)
             run_iac_security_audit(self.db, project_id, sca_dirs, log_fn)
+            run_cicd_and_registry_audit(self.db, project_id, sca_dirs, log_fn)
         run_web_and_js_sca_audit(self.db, self.http_engine, project_id, eps, log_fn, allow_online_osv=enable_cli)
 
         enrich_project_findings_with_kev(self.db, project_id, log_fn, allow_online_epss=enable_cli)

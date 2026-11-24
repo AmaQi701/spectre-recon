@@ -398,6 +398,23 @@ def mine_well_known_and_mobile_links(db, session: requests.Session, project_id: 
     seen_wk_hashes: set[tuple[str, str]] = set()
     for svc in unique_services[:8]:
         base_url = svc["url"]
+        try:
+            r_rob = session.get(urllib.parse.urljoin(base_url, "/robots.txt"), timeout=3.5, verify=False, allow_redirects=False)
+            if r_rob.status_code == 200 and "disallow:" in r_rob.text[:8192].lower() and "<html" not in r_rob.text[:512].lower():
+                for ln_r in r_rob.text[:8192].splitlines():
+                    if ln_r.strip().lower().startswith("disallow:"):
+                        dp = ln_r.split(":", 1)[1].split("#", 1)[0].strip()
+                        if dp.startswith("/") and len(dp) > 2 and "*" not in dp and not dp.endswith((".jpg", ".png", ".gif", ".css")):
+                            if record_url_fn:
+                                record_url_fn(project_id, urllib.parse.urljoin(base_url, dp), base_url, scope, "robots_disallow")
+            r_sec = session.get(urllib.parse.urljoin(base_url, "/.well-known/security.txt"), timeout=3.5, verify=False, allow_redirects=False)
+            if r_sec.status_code == 200 and "contact:" in r_sec.text[:4096].lower() and "<html" not in r_sec.text[:512].lower():
+                sec_ln = " | ".join(x.strip() for x in r_sec.text[:1024].splitlines() if x.strip().lower().startswith(("contact:", "expires:", "policy:")))[:180]
+                if sec_ln and ("security.txt", sec_ln) not in seen_wk_hashes:
+                    seen_wk_hashes.add(("security.txt", sec_ln))
+                    db.log_task(project_id, "SPECTRE-Intel", "security_txt", "COMPLETED", base_url, sec_ln)
+        except Exception:
+            pass
         for path, label in wk_paths:
             full_u = urllib.parse.urljoin(base_url, path)
             try:

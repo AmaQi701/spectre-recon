@@ -466,10 +466,11 @@ class TriageAndChainSuperAgent:
         md_content = "\n".join(md_lines)
         md_path.write_text(md_content, encoding="utf-8")
 
-        # HTML Printable Report (with proper HTML escaping for safe rendering)
+        # HTML Printable & Interactive CISO Report Portal (100% offline, CSP-clean, escaped)
         import html as _html
         rows_html = "".join(
-            f"<tr><td><b>{_html.escape(str(f['severity']))}</b> ({_html.escape(str(f['cvss_score']))})"
+            f"<tr class='f-row' data-sev='{_html.escape(str(f['severity']), quote=True)}' data-kev='{'1' if '[CISA-KEV' in str(f.get('evidence', '')) else '0'}'>"
+            f"<td><b>{_html.escape(str(f['severity']))}</b> ({_html.escape(str(f['cvss_score']))})"
             + ("<br><span style='background:#7f1d1d;color:#fecaca;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:700;'>CISA KEV</span>" if "[CISA-KEV" in str(f.get("evidence", "")) else "")
             + f"<br><small>{_html.escape(str(f.get('confidence', '')))}</small></td>"
             f"<td>{_html.escape(str(f['title']))}<br><small>{_html.escape(str(f['cwe']))} | {_html.escape(str(f['owasp']))}</small></td>"
@@ -515,27 +516,60 @@ class TriageAndChainSuperAgent:
             f"</div>"
         )
         html_content = f"""<!DOCTYPE html>
-<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v5.0.0 Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
+<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v5.5.0 Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
 <style>
 body {{ font-family: "Inter", system-ui, sans-serif; background: #090c0a; color: #e2e8f0; padding: 32px; }}
 h1, h2 {{ color: #4ade80; border-bottom: 1px solid #1b2a21; padding-bottom: 8px; }}
 table {{ width: 100%; border-collapse: collapse; margin-top: 16px; background: #0f1512; border-radius: 8px; overflow: hidden; }}
-th, td {{ border: 1px solid #1b2a21; padding: 10px 12px; text-align: left; font-size: 13px; }}
+th, td {{ border: 1px solid #1b2a21; padding: 10px 12px; text-align: left; font-size: 13px; vertical-align: top; }}
 th {{ background: #13281c; color: #4ade80; font-weight: 700; }}
-code {{ color: #86efac; background: #080b09; padding: 2px 6px; border-radius: 4px; }}
+code {{ color: #86efac; background: #080b09; padding: 2px 6px; border-radius: 4px; word-break: break-all; }}
+.flt-bar {{ display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }}
+.flt-btn {{ background: #121b16; color: #e2e8f0; border: 1px solid #24362b; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-weight: 600; font-size: 12px; }}
+.flt-btn.active, .flt-btn:hover {{ background: #143321; color: #4ade80; border-color: #22c55e; }}
+.flt-inp {{ background: #090c0a; color: #f1f5f9; border: 1px solid #24362b; border-radius: 6px; padding: 6px 12px; min-width: 280px; font-size: 12.5px; }}
+@media print {{ body {{ background: #ffffff; color: #111827; padding: 12px; }} table, th, td {{ border-color: #d1d5db; background: #ffffff; color: #111827; }} code {{ background: #f3f4f6; color: #065f46; }} .flt-bar {{ display: none; }} }}
 </style></head><body>
-<h1>SPECTRE v5.0.0 — Enterprise Security &amp; Attack Surface Report: {_html.escape(str(proj.get('name', '')))}</h1>
+<h1>SPECTRE v5.5.0 — Enterprise Security &amp; Attack Surface Report: {_html.escape(str(proj.get('name', '')))}</h1>
 <p><b>Primary Target:</b> <code>{_html.escape(str(proj.get('primary_target', '')))}</code> | <b>In-Scope:</b> <code>{_html.escape(str(proj.get('in_scope', '')))}</code></p>
 {kpi_bar}
 <h2>🔗 Zaifliklar Zanjiri (Bug Chaining Scenarios — {len(chains)})</h2>
 <table><thead><tr><th>Severity / CVSS</th><th>Zanjir Nomi va Bosqichlari</th><th>Hujum Ssenariysi</th><th>Remediation</th></tr></thead>
 <tbody>{chains_html or '<tr><td colspan="4">Zanjirlangan ssenariylar aniqlanmadi.</td></tr>'}</tbody></table>
 <h2>🔍 Aniqlangan Zaifliklar va Tekshiruv Nuqtalari ({len(findings)})</h2>
-<table><thead><tr><th>Severity / CVSS</th><th>Zaiflik Nomi</th><th>Asset</th><th>Dalil (Evidence)</th><th>Remediation</th></tr></thead>
+<div class="flt-bar">
+  <button class="flt-btn active" onclick="spSetSev('ALL', this)">All ({len(findings)})</button>
+  <button class="flt-btn" onclick="spSetSev('Critical', this)">Critical ({crit_c})</button>
+  <button class="flt-btn" onclick="spSetSev('High', this)">High ({high_c})</button>
+  <button class="flt-btn" onclick="spSetSev('Medium', this)">Medium ({med_c})</button>
+  <button class="flt-btn" onclick="spSetSev('Low', this)">Low ({low_c})</button>
+  <button class="flt-btn" onclick="spSetSev('KEV', this)">CISA KEV ({kev_c})</button>
+  <input id="sp-q" class="flt-inp" type="search" placeholder="Filter by host, CVE, CWE, title..." oninput="spFilter()"/>
+</div>
+<table id="sp-ftbl"><thead><tr><th>Severity / CVSS</th><th>Zaiflik Nomi</th><th>Asset</th><th>Dalil (Evidence)</th><th>Remediation</th></tr></thead>
 <tbody>{rows_html}</tbody></table>
 <h2>🏛️ Xalqaro Standartlar Muvofiqlik Matritsasi (OWASP / API:2023 / PCI-DSS v4.0 / ISO 27001)</h2>
 <table><thead><tr><th>Standart (Framework)</th><th>Nazorat Bandi (Control)</th><th>Ta'sirlangan Topilmalar</th></tr></thead>
 <tbody>{comp_rows_html or '<tr><td colspan="3">Nazorat buzilishlari aniqlanmadi (100% Muvofiq).</td></tr>'}</tbody></table>
+<script>
+var _spSev = 'ALL';
+function spSetSev(s, btn) {{
+  _spSev = s;
+  document.querySelectorAll('.flt-btn').forEach(function(b){{ b.classList.remove('active'); }});
+  if (btn) btn.classList.add('active');
+  spFilter();
+}}
+function spFilter() {{
+  var q = (document.getElementById('sp-q').value || '').toLowerCase();
+  document.querySelectorAll('#sp-ftbl tr.f-row').forEach(function(tr) {{
+    var sv = tr.getAttribute('data-sev') || '';
+    var kv = tr.getAttribute('data-kev') || '0';
+    var okSev = (_spSev === 'ALL') || (_spSev === 'KEV' ? kv === '1' : sv === _spSev);
+    var okQ = !q || tr.textContent.toLowerCase().indexOf(q) !== -1;
+    tr.style.display = (okSev && okQ) ? '' : 'none';
+  }});
+}}
+</script>
 </body></html>"""
         html_path.write_text(html_content, encoding="utf-8")
 
