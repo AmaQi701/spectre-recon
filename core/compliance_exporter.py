@@ -60,7 +60,7 @@ def build_sarif_report(bundle: dict[str, Any]) -> dict[str, Any]:
             "tool": {
                 "driver": {
                     "name": "SPECTRE Hybrid Security Studio",
-                    "version": "5.5.0",
+                    "version": "6.0.0",
                     "informationUri": "https://github.com/AmaQi701/spectre-recon",
                     "rules": list(rules_map.values()),
                 }
@@ -157,36 +157,52 @@ def map_finding_compliance_controls(finding: dict[str, Any]) -> dict[str, str]:
         api_ctrl = "API1:2023 - Broken Object Level Authorization" if "bola" in cat or cwe == "CWE-639" else "API5:2023 - Broken Function Level Authorization"
         pci = "PCI-DSS v4.0 Req 6.2.4 & Req 7.2.2 (Access Control)"
         iso = "ISO/IEC 27001:2022 A.8.3 (Information Access Restriction)"
+        nist = "NIST CSF 2.0 PR.AA-05 (Access Permissions & Authorization)"
+        soc2 = "SOC 2 CC6.1 & CC6.3 (Logical Access Authorization)"
     elif cwe in ("CWE-287", "CWE-306", "CWE-347", "CWE-614", "CWE-798") or "jwt" in cat or "session" in cat or "cookie" in cat:
         api_ctrl = "API2:2023 - Broken Authentication"
         pci = "PCI-DSS v4.0 Req 8.3 & Req 6.2.4 (Authentication & Credentials)"
         iso = "ISO/IEC 27001:2022 A.8.5 (Secure Authentication)"
+        nist = "NIST CSF 2.0 PR.AA-01 (Identity & Credential Management)"
+        soc2 = "SOC 2 CC6.1 (Authentication & Secret Protection)"
     elif cwe in ("CWE-295", "CWE-319", "CWE-326", "CWE-327") or "tls" in cat or "ssl" in cat or "crypt" in cat:
         api_ctrl = "API8:2023 - Security Misconfiguration (Transport TLS)"
         pci = "PCI-DSS v4.0 Req 4.2.1 (Strong Cryptography in Transit)"
         iso = "ISO/IEC 27001:2022 A.8.24 (Use of Cryptography)"
-    elif cwe in ("CWE-79", "CWE-89", "CWE-78", "CWE-94", "CWE-601") or "injection" in cat or "xss" in cat or "redirect" in cat:
+        nist = "NIST CSF 2.0 PR.DS-02 (Data-in-Transit Protection)"
+        soc2 = "SOC 2 CC6.7 (Transmission Encryption)"
+    elif cwe in ("CWE-79", "CWE-89", "CWE-78", "CWE-94", "CWE-502", "CWE-601") or "injection" in cat or "xss" in cat or "redirect" in cat:
         api_ctrl = "API8:2023 - Security Misconfiguration / Input Validation"
         pci = "PCI-DSS v4.0 Req 6.2.4 (Injection & XSS Prevention)"
         iso = "ISO/IEC 27001:2022 A.8.28 (Secure Coding)"
+        nist = "NIST CSF 2.0 PR.PS-05 (Secure Software Development)"
+        soc2 = "SOC 2 CC8.1 & CC7.1 (Change & Input Integrity)"
     elif cwe == "CWE-918" or "ssrf" in cat:
         api_ctrl = "API7:2023 - Server Side Request Forgery"
         pci = "PCI-DSS v4.0 Req 6.4.1 (Public Web App SSRF Protection)"
         iso = "ISO/IEC 27001:2022 A.8.20 (Networks Security)"
-    elif cwe in ("CWE-1104", "CWE-1395") or "sca" in cat or "outdated" in cat or "cve" in cat:
+        nist = "NIST CSF 2.0 PR.IR-01 (Network Boundary Protection)"
+        soc2 = "SOC 2 CC6.6 (External Network Boundary Controls)"
+    elif cwe in ("CWE-1104", "CWE-1395", "CWE-829") or "sca" in cat or "outdated" in cat or "cve" in cat or "ci/cd" in cat:
         api_ctrl = "API9:2023 - Improper Inventory Management"
         pci = "PCI-DSS v4.0 Req 6.3.2 & Req 6.3.3 (SBOM & Patch Management)"
         iso = "ISO/IEC 27001:2022 A.8.8 (Management of Technical Vulnerabilities)"
+        nist = "NIST CSF 2.0 GV.SC-07 & ID.RA-01 (Supply-Chain & Vuln Management)"
+        soc2 = "SOC 2 CC7.1 & CC3.2 (Vulnerability & Dependency Management)"
     else:
         api_ctrl = "API8:2023 - Security Misconfiguration"
         pci = "PCI-DSS v4.0 Req 11.3 & Req 2.2 (System Hardening)"
         iso = "ISO/IEC 27001:2022 A.8.9 (Configuration Management)"
+        nist = "NIST CSF 2.0 PR.PS-01 (Configuration Management)"
+        soc2 = "SOC 2 CC7.1 (System Configuration Monitoring)"
 
     return {
         "owasp_2021": owasp_2021,
         "owasp_api_2023": api_ctrl,
         "pci_dss_v4": pci,
         "iso_27001_2022": iso,
+        "nist_csf_2": nist,
+        "soc2_tsc": soc2,
     }
 
 
@@ -200,12 +216,25 @@ def build_compliance_matrix(bundle: dict[str, Any]) -> dict[str, Any]:
         "owasp_api_2023": {},
         "pci_dss_v4": {},
         "iso_27001_2022": {},
+        "nist_csf_2": {},
+        "soc2_tsc": {},
     }
     penalty = 0.0
+    kev_cnt = 0
+    high_epss_cnt = 0
     weights = {"Critical": 18.0, "High": 9.0, "Medium": 3.5, "Low": 1.0}
+    epss_re = re.compile(r"\[EPSS:\s*([0-9.]+)%\]")
     for f in findings:
         sev = str(f.get("severity") or "Low")
+        ev_s = str(f.get("evidence") or "")
         penalty += weights.get(sev, 1.0)
+        if "[CISA-KEV" in ev_s:
+            kev_cnt += 1
+            penalty += 6.0
+        m_ep = epss_re.search(ev_s)
+        if m_ep and float(m_ep.group(1)) >= 50.0:
+            high_epss_cnt += 1
+            penalty += 3.0
         mapped = map_finding_compliance_controls(f)
         entry = {
             "id": f.get("id"),
@@ -222,6 +251,8 @@ def build_compliance_matrix(bundle: dict[str, Any]) -> dict[str, Any]:
     return {
         "posture_score": posture_score,
         "total_verified_findings": len(findings),
+        "kev_findings_count": kev_cnt,
+        "high_epss_count": high_epss_cnt,
         "frameworks": {
             fw: {ctrl: len(items) for ctrl, items in sorted(ctrls.items())}
             for fw, ctrls in by_framework.items()

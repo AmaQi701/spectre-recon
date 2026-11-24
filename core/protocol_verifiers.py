@@ -19,9 +19,10 @@ from typing import Any
 from core.plugin_runner import QoD
 
 SUPPORTED_ACTIVE_PORTS = {
-    21, 22, 25, 389, 587, 636, 873, 1022, 1433, 1883, 2181, 2375, 2376, 2379,
-    3306, 4222, 5432, 5672, 5900, 6379, 6380, 6443, 8086, 8123, 8500, 8883,
-    9042, 9092, 9100, 9200, 10250, 11211, 15672, 27017,
+    21, 22, 25, 110, 143, 389, 587, 636, 873, 1022, 1099, 1433, 1883, 2181,
+    2375, 2376, 2379, 3306, 3389, 4222, 5000, 5005, 5432, 5672, 5900, 5985,
+    6379, 6380, 6443, 8086, 8123, 8500, 8883, 9000, 9042, 9092, 9100, 9200,
+    10250, 11211, 15672, 27017,
 }
 
 
@@ -534,6 +535,141 @@ def _probe_kafka_amqp_tsdb(
     return hits
 
 
+def _probe_enterprise_rpc_and_mgmt(
+    db: Any, http_engine: Any, project_id: int, connect_target: str, target_ip: str, disp_host: str, port: int, connect_port: int | None = None
+) -> int:
+    hits = 0
+    cp = connect_port or port
+    if port == 110:
+        out = _tcp_exchange(connect_target, cp, [b"CAPA\r\n", b"QUIT\r\n"], timeout=2.5, read_initial=True)
+        up = out.upper()
+        if "+OK" in up and "STLS" not in up and ("USER" in up or "PLAIN" in up):
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Cleartext POP3 Authentication Without STLS ({disp_host}:110)",
+                "Cleartext Mail Protocol Exposure", "Medium", 5.8, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                "CWE-319", "A02:2021 - Cryptographic Failures", f"{disp_host}:110",
+                "POP3 CAPA advertised USER/PLAIN login without STLS transport upgrade",
+                "POP3 xizmati parollarni shifrlanmagan TCP oqimida qabul qilmoqda (`STLS` mavjud emas).",
+                "POP3S (`:995`) yoki majburiy `STLS` rejimini yoqing.",
+                confidence=QoD.PROTOCOL_VERIFIED,
+            )
+            hits += 1
+    elif port == 143:
+        out = _tcp_exchange(connect_target, cp, [b"a01 CAPABILITY\r\n", b"a02 LOGOUT\r\n"], timeout=2.5, read_initial=True)
+        up = out.upper()
+        if "CAPABILITY" in up and "IMAP4" in up and "STARTTLS" not in up and "LOGINDISABLED" not in up:
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Cleartext IMAP Authentication Without STARTTLS ({disp_host}:143)",
+                "Cleartext Mail Protocol Exposure", "Medium", 5.8, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                "CWE-319", "A02:2021 - Cryptographic Failures", f"{disp_host}:143",
+                "IMAP CAPABILITY permitted cleartext LOGIN without STARTTLS or LOGINDISABLED",
+                "IMAP xizmati `STARTTLS` shifrlashisiz ochiq matnli login ruxsat etmoqda.",
+                "IMAPS (`:993`) yoki majburiy `STARTTLS` + `LOGINDISABLED` sozlang.",
+                confidence=QoD.PROTOCOL_VERIFIED,
+            )
+            hits += 1
+    elif port == 1099:
+        with socket.create_connection((connect_target, cp), timeout=2.5) as s_rmi:
+            s_rmi.settimeout(2.2)
+            s_rmi.sendall(b"JRMI\x00\x02\x4b")
+            resp = s_rmi.recv(64)
+        if len(resp) >= 1 and resp[0] == 0x4E:
+            db.upsert_port(project_id, disp_host, 1099, "tcp", ip=target_ip, service="java-rmi", version="Java JRMP Registry", banner="JRMI ProtocolAck 0x4E", source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Exposed Java RMI Registry Service ({disp_host}:1099)",
+                "RPC / Deserialization Surface", "High", 8.6, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+                "CWE-502", "A08:2021 - Software and Data Integrity Failures", f"{disp_host}:1099",
+                "JRMP handshake (JRMI v2 StreamProtocol) returned ProtocolAck (0x4E)",
+                "Java RMI reestri tashqi tarmoqqa ochiq qoldirilgan (JEP 290 deserializatsiya xavfi).",
+                "`:1099` portini xavfsizlik devorida yoping va JEP 290 serializatsiya filtrini yoqing.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
+    elif port == 3389:
+        rdp_req = b"\x03\x00\x00\x13\x0e\xe0\x00\x00\x00\x00\x00\x01\x00\x08\x00\x03\x00\x00\x00"
+        with socket.create_connection((connect_target, cp), timeout=2.5) as s_rdp:
+            s_rdp.settimeout(2.2)
+            s_rdp.sendall(rdp_req)
+            resp = s_rdp.recv(64)
+        if len(resp) >= 11 and resp[0] == 0x03 and resp[5] == 0xD0:
+            nla_off = len(resp) == 11 or (len(resp) >= 19 and resp[11] == 0x02 and struct.unpack("<I", resp[15:19])[0] == 0)
+            db.upsert_port(project_id, disp_host, 3389, "tcp", ip=target_ip, service="ms-wbt-server", version="RDP (NLA Disabled)" if nla_off else "RDP (NLA/TLS)", banner="X.224 CC", source="socket_nvt")
+            if nla_off:
+                db.upsert_finding(
+                    project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] RDP Exposed Without Network Level Authentication ({disp_host}:3389)",
+                    "Remote Management Exposure", "High", 8.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                    "CWE-287", "A07:2021 - Identification and Authentication Failures", f"{disp_host}:3389",
+                    "X.224 Connection Confirm selected PROTOCOL_RDP (0x00) instead of CredSSP/Hybrid NLA",
+                    "RDP xizmati Network Level Authentication (CredSSP/NLA) talabisiz tashqi tarmoqqa ochiq.",
+                    "CredSSP / NLA rejimini majburiy qiling va `:3389` ni VPN ortiga oling.",
+                    confidence=QoD.PROTOCOL_VERIFIED,
+                )
+                hits += 1
+    elif port == 5000:
+        rr = http_engine.request("GET", f"http://{connect_target}:{cp}/v2/_catalog", timeout=(2.0, 2.8), allow_redirects=False)
+        if rr.status_code == 200 and '"repositories"' in (rr.text or ""):
+            db.upsert_port(project_id, disp_host, 5000, "tcp", ip=target_ip, service="docker-registry", version="Docker Distribution v2", banner="Registry /v2/_catalog 200", source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated Private Docker Registry v2 Catalog ({disp_host}:5000)",
+                "Container Infrastructure Exposure", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                "CWE-306", "A05:2021 - Security Misconfiguration", f"{disp_host}:5000",
+                f"GET /v2/_catalog returned HTTP 200: {(rr.text or '').strip()[:120]}",
+                "Shaxsiy Docker obrazlar reestri autentifikatsiyasiz `/v2/_catalog` ro'yxatini ochiq bermoqda.",
+                "Docker Registry uchun token/htpasswd autentifikatsiya va TLS yoqing.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
+    elif port == 5005:
+        with socket.create_connection((connect_target, cp), timeout=2.5) as s_jd:
+            s_jd.settimeout(2.2)
+            s_jd.sendall(b"JDWP-Handshake")
+            resp = s_jd.recv(32)
+        if resp.startswith(b"JDWP-Handshake"):
+            db.upsert_port(project_id, disp_host, 5005, "tcp", ip=target_ip, service="jdwp", version="Java Debug Wire Protocol", banner="JDWP-Handshake", source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Exposed Java Debug Wire Protocol Debugger ({disp_host}:5005)",
+                "Remote Code / Debug Exposure", "Critical", 9.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "CWE-489", "A05:2021 - Security Misconfiguration", f"{disp_host}:5005",
+                "TCP 5005 echoed 'JDWP-Handshake' without authentication",
+                "JVM production jarayonida autentifikatsiyasiz masofaviy JDWP debagger porti yoqib qo'yilgan.",
+                "`-agentlib:jdwp` bayrog'ini olib tashlang yoki faqat `127.0.0.1` ga bog'lang.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
+    elif port == 5985:
+        rw = http_engine.request("POST", f"http://{connect_target}:{cp}/wsman", timeout=(2.0, 2.8), allow_redirects=False)
+        wa = rw.headers.get("WWW-Authenticate", "")
+        if (rw.status_code == 401 and "basic" in wa.lower()) or (rw.status_code == 200 and "wsman" in (rw.text or "").lower()):
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Cleartext WinRM Management Service Exposure ({disp_host}:5985)",
+                "Remote Management Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                "CWE-319", "A02:2021 - Cryptographic Failures", f"{disp_host}:5985",
+                f"HTTP {rw.status_code} on /wsman | WWW-Authenticate: {wa[:80]}",
+                "Windows Remote Management (`:5985`) shifrlanmagan HTTP orqali Basic autentifikatsiya yoki ochiq kirishga ruxsat bermoqda.",
+                "WinRM HTTPS (`:5986`) ga o'ting va `AllowUnencrypted=false`, `Basic=false` o'rnating.",
+                confidence=QoD.PROTOCOL_VERIFIED,
+            )
+            hits += 1
+    elif port == 9000:
+        with socket.create_connection((connect_target, cp), timeout=2.5) as s_fc:
+            s_fc.settimeout(2.2)
+            s_fc.sendall(b"\x01\x09\x00\x00\x00\x00\x00\x00")
+            resp = s_fc.recv(64)
+        if len(resp) >= 8 and resp[0] == 0x01 and resp[1] in (10, 11):
+            db.upsert_port(project_id, disp_host, 9000, "tcp", ip=target_ip, service="fastcgi", version="FastCGI / PHP-FPM", banner=f"FCGI v1 type={resp[1]}", source="socket_nvt")
+            db.upsert_finding(
+                project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Exposed FastCGI / PHP-FPM Daemon Socket ({disp_host}:9000)",
+                "Application Runtime Exposure", "Critical", 9.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "CWE-284", "A05:2021 - Security Misconfiguration", f"{disp_host}:9000",
+                f"FastCGI FCGI_GET_VALUES returned valid FCGI v1 record (type={resp[1]})",
+                "PHP-FPM / FastCGI ishchi soketi autentifikatsiyasiz tashqi TCP tarmog'iga bog'langan.",
+                "`listen = /run/php/php-fpm.sock` yoki `listen.allowed_clients = 127.0.0.1` o'rnating.",
+                confidence=QoD.ACTIVE_VERIFIED,
+            )
+            hits += 1
+    return hits
+
+
 def _probe_single_port(
     db: Any,
     http_engine: Any,
@@ -547,6 +683,8 @@ def _probe_single_port(
     hits = 0
     connect_target = target_ip or disp_host
     try:
+        if port in (110, 143, 1099, 3389, 5000, 5005, 5985, 9000):
+            return _probe_enterprise_rpc_and_mgmt(db, http_engine, project_id, connect_target, target_ip, disp_host, port)
         if port in (1883, 2181, 4222, 5672, 8086, 8123, 8883, 9092):
             return _probe_messaging_and_tsdb(db, http_engine, project_id, connect_target, target_ip, disp_host, port, log_fn)
         if port in (6379, 6380, 11211, 9200, 9100, 2375, 2376, 2379, 6443, 8500, 10250, 15672):

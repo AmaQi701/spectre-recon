@@ -44,9 +44,101 @@ def is_sanitized_sast_line(line: str, rule_title: str) -> bool:
     if "DOM-Based XSS" in rule_title and _DOM_SANITIZER_RE.search(line):
         return True
     if "SQL Injection" in rule_title:
-        if re.search(r"""(?i)(?:execute|query)\s*\(\s*['"][^'"{}+]*%s[^'"{}+]*['"]\s*,\s*[\(\[]""", line):
+        if re.search(r"""(?i)(?:execute|query)\s*\(\s*['"`][^'"`{}+]*(?:%s|\?|\$\d+)[^'"`{}+]*['"`]\s*,\s*[\(\[]""", line):
             return True
     return False
+
+
+_JS_DECL_RE = re.compile(r"^\s*(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(.+?);?\s*$")
+_JS_CONST_LIT_RE = re.compile(r"""^(?:""|''|``|"[^"$+{]*"|'[^'$+{]*'|`[^`$]*`|\d+|true|false|null)$""")
+_JS_REQ_SRC_RE = re.compile(r"\b(?:req\.(?:query|body|params|headers)|request\.(?:query|body|params)|ctx\.query)\b")
+_JS_DOM_SRC_RE = re.compile(r"\b(?:location\.(?:search|hash|href)|window\.name|URLSearchParams|event\.data)\b")
+
+
+def analyze_js_ts_taint_flow(src_text: str) -> tuple[list[dict[str, Any]], set[int]]:
+    """Multi-line JS/TS taint tracker + safe literal/parameterized-query line suppressor."""
+    findings: list[dict[str, Any]] = []
+    safe_lines: set[int] = set()
+    const_vars: set[str] = set()
+    srv_tainted: set[str] = set()
+    dom_tainted: set[str] = set()
+    sql_tainted: set[str] = set()
+    seen: set[tuple[int, str]] = set()
+
+    for lineno, raw_ln in enumerate((src_text or "").splitlines(), start=1):
+        s = raw_ln.strip()
+        if not s or s.startswith(("//", "/*", "*")):
+            continue
+        if re.search(r"""(?i)\.(?:query|execute)\s*\(\s*['"`][^'"`+$]*(?:\?|\$\d+)[^'"`+$]*['"`]\s*,\s*\[""", s):
+            safe_lines.add(lineno)
+        m_decl = _JS_DECL_RE.match(s)
+        if m_decl:
+            vname, rhs = m_decl.group(1), m_decl.group(2).strip()
+            if _JS_CONST_LIT_RE.match(rhs) or _DOM_SANITIZER_RE.search(rhs):
+                const_vars.add(vname)
+                continue
+            uses_srv = bool(_JS_REQ_SRC_RE.search(rhs)) or any(re.search(rf"\b{re.escape(tv)}\b", rhs) for tv in srv_tainted)
+            uses_dom = bool(_JS_DOM_SRC_RE.search(rhs)) or any(re.search(rf"\b{re.escape(tv)}\b", rhs) for tv in dom_tainted)
+            if uses_srv:
+                srv_tainted.add(vname)
+                if _SQL_KW_RE.search(rhs) and ("+" in rhs or "${" in rhs):
+                    sql_tainted.add(vname)
+            if uses_dom or uses_srv:
+                dom_tainted.add(vname)
+
+        m_ih = re.search(r"\.(?:inner|outer)HTML\s*\+?=\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:;|$)", s)
+        if m_ih:
+            rhs_var = m_ih.group(1)
+            if rhs_var in const_vars:
+                safe_lines.add(lineno)
+            elif rhs_var in dom_tainted and (lineno, "CWE-79") not in seen:
+                seen.add((lineno, "CWE-79"))
+                findings.append({
+                    "lineno": lineno,
+                    "title": "Potential DOM-Based XSS (JS Multi-Line Taint-Flow)",
+                    "category": "Cross-Site Scripting (SAST)", "severity": "High", "cvss": 7.4,
+                    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                    "cwe": "CWE-79", "owasp": "A03:2021 - Injection",
+                    "remediation": "`textContent` yoki `DOMPurify.sanitize()` ishlating.",
+                })
+
+        m_sq = re.search(r"\b(?:db|pool|client|conn|sequelize|knex)\.(?:query|execute|raw)\s*\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*[\),]", s)
+        if m_sq and m_sq.group(1) in sql_tainted and (lineno, "CWE-89") not in seen:
+            seen.add((lineno, "CWE-89"))
+            findings.append({
+                "lineno": lineno,
+                "title": "Potential SQL Injection (JS/Node Multi-Line Data-Flow)",
+                "category": "Injection (SAST)", "severity": "High", "cvss": 8.6,
+                "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+                "cwe": "CWE-89", "owasp": "A03:2021 - Injection",
+                "remediation": "Parametrlangan so'rovlar (`db.query('SELECT ... WHERE id = $1', [id])`) ishlating.",
+            })
+
+        m_ex = re.search(r"\b(?:exec|execSync)\s*\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*[\),]", s)
+        if m_ex and m_ex.group(1) in srv_tainted and (lineno, "CWE-78") not in seen:
+            seen.add((lineno, "CWE-78"))
+            findings.append({
+                "lineno": lineno,
+                "title": "Potential OS Command Injection Sink (JS/Node Multi-Line Data-Flow)",
+                "category": "RCE / Command Injection (SAST)", "severity": "Critical", "cvss": 9.8,
+                "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "cwe": "CWE-78", "owasp": "A03:2021 - Injection",
+                "remediation": "`child_process.execFile` va qat'iy argumentlar massividan foydalaning.",
+            })
+
+        m_ss = re.search(r"\b(?:axios\.(?:get|post|request)|fetch)\s*\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*[\),]", s)
+        if m_ss and m_ss.group(1) in srv_tainted and (lineno, "CWE-918") not in seen:
+            seen.add((lineno, "CWE-918"))
+            findings.append({
+                "lineno": lineno,
+                "title": "Potential Server-Side Request Forgery (JS/Node Data-Flow)",
+                "category": "SSRF (SAST)", "severity": "High", "cvss": 8.2,
+                "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:L/A:N",
+                "cwe": "CWE-918", "owasp": "A10:2021 - Server-Side Request Forgery",
+                "remediation": "Chiquvchi domenlar uchun allowlist va ichki IP bloklovchi qo'llang.",
+            })
+
+    return findings, safe_lines
 
 
 def analyze_python_ast_taint(src_text: str) -> tuple[list[dict[str, Any]], set[int]]:

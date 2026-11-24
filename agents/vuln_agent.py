@@ -24,7 +24,7 @@ from core.plugin_runner import PhaseOrchestrator, QoD, ScanContextKB, ScanPhase
 from core.protocol_verifiers import run_active_protocol_verifiers
 from core.cicd_workflow_auditor import run_cicd_and_registry_audit
 from core.iac_auditor import run_iac_security_audit
-from core.sast_ast_engine import analyze_python_ast_taint, is_sanitized_sast_line
+from core.sast_ast_engine import analyze_js_ts_taint_flow, analyze_python_ast_taint, is_sanitized_sast_line
 from core.sca_engine import run_sca_dependency_audit, run_web_and_js_sca_audit
 
 
@@ -988,9 +988,15 @@ class VulnAssessmentSuperAgent:
         for fpath in files[:180]:
             try:
                 raw_src = fpath.read_text(encoding="utf-8", errors="ignore")
-                is_py = fpath.suffix.lower() == ".py"
+                sfx = fpath.suffix.lower()
+                is_py = sfx == ".py"
                 py_dyn = self._py_ast_dynamic_sink_lines(raw_src) if is_py else None
-                ast_flows, safe_sql_lns = analyze_python_ast_taint(raw_src) if is_py else ([], set())
+                if is_py:
+                    ast_flows, safe_sast_lns = analyze_python_ast_taint(raw_src)
+                elif sfx in (".js", ".jsx", ".ts", ".tsx"):
+                    ast_flows, safe_sast_lns = analyze_js_ts_taint_flow(raw_src)
+                else:
+                    ast_flows, safe_sast_lns = ([], set())
                 lines = raw_src.splitlines()
                 ast_reported_lines: set[int] = set()
                 for af in ast_flows:
@@ -1020,7 +1026,7 @@ class VulnAssessmentSuperAgent:
                         r_title = rule["title"]
                         if rule_counts.get(r_title, 0) >= 5:
                             continue
-                        if idx in safe_sql_lns and "SQL Injection" in r_title:
+                        if idx in safe_sast_lns and ("SQL Injection" in r_title or "DOM-Based XSS" in r_title):
                             continue
                         if "DOM-Based XSS" in r_title and static_dom_re.search(line):
                             continue

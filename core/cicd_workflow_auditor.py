@@ -21,6 +21,51 @@ _GHA_UNTRUSTED_EXPR_RE = re.compile(
     re.I,
 )
 _NPMRC_TOKEN_RE = re.compile(r"(?m)^\s*(?://[^\s=:]+/:)?(?:_[a-zA-Z]*authToken|_password)\s*=\s*([^\s$#]{10,})\s*$")
+_PIPE_CURL_SH_RE = re.compile(r"(?i)\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?(?:bash|sh)\b")
+_JENKINS_PARAM_SH_RE = re.compile(r"""\bsh\s*\(?\s*"[^"\n]*\$\{?\s*params\.[A-Za-z0-9_]+""")
+_APP_SECRET_KV_RE = re.compile(
+    r"""(?im)^\s*(?:spring\.datasource\.password|spring\.data\.redis\.password|jwt\.secret|app\.jwt\.secret|aws\.secret[._-]?access[._-]?key|AWS_SECRET_ACCESS_KEY|JWT_SECRET|DB_PASSWORD|SECRET_KEY)\s*[=:]\s*['"]?([^\s'"$#]{10,})['"]?\s*$"""
+)
+_DUMMY_SECRET_VALUES = {"changeme", "password", "password123", "secretkey", "your_secret_here", "replace_me", "example_secret", "development"}
+
+
+def audit_cicd_and_app_configs(filename: str, content: str) -> list[tuple[str, str, float, str, str]]:
+    issues: list[tuple[str, str, float, str, str]] = []
+    fn = filename.lower()
+    txt = content or ""
+    if fn == ".gitlab-ci.yml":
+        if _PIPE_CURL_SH_RE.search(txt):
+            issues.append((
+                "Unverified Remote Script Piped to Shell in .gitlab-ci.yml",
+                "High", 8.1, "CWE-829",
+                "`curl ... | bash` o'rniga skriptni yuklab olib SHA-256 nazorat yig'indisini tekshiring.",
+            ))
+        if _APP_SECRET_KV_RE.search(txt):
+            val = _APP_SECRET_KV_RE.search(txt).group(1)  # type: ignore[union-attr]
+            if val.lower() not in _DUMMY_SECRET_VALUES and not val.startswith(("$", "${")):
+                issues.append((
+                    "Hardcoded Secret Variable in .gitlab-ci.yml",
+                    "High", 8.2, "CWE-798",
+                    "Maxfiy kalitlarni `.gitlab-ci.yml` ichida emas, GitLab Protected/Masked CI Variables bo'limida saqlang.",
+                ))
+    elif fn == "jenkinsfile":
+        if _JENKINS_PARAM_SH_RE.search(txt):
+            issues.append((
+                "Unsafe Groovy Parameter Interpolation in Jenkinsfile 'sh' Step",
+                "High", 8.6, "CWE-78",
+                "`sh \"... ${params.X}\"` o'rniga `withEnv` + bir tirnoqli `sh '... $X'` ishlating.",
+            ))
+    elif fn in ("application.properties", "application.yml", "application.yaml", ".env.production"):
+        for m in _APP_SECRET_KV_RE.finditer(txt):
+            val = m.group(1).strip()
+            if val.lower() not in _DUMMY_SECRET_VALUES and not val.startswith(("$", "${", "<", "ENC(")):
+                issues.append((
+                    f"Hardcoded Production Credential in {filename}",
+                    "High", 8.2, "CWE-798",
+                    f"`{filename}` ichida ochiq parol/kalit saqlamang; Vault yoki `${{ENV_VAR}}` orqali uzating.",
+                ))
+                break
+    return issues
 
 
 def audit_github_workflow_yaml(content: str) -> list[tuple[str, str, float, str, str]]:
@@ -93,22 +138,25 @@ def run_cicd_and_registry_audit(db: Any, project_id: int, code_paths: list[str],
                 )
                 written += 1
 
-        for rc_file in sorted(root.rglob("*"))[:200]:
+        extra_cfg_names = {".npmrc", ".pypirc", ".gitlab-ci.yml", "jenkinsfile", "application.properties", "application.yml", "application.yaml", ".env.production"}
+        for rc_file in sorted(root.rglob("*"))[:240]:
             if not rc_file.is_file() or any(sp in str(rc_file).replace("\\", "/") for sp in skip_parts):
                 continue
-            if rc_file.name.lower() in (".npmrc", ".pypirc"):
+            fn_l = rc_file.name.lower()
+            if fn_l in extra_cfg_names:
                 try:
                     rtxt = rc_file.read_text(encoding="utf-8", errors="ignore")[:65536]
                 except Exception:
                     continue
-                for title, sev, cvss, cwe, rem in audit_registry_config_text(rc_file.name, rtxt):
+                combined = audit_registry_config_text(rc_file.name, rtxt) + audit_cicd_and_app_configs(rc_file.name, rtxt)
+                for title, sev, cvss, cwe, rem in combined:
                     db.upsert_finding(
                         project_id, "Agent-2 (CICD-Auditor)", title,
                         "Supply-Chain / Credential Exposure", sev, cvss,
                         "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N", cwe,
                         "A07:2021 - Identification and Authentication Failures", str(rc_file),
-                        f"Registry Config: {rc_file.name}",
-                        f"`{rc_file.name}` faylida paket reestri uchun ochiq autentifikatsiya tokeni saqlangan.",
+                        f"Config/Pipeline: {rc_file.name}",
+                        f"`{rc_file.name}` faylida xavfli CI/CD konstruksiyasi yoki ochiq maxfiy kalit aniqlandi.",
                         rem, confidence=QoD.HEADER_CONFIG,
                     )
                     written += 1

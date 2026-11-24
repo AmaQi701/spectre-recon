@@ -31,8 +31,9 @@ FIND_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI")
-    p.add_argument("-t", "--target", required=True, help="Primary target domain, host, or URL")
+    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI v6.0.0")
+    p.add_argument("-t", "--target", default="", help="Primary target domain, host, or URL (required unless --export-project is set)")
+    p.add_argument("--export-project", type=int, default=0, help="Re-generate HTML/SARIF/SBOM/JUnit/Compliance artifacts for an existing project ID without re-scanning")
     p.add_argument("-n", "--name", default="", help="Project name (defaults to target host)")
     p.add_argument("--in-scope", default="", help="Comma/newline-separated in-scope rules")
     p.add_argument("--out-of-scope", default="", help="Comma/newline-separated out-of-scope rules")
@@ -60,6 +61,40 @@ def _extract_qod_pct(conf_str: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    def _log(msg: str) -> None:
+        print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+    db = DatabaseManager(args.db)
+    triage = TriageAndChainSuperAgent(db, args.reports_dir)
+
+    if args.export_project > 0:
+        pid = int(args.export_project)
+        b_ex = db.get_project_bundle(pid)
+        if not b_ex.get("project"):
+            print(f"[ERR] Project ID {pid} not found in DB.", file=sys.stderr)
+            return 1
+        triage.run_triage_and_chaining(pid, _log)
+        rep = triage.generate_reports(pid)
+        art = cli_orchestrator.export_project_artifacts(db, pid, reports_dir=args.reports_dir)
+        _log(f"[EXPORT-ONLY COMPLETE] HTML: {rep['html_path']} | SARIF: {art['sarif_json']} | Compliance: {art['compliance_matrix_json']}")
+        if args.diff_project > 0:
+            from core.surface_diff_engine import compute_project_diff, format_diff_report_text
+            diff_obj = compute_project_diff(db.get_project_bundle(args.diff_project), db.get_project_bundle(pid))
+            _log("\n" + format_diff_report_text(diff_obj))
+            if args.fail_on_drift and diff_obj["drift_level"] in ("CRITICAL_DRIFT", "HIGH_DRIFT"):
+                return 3
+        if args.fail_on != "none":
+            thresh = SEV_RANK[args.fail_on]
+            finds = db.get_project_bundle(pid).get("findings", [])
+            if any(
+                FIND_RANK.get(str(f.get("severity") or ""), 0) >= thresh
+                and _extract_qod_pct(str(f.get("confidence") or "")) >= int(args.min_qod)
+                for f in finds if f.get("triage_status") != "False-Positive"
+            ):
+                return 2
+        return 0
+
     target = ScopeGuard.extract_host(args.target)
     if not target:
         print("[ERR] Invalid --target specified.", file=sys.stderr)
@@ -67,11 +102,7 @@ def main(argv: list[str] | None = None) -> int:
 
     apex = ScopeGuard.extract_apex_domain(target)
     in_sc = args.in_scope.strip() or "\n".join(dict.fromkeys([target, apex, f"*.{apex}"]))
-    db = DatabaseManager(args.db)
     pid = db.create_project(args.name or target, target, in_sc, args.out_of_scope, args.source_path)
-
-    def _log(msg: str) -> None:
-        print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
     recon = ReconSuperAgent(db, str(BASE_DIR / "config" / "tools_registry.yaml"))
     if args.auth_a.strip():
@@ -85,7 +116,6 @@ def main(argv: list[str] | None = None) -> int:
 
     vuln = VulnAssessmentSuperAgent(db, shared_session=recon.session)
     vuln.configure_context(primary_auth=args.auth_a, secondary_auth=args.auth_b, proxy_url=args.proxy)
-    triage = TriageAndChainSuperAgent(db, args.reports_dir)
 
     try:
         active_override = [] if args.no_cli else None
