@@ -31,9 +31,11 @@ FIND_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI v7.5.0")
-    p.add_argument("-t", "--target", default="", help="Primary target domain, host, or URL (required unless --export-project is set)")
+    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI v8.0.0")
+    p.add_argument("-t", "--target", default="", help="Primary target domain, host, or URL (required unless --export-project/--benchmark/--doctor)")
     p.add_argument("--export-project", type=int, default=0, help="Re-generate HTML/SARIF/SBOM/JUnit/Compliance artifacts for an existing project ID without re-scanning")
+    p.add_argument("--benchmark", action="store_true", help="Run live 1 MB C++17 libspectre_accel.so throughput benchmark and exit")
+    p.add_argument("--doctor", action="store_true", help="Verify C++17 kernel, SQLite WAL DB, 250-NVT/CPE catalogs, 50-port verifiers, and CLI tools")
     p.add_argument("-n", "--name", default="", help="Project name (defaults to target host)")
     p.add_argument("--in-scope", default="", help="Comma/newline-separated in-scope rules")
     p.add_argument("--out-of-scope", default="", help="Comma/newline-separated out-of-scope rules")
@@ -59,8 +61,66 @@ def _extract_qod_pct(conf_str: str) -> int:
     return int(m.group(1)) if m else 80
 
 
+def _run_live_cpp_benchmark() -> int:
+    from core.native_bridge import (
+        fast_js_token_mask,
+        fast_mmh3_signed,
+        fast_secret_prefilter_mask,
+        fast_structural_hash,
+        get_native_lib,
+    )
+    lib = get_native_lib()
+    buf = (b"fetch('/api/v1/accounts'); el.innerHTML = x; AKIA1234567890ABCDEF sk-ant-api03-test0011223344556677889900\n") * 10000
+    mb = len(buf) / (1024.0 * 1024.0)
+
+    def _rate(fn, iters: int = 8) -> float:
+        t0 = time.perf_counter()
+        for _ in range(iters):
+            fn(buf)
+        return (mb * iters) / max(1e-6, time.perf_counter() - t0)
+
+    r_mmh = _rate(fast_mmh3_signed)
+    r_sec = _rate(fast_secret_prefilter_mask)
+    r_tok = _rate(fast_js_token_mask)
+    r_str = _rate(fast_structural_hash, iters=4)
+    print(f"SPECTRE v8.0.0 Hybrid C++17 Kernel Benchmark (CppLoaded={lib is not None})")
+    print("=" * 72)
+    print(f"  1. C++17 MurmurHash3 (Favicon/Asset Fingerprint) : {r_mmh:8.1f} MB/s")
+    print(f"  2. C++17 Secret & AI Key Pre-Filter Mask         : {r_sec:8.1f} MB/s")
+    print(f"  3. C++17 JS Route/Sink/SourceMap Token Scanner   : {r_tok:8.1f} MB/s")
+    print(f"  4. C++17 Structural DOM/JSON Soft-200 Skeleton   : {r_str:8.1f} MB/s")
+    print("=" * 72)
+    return 0 if lib is not None else 1
+
+
+def _run_doctor_diagnostics(db_path: str) -> int:
+    from core.advisory_kb import _CPE_VENDOR_PRODUCT
+    from core.native_bridge import get_native_lib
+    from core.nvt_declarative_engine import load_nvt_catalog
+    from core.protocol_verifiers import SUPPORTED_ACTIVE_PORTS
+    from core.sca_engine import OFFLINE_SCA_RULES, SUPPORTED_MANIFEST_NAMES
+
+    cpp_ok = get_native_lib() is not None
+    nvts = len(load_nvt_catalog())
+    cpes = len(_CPE_VENDOR_PRODUCT)
+    ports_n = len(SUPPORTED_ACTIVE_PORTS)
+    sca_n = len(OFFLINE_SCA_RULES)
+    man_n = len(SUPPORTED_MANIFEST_NAMES)
+    db_chk = DatabaseManager(db_path)
+    projs = len(db_chk.get_projects())
+    print(
+        f"SPECTRE_DOCTOR_OK | CppKernel={cpp_ok} | NVTs={nvts} | CPEs={cpes} "
+        f"| ActivePorts={ports_n} | SCAFormats={man_n}+csproj | SCARules={sca_n} | DBProjects={projs}"
+    )
+    return 0 if (cpp_ok and nvts >= 250 and cpes >= 250 and ports_n >= 50) else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.benchmark:
+        return _run_live_cpp_benchmark()
+    if args.doctor:
+        return _run_doctor_diagnostics(args.db)
 
     def _log(msg: str) -> None:
         print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)

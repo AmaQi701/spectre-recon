@@ -258,6 +258,16 @@ _PRODUCT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("kamailio", re.compile(r"(?i)\bkamailio[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
     ("opensips", re.compile(r"(?i)\bopensips[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
     ("haproxy_dataplane", re.compile(r"(?i)\bdataplaneapi[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("opensearch", re.compile(r"(?i)\bopensearch[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("hasura", re.compile(r"(?i)\bhasura[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("teleport", re.compile(r"(?i)\bteleport[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("boundary", re.compile(r"(?i)\b(?:hashicorp[-_\s]+)?boundary[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("headscale", re.compile(r"(?i)\bheadscale[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("dagster", re.compile(r"(?i)\bdagster[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("prefect", re.compile(r"(?i)\bprefect[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("cubejs", re.compile(r"(?i)\bcube(?:\.js|js)[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("rundeck", re.compile(r"(?i)\brundeck[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
+    ("openziti", re.compile(r"(?i)\bopenziti[:/\s=\-_(]+v?(\d+\.\d+(?:\.\d+)?)(?![.\d])")),
 )
 
 _CPE_VENDOR_PRODUCT: dict[str, tuple[str, str]] = {
@@ -501,6 +511,16 @@ _CPE_VENDOR_PRODUCT: dict[str, tuple[str, str]] = {
     "kamailio": ("kamailio", "kamailio"),
     "opensips": ("opensips", "opensips"),
     "haproxy_dataplane": ("haproxy", "dataplaneapi"),
+    "opensearch": ("opensearch", "opensearch"),
+    "hasura": ("hasura", "graphql_engine"),
+    "teleport": ("goteleport", "teleport"),
+    "boundary": ("hashicorp", "boundary"),
+    "headscale": ("juanfont", "headscale"),
+    "dagster": ("elementl", "dagster"),
+    "prefect": ("prefect", "prefect"),
+    "cubejs": ("cube", "cubejs"),
+    "rundeck": ("pagerduty", "rundeck"),
+    "openziti": ("netfoundry", "openziti"),
 }
 
 

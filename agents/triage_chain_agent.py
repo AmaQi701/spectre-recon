@@ -498,8 +498,36 @@ class TriageAndChainSuperAgent:
         md_content = "\n".join(md_lines)
         md_path.write_text(md_content, encoding="utf-8")
 
-        # HTML Printable & Interactive CISO Report Portal (100% offline, CSP-clean, escaped)
+        # HTML Printable & Interactive CISO Report Portal v8.0 (100% offline, CSP-clean, escaped)
         import html as _html
+        from core.remediation_cookbook import build_fix_patch_snippet, build_safe_reproducer
+
+        svg_items = []
+        for idx_c, ch in enumerate(chains[:6]):
+            nodes_l = (json.loads(ch.get("nodes_json") or "[]") + ["Target Impact"])[:3]
+            while len(nodes_l) < 3:
+                nodes_l.append("Impact")
+            y0 = 22 + idx_c * 52
+            stroke_c = "#ef4444" if ch.get("severity") == "Critical" else "#f97316"
+            for col_i, nd_txt in enumerate(nodes_l):
+                x0 = 18 + col_i * 310
+                lbl = _html.escape(str(nd_txt)[:34])
+                svg_items.append(
+                    f"<rect x='{x0}' y='{y0}' width='265' height='36' rx='6' fill='#111c16' stroke='{stroke_c}' stroke-width='1.4'/>"
+                    f"<text x='{x0 + 12}' y='{y0 + 22}' fill='#e2e8f0' font-size='11.5' font-family='monospace'>{lbl}</text>"
+                )
+                if col_i < 2:
+                    svg_items.append(
+                        f"<line x1='{x0 + 265}' y1='{y0 + 18}' x2='{x0 + 308}' y2='{y0 + 18}' stroke='#4ade80' stroke-width='1.6'/>"
+                        f"<polygon points='{x0 + 308},{y0 + 18} {x0 + 300},{y0 + 14} {x0 + 300},{y0 + 22}' fill='#4ade80'/>"
+                    )
+        svg_h = max(76, len(chains[:6]) * 52 + 28)
+        attack_svg_html = (
+            f"<svg viewBox='0 0 930 {svg_h}' style='width:100%;max-width:980px;background:#0b110e;border:1px solid #1b2a21;border-radius:8px;margin:10px 0;'>"
+            + "".join(svg_items)
+            + "</svg>"
+        ) if svg_items else ""
+
         rows_html = "".join(
             f"<tr class='f-row' data-sev='{_html.escape(str(f['severity']), quote=True)}' data-kev='{'1' if '[CISA-KEV' in str(f.get('evidence', '')) else '0'}'>"
             f"<td><b>{_html.escape(str(f['severity']))}</b> ({_html.escape(str(f['cvss_score']))})"
@@ -507,7 +535,11 @@ class TriageAndChainSuperAgent:
             + f"<br><small>{_html.escape(str(f.get('confidence', '')))}</small></td>"
             f"<td>{_html.escape(str(f['title']))}<br><small>{_html.escape(str(f['cwe']))} | {_html.escape(str(f['owasp']))}</small></td>"
             f"<td><code>{_html.escape(str(f['asset']))}</code></td>"
-            f"<td><code>{_html.escape(str(f['evidence']))}</code></td>"
+            f"<td><code>{_html.escape(str(f['evidence']))}</code>"
+            f"<div style='margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;'>"
+            f"<button class='flt-btn' style='padding:3px 8px;font-size:11px;' data-cmd='{_html.escape(build_safe_reproducer(f), quote=True)}' onclick='spCopyAttr(this,\"data-cmd\")'>Copy Reproducer</button>"
+            f"<button class='flt-btn' style='padding:3px 8px;font-size:11px;' data-fix='{_html.escape(build_fix_patch_snippet(f), quote=True)}' onclick='spCopyAttr(this,\"data-fix\")'>Copy Fix Patch</button>"
+            f"</div></td>"
             f"<td>{_html.escape(str(f['remediation']))}</td></tr>"
             for f in findings
         )
@@ -531,6 +563,7 @@ class TriageAndChainSuperAgent:
             ("ISO/IEC 27001:2022", "iso_27001_2022"),
             ("NIST CSF 2.0", "nist_csf_2"),
             ("AICPA SOC 2 TSC", "soc2_tsc"),
+            ("MITRE ATT&CK v15", "mitre_attack_v15"),
         ):
             for ctrl_n, cnt_n in (fw_map.get(fw_k) or {}).items():
                 comp_rows_html += (
@@ -550,7 +583,7 @@ class TriageAndChainSuperAgent:
             f"</div>"
         )
         html_content = f"""<!DOCTYPE html>
-<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v7.5.0 Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
+<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v8.0.0 Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
 <style>
 body {{ font-family: "Inter", system-ui, sans-serif; background: #090c0a; color: #e2e8f0; padding: 32px; }}
 h1, h2 {{ color: #4ade80; border-bottom: 1px solid #1b2a21; padding-bottom: 8px; }}
@@ -564,10 +597,11 @@ code {{ color: #86efac; background: #080b09; padding: 2px 6px; border-radius: 4p
 .flt-inp {{ background: #090c0a; color: #f1f5f9; border: 1px solid #24362b; border-radius: 6px; padding: 6px 12px; min-width: 280px; font-size: 12.5px; }}
 @media print {{ body {{ background: #ffffff; color: #111827; padding: 12px; }} table, th, td {{ border-color: #d1d5db; background: #ffffff; color: #111827; }} code {{ background: #f3f4f6; color: #065f46; }} .flt-bar {{ display: none; }} }}
 </style></head><body>
-<h1>SPECTRE v7.5.0 — Enterprise Security &amp; Attack Surface Report: {_html.escape(str(proj.get('name', '')))}</h1>
+<h1>SPECTRE v8.0.0 — Enterprise Security &amp; Attack Surface Report: {_html.escape(str(proj.get('name', '')))}</h1>
 <p><b>Primary Target:</b> <code>{_html.escape(str(proj.get('primary_target', '')))}</code> | <b>In-Scope:</b> <code>{_html.escape(str(proj.get('in_scope', '')))}</code></p>
 {kpi_bar}
-<h2>🔗 Zaifliklar Zanjiri (Bug Chaining Scenarios — {len(chains)})</h2>
+<h2>🔗 Zaifliklar Zanjiri va Kill-Chain Grafikasi (Bug Chaining Scenarios — {len(chains)})</h2>
+{attack_svg_html}
 <table><thead><tr><th>Severity / CVSS</th><th>Zanjir Nomi va Bosqichlari</th><th>Hujum Ssenariysi</th><th>Remediation</th></tr></thead>
 <tbody>{chains_html or '<tr><td colspan="4">Zanjirlangan ssenariylar aniqlanmadi.</td></tr>'}</tbody></table>
 <h2>🔍 Aniqlangan Zaifliklar va Tekshiruv Nuqtalari ({len(findings)})</h2>
@@ -602,6 +636,15 @@ function spFilter() {{
     var okQ = !q || tr.textContent.toLowerCase().indexOf(q) !== -1;
     tr.style.display = (okSev && okQ) ? '' : 'none';
   }});
+}}
+function spCopyAttr(btn, attrName) {{
+  var v = btn.getAttribute(attrName) || '';
+  if (navigator.clipboard && v) {{
+    navigator.clipboard.writeText(v);
+    var old = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(function(){{ btn.textContent = old; }}, 1200);
+  }}
 }}
 </script>
 </body></html>"""

@@ -2,17 +2,37 @@
 
 <img src="ui/apex-icon.svg" width="105" alt="SPECTRE Logo" />
 
-# SPECTRE (`spectre-recon`) v7.5.0
+# SPECTRE (`spectre-recon`) v8.0.0
 
-**Hybrid C++17 v3 / Python Attack Surface Management (ASM), AI/LLM & MCP Auditor, 240-Rule Declarative + Custom YAML NVT, 50-Port Socket NVT, 240-Product CPE 2.3, 6-Language Taint SAST, Helm/Nginx/Ansible/K8s IaC v3, 18-Format 90-CVE SCA & 6-Framework Compliance Platform**
+**Hybrid C++17 v3 / Python Enterprise ASM, AI/LLM/RAG & MCP Security Auditor, 250-Rule Declarative + Custom YAML NVT, 50-Port Active Socket NVT, 250-Product NIST CPE 2.3, 6-Language Polyglot Taint SAST, Cloud/IaC v3, 18-Format 90-CVE SCA, 1-Click Reproducer/Patch Cookbook & 7-Framework (+MITRE ATT&CK v15) Platform**
 
 [![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Kali%20%7C%20Debian-0ea5e9?style=for-the-badge&logo=linux)](https://github.com/AmaQi701/spectre-recon)
 [![Engine](https://img.shields.io/badge/Core-C%2B%2B17%20epoll%20%2B%20OpenSSL-ef4444?style=for-the-badge&logo=cplusplus)](https://isocpp.org/)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-10b981?style=for-the-badge&logo=python)](https://www.python.org/)
+[![AI_Security](https://img.shields.io/badge/AI%20%26%20MCP%20Audit-Ollama%20%7C%20vLLM%20%7C%20Qdrant%20%7C%20MCP-8b5cf6?style=for-the-badge)](https://github.com/AmaQi701/spectre-recon)
 [![GUI](https://img.shields.io/badge/Desktop%20GUI-Native%20GTK3%20%2B%20Cairo-6366f1?style=for-the-badge&logo=gnome)](https://gtk.org/)
 [![License](https://img.shields.io/badge/License-MIT-f59e0b?style=for-the-badge)](LICENSE)
 
 </div>
+
+---
+
+## Why SPECTRE v8.0 Over Legacy Scanners?
+
+| Capability | **SPECTRE v8.0 (OSS)** | Nessus Pro | OpenVAS / Greenbone | Nuclei | Trivy |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **100% Free & Open-Source** | **Yes (MIT)** | Paid Commercial | Yes | Yes | Yes |
+| **Hybrid C++17 `epoll` + OpenSSL Kernel** | **Yes (`>350 MB/s`)** | Proprietary C/NASL | C / NASL | Go | Go |
+| **AI/LLM, RAG Vector DB & MCP `tools/list` Audit** | **Built-in (`Ollama/vLLM/Qdrant/Chroma/Ray/MCP`)** | Partial | No | Community YAML | No |
+| **Active Read-Only Binary/Text Socket NVTs** | **50 Protocols** | Yes | Yes | Limited TCP | No |
+| **Declarative NVTs + Custom YAML / Nuclei SDK** | **250 Built-in + Custom YAML** | NASL Only | NASL Only | YAML | No |
+| **6-Language Multi-Line Taint-Flow SAST** | **Py / JS / TS / Go / Java / PHP / C#** | No | No | No | No |
+| **SourceMap (`.js.map`) Unpack -> White-Box SAST** | **Automatic** | No | No | No | No |
+| **Polyglot Lockfile SCA + CycloneDX 1.5 VEX SBOM** | **18 Formats (`90` Offline + OSV.dev)** | Basic | No | No | Yes |
+| **Cloud/IaC (`Dockerfile`, K8s RBAC/Ingress, Helm, TF, Nginx, Ansible)** | **Built-in** | Compliance Only | No | Partial | Yes |
+| **Multi-Role BOLA / Authz Differential Matrix** | **Guest vs Role-A vs Role-B** | No | No | Manual | No |
+| **1-Click Safe `curl` Reproducer + Ready Fix Patch** | **Every Finding** | No | No | curl Only | No |
+| **Interactive SVG Kill-Chain + 7 Compliance Frameworks** | **OWASP / API / PCI v4 / ISO / NIST CSF 2 / SOC 2 / MITRE v15** | Paid Add-on | Basic | Paid Cloud | Partial |
+| **Native Linux GTK3 + Cairo 2D Topology Studio + CLI** | **Both Included** | Web UI | Web UI | CLI Only | CLI Only |
 
 ---
 
@@ -51,43 +71,37 @@ Instead of chaining fragile shell scripts or running heavy browser-bound wrapper
 
 ```text
 spectre-recon/
-├── apex_gtk_app.py               # Native Linux GTK3 + Cairo 2D Topology Desktop GUI
+├── apex_gtk_app.py               # Native Linux GTK3 + Cairo 2D Topology & Posture Studio
+├── spectre_cli.py                # Headless CI/CD CLI (--benchmark, --doctor, --export-project, --diff-project)
 ├── launch_apex.sh                # Portable desktop launcher (Snap-safe GTK environment)
 ├── build_deb.sh                  # Debian (.deb) package builder
 ├── config/
-│   ├── nvt_catalog.json          # 60 declarative enterprise/DevOps/DB/CMS NVT rules
+│   ├── nvt_catalog.json          # 250 declarative enterprise, AI/LLM, Zero-Trust & DB NVT rules
+│   ├── custom_nvts/              # Optional user YAML / Nuclei-compatible custom NVT directory
 │   └── tools_registry.yaml       # Configurable external CLI & built-in tool registry
 ├── core/
 │   ├── native/
-│   │   └── spectre_accel.cpp     # C++17 Linux epoll, JS token mask, OpenSSL HMAC & SimHash64
-│   ├── native_bridge.py          # Auto-compiling ctypes bridge with Python fallbacks
-│   ├── nvt_declarative_engine.py # Dual-baseline JSON declarative NVT runner
-│   ├── protocol_verifiers.py     # 23-port active TCP/TLS/binary & SSH KEXINIT verifiers
+│   │   └── spectre_accel.cpp     # C++17 v3 epoll, secret prefilter, structural hash, OpenSSL HMAC & SimHash64
+│   ├── native_bridge.py          # Auto-compiling ctypes bridge with deterministic Python fallbacks
+│   ├── ai_llm_auditor.py         # Ollama, vLLM/LiteLLM, Qdrant, ChromaDB, Ray & MCP JSON-RPC auditor
+│   ├── remediation_cookbook.py   # 1-Click safe curl/openssl reproducers & ready-to-apply fix patches
+│   ├── nvt_declarative_engine.py # Dual-baseline JSON + Custom YAML NVT runner
+│   ├── protocol_verifiers.py     # 50-port read-only TCP/TLS/binary & SSH KEXINIT verifiers
+│   ├── sast_ast_engine.py        # 6-language multi-line taint-flow SAST (Py, JS/TS, Go, Java, PHP, C#)
+│   ├── iac_auditor.py            # Dockerfile, Compose, K8s Pod/RBAC/Ingress, Helm, Ansible, Nginx & Terraform
+│   ├── cicd_workflow_auditor.py  # GitHub Actions, GitLab CI, Jenkinsfile, .npmrc & Spring config auditor
+│   ├── sca_engine.py             # 18-format lockfile/manifest SCA (90 offline CVEs + OSV.dev + purl)
+│   ├── compliance_exporter.py    # SARIF 2.1.0, CycloneDX 1.5 VEX, JUnit & 7-Framework (+MITRE v15) exporter
+│   ├── surface_diff_engine.py    # Continuous EASM attack-surface & posture drift comparator
+│   ├── credentialed_auditor.py   # Agentless read-only SSH CIS & distro package security auditor
 │   ├── cms_enterprise_nvts.py    # Tech-gated CMS, framework & DevOps panel verifiers
-│   ├── sca_engine.py             # Manifest SCA parser & cached OSV.dev batch query engine
-│   ├── feed_updater.py           # Offline CISA KEV catalog synchronizer & enricher
-│   ├── advisory_kb.py            # 106-product NIST CPE 2.3 & SemVer advisory catalog
+│   ├── feed_updater.py           # CISA KEV + FIRST.org EPSS exploit probability enricher
+│   ├── advisory_kb.py            # 250-product NIST CPE 2.3 & SemVer advisory catalog
 │   ├── database.py               # Thread-safe SQLite WAL Asset Graph manager
-│   ├── http_engine.py            # Streaming-capped, adaptive-backoff HTTP pool
+│   ├── http_engine.py            # Zero-refetch cached, adaptive-backoff HTTP pool
 │   ├── models.py                 # Strict TypedDict schema contracts
 │   ├── plugin_runner.py          # ScanContextKB & PhaseOrchestrator engine
 │   └── scope_guard.py            # Rules of Engagement (RoE) scope enforcer
-├── agents/
-│   ├── recon_agent.py            # Agent 1: 6-stage reconnaissance orchestrator
-│   ├── vuln_agent.py             # Agent 2: KB-gated posture, CVE, SAST & BOLA auditor
-│   ├── triage_chain_agent.py     # Agent 3: Asset-bound attack graph & report builder
-│   ├── stages.py                 # Stage-to-capability index
-│   ├── domain_facade.py          # Domain-driven capability namespaces
-│   ├── cli_orchestrator.py       # External CLI runners, Repeater & artifact exporters
-│   ├── surface_prober.py         # VHost, custom ports, shadow API & target dossier
-│   ├── origin_and_spa.py         # Origin unmasking, PTR sweep & SPA manifest parsers
-│   ├── active_web_auditor.py     # Proxy ACL, GraphQL, SourceMap, JWT & WebSocket checks
-│   ├── protocol_and_client.py    # VCS, gRPC, cache policy, SPF/DMARC & WebStorage checks
-│   ├── schema_and_iam.py         # OIDC/Keycloak, OpenAPI DTO & DOM SimHash clustering
-│   └── runtime_and_network.py    # Headless V8, IPv6, CSP nonce, UDP & WASM analyzers
-└── tests/
-    ├── test_integrity_gate.py    # AST, signature, portability & schema integrity gate
-    └── test_local_benchmark.py   # Self-contained local E2E verification benchmark
 ```
 
 ---
@@ -108,11 +122,16 @@ cd spectre-recon
 ### Option 2: Headless Server & CI/CD CLI Mode (`spectre_cli.py`)
 
 ```bash
+# Verify C++17 kernel, 250-NVT / 250-CPE catalogs, 50-port verifiers & DB health:
+python3 spectre_cli.py --doctor
+# Run live 1 MB C++17 throughput micro-benchmark:
+python3 spectre_cli.py --benchmark
+# Full headless enterprise scan + CI/CD QoD gate:
 python3 spectre_cli.py --target example.org --mode full --fail-on high --min-qod 90
 # Compare Attack-Surface & Vulnerability Drift vs Baseline Project #1:
 python3 spectre_cli.py --target example.org --diff-project 1 --fail-on-drift
-# Optional Read-Only Credentialed SSH CIS & Package Audit:
-python3 spectre_cli.py --target example.org --ssh-audit auditor@example.org --ssh-key ~/.ssh/id_ed25519
+# Fast offline artifact re-export (HTML v8.0 SVG, SARIF 2.1.0, CycloneDX 1.5 VEX, 7-Framework Matrix):
+python3 spectre_cli.py --export-project 1
 ```
 
 ### Option 3: Build & Install `.deb` Package

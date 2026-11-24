@@ -60,7 +60,7 @@ def build_sarif_report(bundle: dict[str, Any]) -> dict[str, Any]:
             "tool": {
                 "driver": {
                     "name": "SPECTRE Hybrid Security Studio",
-                    "version": "7.5.0",
+                    "version": "8.0.0",
                     "informationUri": "https://github.com/AmaQi701/spectre-recon",
                     "rules": list(rules_map.values()),
                 }
@@ -153,48 +153,62 @@ def map_finding_compliance_controls(finding: dict[str, Any]) -> dict[str, str]:
     cat = str(finding.get("category") or "").lower()
     owasp_2021 = str(finding.get("owasp") or "A05:2021 - Security Misconfiguration")
 
-    if cwe in ("CWE-639", "CWE-284", "CWE-285") or "bola" in cat or "access control" in cat:
+    if cwe in ("CWE-639", "CWE-284", "CWE-285", "CWE-269") or "bola" in cat or "access control" in cat:
         api_ctrl = "API1:2023 - Broken Object Level Authorization" if "bola" in cat or cwe == "CWE-639" else "API5:2023 - Broken Function Level Authorization"
         pci = "PCI-DSS v4.0 Req 6.2.4 & Req 7.2.2 (Access Control)"
         iso = "ISO/IEC 27001:2022 A.8.3 (Information Access Restriction)"
         nist = "NIST CSF 2.0 PR.AA-05 (Access Permissions & Authorization)"
         soc2 = "SOC 2 CC6.1 & CC6.3 (Logical Access Authorization)"
-    elif cwe in ("CWE-287", "CWE-306", "CWE-347", "CWE-614", "CWE-798") or "jwt" in cat or "session" in cat or "cookie" in cat:
+        mitre = "MITRE ATT&CK v15 T1078 / T1190 (Privilege & Access Abuse)"
+    elif cwe in ("CWE-287", "CWE-306", "CWE-347", "CWE-614", "CWE-798") or "jwt" in cat or "session" in cat or "cookie" in cat or re.search(r"\b(?:ai|llm|mcp|rag)\b", cat):
         api_ctrl = "API2:2023 - Broken Authentication"
         pci = "PCI-DSS v4.0 Req 8.3 & Req 6.2.4 (Authentication & Credentials)"
         iso = "ISO/IEC 27001:2022 A.8.5 (Secure Authentication)"
         nist = "NIST CSF 2.0 PR.AA-01 (Identity & Credential Management)"
         soc2 = "SOC 2 CC6.1 (Authentication & Secret Protection)"
+        mitre = "MITRE ATT&CK v15 T1552 / T1190 (Unsecured Credentials & Exposed Service)"
     elif cwe in ("CWE-295", "CWE-319", "CWE-326", "CWE-327") or "tls" in cat or "ssl" in cat or "crypt" in cat:
         api_ctrl = "API8:2023 - Security Misconfiguration (Transport TLS)"
         pci = "PCI-DSS v4.0 Req 4.2.1 (Strong Cryptography in Transit)"
         iso = "ISO/IEC 27001:2022 A.8.24 (Use of Cryptography)"
         nist = "NIST CSF 2.0 PR.DS-02 (Data-in-Transit Protection)"
         soc2 = "SOC 2 CC6.7 (Transmission Encryption)"
-    elif cwe in ("CWE-79", "CWE-89", "CWE-78", "CWE-94", "CWE-502", "CWE-601") or "injection" in cat or "xss" in cat or "redirect" in cat:
+        mitre = "MITRE ATT&CK v15 T1557 (Adversary-in-the-Middle / Weak Transport)"
+    elif cwe in ("CWE-79", "CWE-89", "CWE-78", "CWE-94", "CWE-502", "CWE-601", "CWE-22") or "injection" in cat or "xss" in cat or "redirect" in cat:
         api_ctrl = "API8:2023 - Security Misconfiguration / Input Validation"
         pci = "PCI-DSS v4.0 Req 6.2.4 (Injection & XSS Prevention)"
         iso = "ISO/IEC 27001:2022 A.8.28 (Secure Coding)"
         nist = "NIST CSF 2.0 PR.PS-05 (Secure Software Development)"
         soc2 = "SOC 2 CC8.1 & CC7.1 (Change & Input Integrity)"
+        mitre = "MITRE ATT&CK v15 T1190 / T1059 (Exploit Public-Facing App & Execution)"
     elif cwe == "CWE-918" or "ssrf" in cat:
         api_ctrl = "API7:2023 - Server Side Request Forgery"
         pci = "PCI-DSS v4.0 Req 6.4.1 (Public Web App SSRF Protection)"
         iso = "ISO/IEC 27001:2022 A.8.20 (Networks Security)"
         nist = "NIST CSF 2.0 PR.IR-01 (Network Boundary Protection)"
         soc2 = "SOC 2 CC6.6 (External Network Boundary Controls)"
+        mitre = "MITRE ATT&CK v15 T1090 / T1552.005 (Cloud Instance Metadata & Proxy)"
     elif cwe in ("CWE-1104", "CWE-1395", "CWE-829") or "sca" in cat or "outdated" in cat or "cve" in cat or "ci/cd" in cat:
         api_ctrl = "API9:2023 - Improper Inventory Management"
         pci = "PCI-DSS v4.0 Req 6.3.2 & Req 6.3.3 (SBOM & Patch Management)"
         iso = "ISO/IEC 27001:2022 A.8.8 (Management of Technical Vulnerabilities)"
         nist = "NIST CSF 2.0 GV.SC-07 & ID.RA-01 (Supply-Chain & Vuln Management)"
         soc2 = "SOC 2 CC7.1 & CC3.2 (Vulnerability & Dependency Management)"
+        mitre = "MITRE ATT&CK v15 T1195.002 (Compromise Software Supply Chain)"
+    elif cwe == "CWE-250" or "iac" in cat or "container" in cat:
+        api_ctrl = "API8:2023 - Security Misconfiguration (Container/Cloud)"
+        pci = "PCI-DSS v4.0 Req 2.2 (Container & Cloud Hardening)"
+        iso = "ISO/IEC 27001:2022 A.8.9 (Configuration Management)"
+        nist = "NIST CSF 2.0 PR.PS-01 (Cloud/IaC Baseline)"
+        soc2 = "SOC 2 CC7.1 (Infrastructure Hardening)"
+        mitre = "MITRE ATT&CK v15 T1610 / T1611 (Deploy Container & Escape to Host)"
     else:
         api_ctrl = "API8:2023 - Security Misconfiguration"
         pci = "PCI-DSS v4.0 Req 11.3 & Req 2.2 (System Hardening)"
         iso = "ISO/IEC 27001:2022 A.8.9 (Configuration Management)"
         nist = "NIST CSF 2.0 PR.PS-01 (Configuration Management)"
         soc2 = "SOC 2 CC7.1 (System Configuration Monitoring)"
+        mitre = "MITRE ATT&CK v15 T1046 / T1592 (Network & Host Surface Discovery)"
 
     return {
         "owasp_2021": owasp_2021,
@@ -203,6 +217,7 @@ def map_finding_compliance_controls(finding: dict[str, Any]) -> dict[str, str]:
         "iso_27001_2022": iso,
         "nist_csf_2": nist,
         "soc2_tsc": soc2,
+        "mitre_attack_v15": mitre,
     }
 
 
@@ -218,6 +233,7 @@ def build_compliance_matrix(bundle: dict[str, Any]) -> dict[str, Any]:
         "iso_27001_2022": {},
         "nist_csf_2": {},
         "soc2_tsc": {},
+        "mitre_attack_v15": {},
     }
     penalty = 0.0
     kev_cnt = 0

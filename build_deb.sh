@@ -14,7 +14,7 @@ mkdir -p "${DIST_DIR}"
 
 cat << 'EOF' > "${PKG_DIR}/DEBIAN/control"
 Package: spectre-recon
-Version: 7.5.0
+Version: 8.0.0
 Section: utils
 Priority: optional
 Architecture: amd64
