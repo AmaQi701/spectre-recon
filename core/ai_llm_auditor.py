@@ -24,6 +24,67 @@ _AI_KEY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("Groq Cloud API Key", re.compile(r"\bgsk_[A-Za-z0-9]{28,}\b")),
 )
 _DUMMY_MARKERS = ("example", "sample", "placeholder", "your_", "xxxx", "000000", "testkey", "dummy")
+_HIDDEN_OVERRIDE_CTX_RE = re.compile(
+    r"(?is)(?:<!--(.*?)-->|<meta\b[^>]*content=['\"]([^'\"]+)['\"][^>]*>|"
+    r"<[^>]+style=['\"][^'\"]*display\s*:\s*none[^'\"]*['\"][^>]*>(.*?)</[^>]+>)"
+)
+_OVERRIDE_CLAUSE_RE = re.compile(
+    r"(?i)\b(?:ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions|disregard\s+(?:all\s+)?(?:previous|prior)\s+instructions|"
+    r"system\s+prompt\s+override|new\s+system\s+instructions)\b"
+)
+_SUPPRESS_ACTION_RE = re.compile(
+    r"(?i)\b(?:no\s+vulnerabilities|mark\s+(?:this\s+)?(?:target|code|host|app)\s+as\s+(?:safe|secure)|"
+    r"report\s+(?:zero|0)\s+findings|classify\s+as\s+false\s+positive)\b"
+)
+_UNSAFE_AGENT_PERM_RE = re.compile(
+    r"(?i)^(?:Bash\(\*\)|Bash\((?:sh|bash|curl|wget)\s*\*\)|\*)$"
+)
+
+
+def detect_indirect_prompt_directives(raw_html_or_headers: str) -> str | None:
+    """Detects hidden scanner-override / indirect prompt-injection directives in HTML comments, hidden DOM, or AI headers."""
+    txt = raw_html_or_headers or ""
+    if not txt:
+        return None
+    for m in _HIDDEN_OVERRIDE_CTX_RE.finditer(txt):
+        seg = " ".join(g for g in m.groups() if g).strip()
+        if seg and _OVERRIDE_CLAUSE_RE.search(seg) and _SUPPRESS_ACTION_RE.search(seg):
+            return seg[:140]
+    for ln in txt.splitlines():
+        if re.match(r"(?i)^x-(?:ai|llm|agent|prompt)[a-z0-9\-]*\s*:", ln.strip()):
+            if _OVERRIDE_CLAUSE_RE.search(ln) and _SUPPRESS_ACTION_RE.search(ln):
+                return ln.strip()[:140]
+    return None
+
+
+def audit_agent_workspace_config_text(filename: str, content: str) -> list[tuple[str, str, float, str, str]]:
+    """Audits `.claude/settings.json`, `.gemini/settings.json`, `.cursor/mcp.json` for wildcard shell/skip-permission configs."""
+    issues: list[tuple[str, str, float, str, str]] = []
+    try:
+        cfg = json.loads(content or "")
+    except Exception:
+        return issues
+    if not isinstance(cfg, dict):
+        return issues
+
+    if cfg.get("dangerouslySkipPermissions") is True or cfg.get("yolo") is True or cfg.get("trustAllTools") is True:
+        issues.append((
+            f"AI Agent Permission Guard Disabled in {filename}",
+            "High", 8.5, "CWE-250",
+            f"`{filename}` faylida `dangerouslySkipPermissions` / `yolo` rejimini o'chiring va minimal ruxsatlar ro'yxatini qo'llang.",
+        ))
+
+    perms = cfg.get("permissions") if isinstance(cfg.get("permissions"), dict) else {}
+    allow_list = perms.get("allow") if isinstance(perms.get("allow"), list) else []
+    auto_list = cfg.get("autoApprove") if isinstance(cfg.get("autoApprove"), list) else []
+    bad_perms = [str(x) for x in (allow_list + auto_list) if isinstance(x, str) and _UNSAFE_AGENT_PERM_RE.match(x.strip())]
+    if bad_perms:
+        issues.append((
+            f"Wildcard Shell Execution Permission in AI Agent Config ({filename})",
+            "High", 8.5, "CWE-250",
+            f"`{filename}` ruxsatlarida `{bad_perms[0]}` o'rniga faqat aniq xavfsiz buyruqlarni (`Bash(pytest)`) ruxsat eting.",
+        ))
+    return issues
 
 
 def _safe_json(resp: Any) -> Any:
@@ -180,6 +241,23 @@ def audit_ai_llm_web_surface(
                 hits += 1
         except Exception:
             pass
+        try:
+            r_root = http_engine.request("GET", origin, timeout=(2.0, 2.8), allow_redirects=False)
+            hdr_blob = "\n".join(f"{k}: {v}" for k, v in (getattr(r_root, "headers", {}) or {}).items())
+            inj_ev = detect_indirect_prompt_directives(f"{hdr_blob}\n{str(getattr(r_root, 'text', '') or '')[:65536]}")
+            if inj_ev:
+                db.upsert_finding(
+                    project_id, "SPECTRE-AI-Security", f"Embedded Indirect Prompt-Override Directive in Web Response ({p.netloc})",
+                    "AI / Indirect Prompt Manipulation", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                    "CWE-74", "LLM01:2025 - Prompt Injection (Indirect)", origin,
+                    f"Hidden Directive Snippet: {inj_ev}",
+                    "Veb-javobning yashirin HTML izohi yoki header qismida AI skaner/agent xulosasini o'zgartirishga urinuvchi ko'rsatma aniqlandi.",
+                    "Tashqi veb-tarkibni Untrusted-Content konvertida ajrating va yashirin prompt-override teglarini filtrlang.",
+                    confidence=QoD.ACTIVE_VERIFIED,
+                )
+                hits += 1
+        except Exception:
+            pass
     if hits and log_fn:
         log_fn(f"  [AI-POSTURE] {hits} ta ochiq AI/LLM, RAG Vector DB yoki MCP nuqtasi tasdiqlandi.")
     return hits
@@ -220,6 +298,18 @@ def audit_ai_code_and_mcp_configs(db: Any, project_id: int, code_paths: list[str
                             confidence=QoD.STATIC_SAST,
                         )
                         hits += 1
+            rel_parts_l = [pt.lower() for pt in fp.parts]
+            if fp.name in ("settings.json", "settings.local.json") and any(d in rel_parts_l for d in (".claude", ".gemini", ".cursor")):
+                for title, sev, cvss, cwe, rem in audit_agent_workspace_config_text(fp.name, txt):
+                    db.upsert_finding(
+                        project_id, "SPECTRE-AI-Security", title,
+                        "AI Agentic / MCP Misconfiguration", sev, cvss, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N",
+                        cwe, "LLM08:2025 - Excessive Agency", str(fp),
+                        f"Agent Config: {fp.parent.name}/{fp.name}",
+                        f"`{fp.parent.name}/{fp.name}` agent sozlamalarida cheklanmagan buyruq ruxsati yoqilgan.",
+                        rem, confidence=QoD.STATIC_SAST,
+                    )
+                    hits += 1
             if fp.name in ("mcp.json", "claude_desktop_config.json") or fp.name.endswith("mcp_config.json"):
                 try:
                     j_cfg = json.loads(txt)
@@ -244,4 +334,23 @@ def audit_ai_code_and_mcp_configs(db: Any, project_id: int, code_paths: list[str
                                 confidence=QoD.STATIC_SAST,
                             )
                             hits += 1
+                        env_map = s_def.get("env") if isinstance(s_def.get("env"), dict) else {}
+                        for ek, ev in env_map.items():
+                            ek_s, ev_s = str(ek or ""), str(ev or "").strip()
+                            if (
+                                re.search(r"(?i)(?:token|secret|password|api[_-]?key|private[_-]?key)", ek_s)
+                                and len(ev_s) >= 12
+                                and not ev_s.startswith(("${", "$", "<"))
+                                and not any(dm in ev_s.lower() for dm in _DUMMY_MARKERS)
+                            ):
+                                db.upsert_finding(
+                                    project_id, "SPECTRE-AI-Security", f"Hardcoded Secret in MCP Server Environment ({s_name}:{ek_s})",
+                                    "AI Credential Exposure", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                                    "CWE-798", "LLM06:2025 - Sensitive Information Disclosure", str(fp),
+                                    f"mcpServers.{s_name}.env.{ek_s} contains cleartext credential ({len(ev_s)} chars)",
+                                    f"`{fp.name}` ichidagi `{s_name}` MCP server muhitida maxfiy kalit ochiq matnda yozilgan.",
+                                    f"`{ek_s}` qiymatini tizim muhiti (`${{env:{ek_s}}}`) yoki OS Keychain orqali uzating.",
+                                    confidence=QoD.STATIC_SAST,
+                                )
+                                hits += 1
     return hits

@@ -2,9 +2,9 @@
 
 <img src="ui/apex-icon.svg" width="105" alt="SPECTRE Logo" />
 
-# SPECTRE (`spectre-recon`) v8.0.0
+# SPECTRE (`spectre-recon`) v8.1.0
 
-**Hybrid C++17 v3 / Python Enterprise ASM, AI/LLM/RAG & MCP Security Auditor, 250-Rule Declarative + Custom YAML NVT, 50-Port Active Socket NVT, 250-Product NIST CPE 2.3, 6-Language Polyglot Taint SAST, Cloud/IaC v3, 18-Format 90-CVE SCA, 1-Click Reproducer/Patch Cookbook & 7-Framework (+MITRE ATT&CK v15) Platform**
+**Hybrid C++17 v3 / Python Enterprise ASM, AI/LLM/RAG, Agentic CI/CD & MCP Security Auditor, 250-Rule Declarative + Custom YAML NVT, 50-Port Active Socket NVT, 250-Product NIST CPE 2.3, 6-Language Taint & Fail-Open SAST, Cloud/IaC v3, 18-Format 90-CVE SCA, 1-Click Reproducer/Patch Cookbook & 7-Framework (+MITRE ATT&CK v15) Platform**
 
 [![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Kali%20%7C%20Debian-0ea5e9?style=for-the-badge&logo=linux)](https://github.com/AmaQi701/spectre-recon)
 [![Engine](https://img.shields.io/badge/Core-C%2B%2B17%20epoll%20%2B%20OpenSSL-ef4444?style=for-the-badge&logo=cplusplus)](https://isocpp.org/)
@@ -16,9 +16,9 @@
 
 ---
 
-## Why SPECTRE v8.0 Over Legacy Scanners?
+## Why SPECTRE v8.1 Over Legacy Scanners?
 
-| Capability | **SPECTRE v8.0 (OSS)** | Nessus Pro | OpenVAS / Greenbone | Nuclei | Trivy |
+| Capability | **SPECTRE v8.1 (OSS)** | Nessus Pro | OpenVAS / Greenbone | Nuclei | Trivy |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **100% Free & Open-Source** | **Yes (MIT)** | Paid Commercial | Yes | Yes | Yes |
 | **Hybrid C++17 `epoll` + OpenSSL Kernel** | **Yes (`>350 MB/s`)** | Proprietary C/NASL | C / NASL | Go | Go |
@@ -58,10 +58,10 @@ Instead of chaining fragile shell scripts or running heavy browser-bound wrapper
 ### 3. Phase 2 — Hybrid C++17 v3 & KB-Gated Vulnerability Assessment (`agents/vuln_agent.py`)
 - **Native C++17 Accelerator v3 (`core/native/spectre_accel.cpp`, `core/native_bridge.py`):** Dual-stack IPv4/IPv6 Linux `epoll` multi-port TCP/banner sweep, single-pass `spectre_secret_prefilter_mask` (`>350 MB/s`), `spectre_structural_hash` HTML/JSON skeleton engine, `spectre_js_token_mask` byte pre-scanner, OpenSSL `HMAC` JWT key validation, hardware `popcount` `SimHash64`, `MurmurHash3`, and Shannon entropy scanning.
 - **50-Port Active Socket Protocol NVTs (`core/protocol_verifiers.py`):** Direct read-only TCP & TLS protocol handshakes across 50 services (`RFC 4253 SSH_MSG_KEXINIT`, `MySQL/MariaDB`, `PostgreSQL`, `MongoDB`, `LDAP/LDAPS`, `Redis/Redis-TLS`, `Memcached`, `Elasticsearch`, `etcd`, `Consul`, `RabbitMQ`, `AMQP`, `MQTT/MQTTS`, `ZooKeeper`, `NATS`, `Kafka`, `InfluxDB`, `ClickHouse`, `Prometheus`, `Docker API`, `Docker Registry v2`, `Kubernetes Kubelet`, `VNC`, `RDP X.224 NLA`, `WinRM`, `Java RMI`, `JDWP`, `FastCGI`, `MSSQL`, `Cassandra`, `WebLogic T3`, `ActiveMQ OpenWire`, `SOCKS5`, `Hadoop HDFS`, `Oracle TNS`, `NFSv4 RPC`, `SIP`, `Zabbix`, `Rsync`, `FTP`, `POP3`, `IMAP`, and `SMTP`).
-- **AI/LLM, RAG Vector DB & MCP Security Auditor (`core/ai_llm_auditor.py`):** Read-only exposure verification across `Ollama` (`/api/tags`), `vLLM` / `LiteLLM` (`/v1/models`), `Qdrant` (`/collections`), `ChromaDB`, `Ray Dashboard`, and `Model Context Protocol (MCP)` JSON-RPC `tools/list` endpoints.
+- **AI/LLM, RAG Vector DB, Agent Config & MCP Security Auditor (`core/ai_llm_auditor.py`):** Read-only exposure verification across `Ollama` (`/api/tags`), `vLLM` / `LiteLLM` (`/v1/models`), `Qdrant` (`/collections`), `ChromaDB`, `Ray Dashboard`, and `Model Context Protocol (MCP)` JSON-RPC `tools/list` endpoints, plus `.claude/.gemini/.cursor` agent permission hardening and hidden indirect prompt-override detection.
 - **250-Rule Declarative, Custom YAML & CMS NVT Engine (`core/nvt_declarative_engine.py`, `config/nvt_catalog.json`, `core/cms_enterprise_nvts.py`):** C++17 structural-hash calibrated checks across 250 enterprise gateways, AI/ML & Vector DB servers, Zero-Trust/VPN appliances, IAM providers, observability control planes, databases, and CMS platforms, plus user-extensible YAML / Nuclei-compatible rules (`config/custom_nvts/`).
-- **250-Product CPE 2.3, Cloud/IaC v3, CI/CD Auditor, CISA KEV + EPSS & 18-Format SCA Engine (`core/advisory_kb.py`, `core/iac_auditor.py`, `core/cicd_workflow_auditor.py`, `core/sca_engine.py`, `core/feed_updater.py`):** Deterministic SemVer advisory matching across 250 products, `Dockerfile` / `docker-compose` / Kubernetes Pod, RBAC & Ingress / Helm `values.yaml` / Ansible / `nginx.conf` / Terraform IaC checks, GitHub Actions / GitLab CI / Jenkinsfile / `.npmrc` / Spring config hygiene, 18-format lockfile/manifest SCA (`90` offline CVEs + OSV.dev + `purl` + VEX across npm, PyPI, Packagist, Go, Maven, Gradle, NuGet, RubyGems, Cargo, Dart/Flutter, Elixir), and CISA `KEV` + `EPSS` correlation.
-- **Differential Access Control & 6-Language Multi-Line Taint-Flow SAST (`agents/vuln_agent.py`, `core/sast_ast_engine.py`):** Compares `Guest`, `Role A`, and `Role B` responses across API routes to confirm Broken Object Level Authorization (`CWE-639`) and unauthenticated API exposure (`CWE-306`), alongside OAuth2 PKCE, JWT header (`jku`/`x5u`/`kid`) & key-confusion checks, GraphQL batching/field-suggestion checks, and 6-language multi-line taint-flow SAST (`Python`, `JS/TS`, `Go`, `Java`, `PHP`, `C#`).
+- **250-Product CPE 2.3, Cloud/IaC v3, Agentic CI/CD Auditor, CISA KEV + EPSS & 18-Format SCA Engine (`core/advisory_kb.py`, `core/iac_auditor.py`, `core/cicd_workflow_auditor.py`, `core/sca_engine.py`, `core/feed_updater.py`):** Deterministic SemVer advisory matching across 250 products, `Dockerfile` / `docker-compose` / Kubernetes Pod, RBAC & Ingress / Helm `values.yaml` / Ansible / `nginx.conf` / Terraform IaC checks, GitHub Actions (including AI Agent actions `run-gemini-cli`, `claude-code-action`, `codex-action`, `ai-inference`) / GitLab CI / Jenkinsfile / `.npmrc` / Spring config hygiene, 18-format lockfile/manifest SCA (`90` offline CVEs + OSV.dev + `purl` + VEX across npm, PyPI, Packagist, Go, Maven, Gradle, NuGet, RubyGems, Cargo, Dart/Flutter, Elixir), and CISA `KEV` + `EPSS` correlation.
+- **Differential Access Control & 6-Language Taint + Fail-Open SAST (`agents/vuln_agent.py`, `core/sast_ast_engine.py`):** Compares `Guest`, `Role A`, and `Role B` responses across API routes to confirm Broken Object Level Authorization (`CWE-639`) and unauthenticated API exposure (`CWE-306`), alongside OAuth2 PKCE, JWT header (`jku`/`x5u`/`kid`) & key-confusion checks, GraphQL batching/field-suggestion checks, and 6-language multi-line taint-flow + Fail-Open fallback secret/switch SAST (`CWE-1188` / `CWE-636` across `Python`, `JS/TS`, `Go`, `Java`, `PHP`, `C#`).
 
 ### 4. Phase 3 — Attack-Graph Correlation, Reproducer Cookbook & 7-Framework Compliance (`agents/triage_chain_agent.py`, `core/remediation_cookbook.py`, `core/compliance_exporter.py`, `core/surface_diff_engine.py`)
 - Host-exact correlation of findings, session flags, AI/MCP & Cloud Ingress exposures, dangling CNAMEs, data stores, and API routes into interactive **SVG Kill-Chain Graphs**, 1-click safe `curl`/`openssl` verification reproducers and ready-to-apply fix patches, continuous **EASM Attack-Surface Drift**, and automated **OASIS SARIF 2.1.0, CycloneDX 1.5 VEX SBOM, JUnit XML, and 7-Framework Compliance (`OWASP Top 10:2021`, `OWASP API:2023`, `PCI-DSS v4.0`, `ISO/IEC 27001:2022`, `NIST CSF 2.0`, `AICPA SOC 2 TSC`, `MITRE ATT&CK Enterprise v15`)** exports.
@@ -146,7 +146,7 @@ python3 spectre_cli.py --benchmark
 python3 spectre_cli.py --target example.org --mode full --fail-on high --min-qod 90
 # Compare Attack-Surface & Vulnerability Drift vs Baseline Project #1:
 python3 spectre_cli.py --target example.org --diff-project 1 --fail-on-drift
-# Fast offline artifact re-export (HTML v8.0 SVG, SARIF 2.1.0, CycloneDX 1.5 VEX, 7-Framework Matrix):
+# Fast offline artifact re-export (HTML v8.1 SVG, SARIF 2.1.0, CycloneDX 1.5 VEX, 7-Framework Matrix):
 python3 spectre_cli.py --export-project 1
 ```
 
@@ -155,7 +155,7 @@ python3 spectre_cli.py --export-project 1
 ```bash
 chmod +x build_deb.sh
 ./build_deb.sh
-sudo dpkg -i dist/spectre-recon_8.0.0_amd64.deb
+sudo dpkg -i dist/spectre-recon_8.1.0_amd64.deb
 spectre-recon
 ```
 

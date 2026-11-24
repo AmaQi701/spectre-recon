@@ -60,7 +60,7 @@ def build_sarif_report(bundle: dict[str, Any]) -> dict[str, Any]:
             "tool": {
                 "driver": {
                     "name": "SPECTRE Hybrid Security Studio",
-                    "version": "8.0.0",
+                    "version": "8.1.0",
                     "informationUri": "https://github.com/AmaQi701/spectre-recon",
                     "rules": list(rules_map.values()),
                 }
@@ -174,7 +174,14 @@ def map_finding_compliance_controls(finding: dict[str, Any]) -> dict[str, str]:
         nist = "NIST CSF 2.0 PR.DS-02 (Data-in-Transit Protection)"
         soc2 = "SOC 2 CC6.7 (Transmission Encryption)"
         mitre = "MITRE ATT&CK v15 T1557 (Adversary-in-the-Middle / Weak Transport)"
-    elif cwe in ("CWE-79", "CWE-89", "CWE-78", "CWE-94", "CWE-502", "CWE-601", "CWE-22") or "injection" in cat or "xss" in cat or "redirect" in cat:
+    elif cwe in ("CWE-1188", "CWE-636") or "insecure default" in cat:
+        api_ctrl = "API8:2023 - Security Misconfiguration (Insecure Defaults)"
+        pci = "PCI-DSS v4.0 Req 2.2.2 & Req 6.2.4 (Fail-Secure Defaults & Vendor Parameters)"
+        iso = "ISO/IEC 27001:2022 A.8.9 & A.8.28 (Secure Configuration & Initialization)"
+        nist = "NIST CSF 2.0 PR.PS-01 (Secure Default Configuration Baseline)"
+        soc2 = "SOC 2 CC6.1 & CC7.1 (Fail-Closed Access & Configuration Integrity)"
+        mitre = "MITRE ATT&CK v15 T1552.001 / T1078.001 (Fallback Secrets & Default Initialization)"
+    elif cwe in ("CWE-79", "CWE-89", "CWE-78", "CWE-77", "CWE-74", "CWE-94", "CWE-502", "CWE-601", "CWE-22") or "injection" in cat or "xss" in cat or "redirect" in cat or "prompt" in cat:
         api_ctrl = "API8:2023 - Security Misconfiguration / Input Validation"
         pci = "PCI-DSS v4.0 Req 6.2.4 (Injection & XSS Prevention)"
         iso = "ISO/IEC 27001:2022 A.8.28 (Secure Coding)"

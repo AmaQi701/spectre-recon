@@ -14,7 +14,7 @@ mkdir -p "${DIST_DIR}"
 
 cat << 'EOF' > "${PKG_DIR}/DEBIAN/control"
 Package: spectre-recon
-Version: 8.0.0
+Version: 8.1.0
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -44,7 +44,7 @@ Version=1.0
 Type=Application
 Name=SPECTRE Recon Studio
 GenericName=Cyber-Recon & Attack Surface Studio
-Comment=SPECTRE v8.0.0 Hybrid C++17/Python ASM, 250-NVT, 50-Port Socket NVT, AI/MCP, 6-Lang SAST & 7-Framework Studio
+Comment=SPECTRE v8.1.0 Hybrid C++17/Python ASM, 250-NVT, 50-Port Socket NVT, AI/MCP, 6-Lang SAST & 7-Framework Studio
 Exec=/bin/bash /opt/apex-asm-studio/launch_apex.sh
 Path=/opt/apex-asm-studio
 Icon=/opt/apex-asm-studio/ui/apex-icon.svg
@@ -54,5 +54,5 @@ Keywords=pentest;recon;security;audit;spectre;scanner;
 StartupNotify=true
 EOF
 
-dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_8.0.0_amd64.deb"
-echo "[+] Built package: ${DIST_DIR}/spectre-recon_8.0.0_amd64.deb"
+dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_8.1.0_amd64.deb"
+echo "[+] Built package: ${DIST_DIR}/spectre-recon_8.1.0_amd64.deb"

@@ -20,6 +20,17 @@ _GHA_UNTRUSTED_EXPR_RE = re.compile(
     r"|\$\{\{\s*github\.head_ref\s*\}\}",
     re.I,
 )
+_AI_GHA_ACTION_RE = re.compile(
+    r"(?i)\buses\s*:\s*['\"]?(?:anthropics/claude-code-action|google-github-actions/run-gemini-cli|"
+    r"google-gemini/gemini-cli-action|openai/codex-action|actions/ai-inference)(?:@|\b)"
+)
+_AI_BYPASS_CFG_RE = re.compile(
+    r"""(?i)(?:\bdanger-full-access\b|--yolo\b|--dangerously-skip-permissions\b|\bBash\(\*\)|"""
+    r"""(?:allowed_non_write_users|allow[_-]users)\s*:\s*['"]?\*['"]?)"""
+)
+_AI_STEP_OUTPUT_EVAL_RE = re.compile(
+    r"(?i)(?:\beval\b|\b(?:sh|bash)\s+-c)\s+[^\n]*\$\{\{\s*steps\.[A-Za-z0-9_\-]+\.outputs\.[A-Za-z0-9_\-]+\s*\}\}"
+)
 _NPMRC_TOKEN_RE = re.compile(r"(?m)^\s*(?://[^\s=:]+/:)?(?:_[a-zA-Z]*authToken|_password)\s*=\s*([^\s$#]{10,})\s*$")
 _PIPE_CURL_SH_RE = re.compile(r"(?i)\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?(?:bash|sh)\b")
 _JENKINS_PARAM_SH_RE = re.compile(r"""\bsh\s*\(?\s*"[^"\n]*\$\{?\s*params\.[A-Za-z0-9_]+""")
@@ -93,6 +104,56 @@ def audit_github_workflow_yaml(content: str) -> list[tuple[str, str, float, str,
                 "`${{ github.event.* }}` qiymatini to'g'ridan-to'g'ri `run:` qatoriga yozmang; uni `env:` o'zgaruvchisi orqali uzating.",
             ))
             break
+
+    if _AI_GHA_ACTION_RE.search(txt):
+        tainted_env_vars: set[str] = set()
+        for m_ev in re.finditer(r"(?m)^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*:[ \t]*([^\n]+)$", txt):
+            if _GHA_UNTRUSTED_EXPR_RE.search(m_ev.group(2)):
+                tainted_env_vars.add(m_ev.group(1))
+
+        prompt_lines: list[str] = []
+        prompt_indent = -1
+        for raw_l in txt.splitlines():
+            stripped = raw_l.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            ind = len(raw_l) - len(raw_l.lstrip(" "))
+            if prompt_indent >= 0:
+                if ind > prompt_indent:
+                    prompt_lines.append(stripped)
+                    continue
+                prompt_indent = -1
+            m_pk = re.match(r"^(?:-\s*)?(?:prompt|direct_prompt|instructions|system_prompt)\s*:\s*(.*)$", stripped, re.I)
+            if m_pk:
+                rest = m_pk.group(1).strip()
+                if rest in ("|", ">", "|-", ">-", "|+", ">+") or not rest:
+                    prompt_indent = ind
+                else:
+                    prompt_lines.append(rest)
+        prompt_blob = "\n".join(prompt_lines)
+        has_env_flow = any(
+            (f"${vn}" in prompt_blob or f"${{{vn}}}" in prompt_blob or bool(re.search(rf"\$\{{\{{\s*env\.{re.escape(vn)}\s*\}}\}}", prompt_blob)))
+            for vn in tainted_env_vars
+        )
+        if _GHA_UNTRUSTED_EXPR_RE.search(prompt_blob) or has_env_flow:
+            issues.append((
+                "AI-Agent GitHub Actions Workflow Prompt Receives Untrusted Event Input",
+                "Critical", 9.1, "CWE-77",
+                "Tashqi PR/Issue matnini (`github.event.*`) AI agent promptiga bevosita yoki `env:` orqali qo'shmang; "
+                "faqat tasdiqlangan metama'lumotlar va `contents: read` ruxsatini bering.",
+            ))
+        if _AI_BYPASS_CFG_RE.search(txt):
+            issues.append((
+                "Over-Permissive AI-Agent CI Sandbox or Wildcard Trigger Allowlist",
+                "High", 8.4, "CWE-250",
+                "CI/CD AI agentlarida `--yolo`, `danger-full-access`, `Bash(*)` va `allowed_non_write_users: '*'` sozlamalarini o'chiring.",
+            ))
+        if _AI_STEP_OUTPUT_EVAL_RE.search(txt):
+            issues.append((
+                "Unsafe Shell Evaluation of AI-Agent Step Output in Workflow",
+                "Critical", 9.3, "CWE-94",
+                "AI agent chiqishini (`steps.<id>.outputs.*`) hech qachon `eval` yoki `sh -c` orqali ishga tushirmang.",
+            ))
     return issues
 
 

@@ -16,6 +16,69 @@ _SQL_KW_RE = re.compile(r"\b(?:SELECT|INSERT|UPDATE|DELETE)\b", re.I)
 _DOM_SANITIZER_RE = re.compile(r"(?i)(?:DOMPurify\.sanitize|sanitizeHtml|escapeHtml|xss)\s*\(")
 _SAFE_INFRA_PARAMS = {"self", "cls", "db", "conn", "cursor", "cur", "session", "log", "logger"}
 
+_FAIL_OPEN_SECRET_KEY_RE = re.compile(
+    r"(?i)(?:^|[._\-:])(?:jwt[._\-]?secret|secret[._\-]?key|app[._\-]?secret|session[._\-]?secret|"
+    r"auth[._\-]?secret|signing[._\-]?key|encryption[._\-]?key|token[._\-]?secret|hmac[._\-]?secret|master[._\-]?key)$"
+)
+_FAIL_OPEN_ENFORCE_KEY_RE = re.compile(
+    r"(?i)^(?:require[._\-]?auth|auth[._\-]?enabled|enable[._\-]?auth|verify[._\-]?ssl|ssl[._\-]?verify|"
+    r"verify[._\-]?tls|verify[._\-]?signature|enforce[._\-]?mfa|csrf[._\-]?enabled)$"
+)
+_FAIL_OPEN_BYPASS_KEY_RE = re.compile(
+    r"(?i)^(?:skip[._\-]?auth|disable[._\-]?auth|bypass[._\-]?auth|allow[._\-]?anonymous|insecure[._\-]?tls)$"
+)
+_DISABLED_VALS = {"false", "0", "off", "no", "disabled"}
+_ENABLED_VALS = {"true", "1", "on", "yes", "enabled"}
+
+
+def _make_fail_open_secret_finding(lineno: int, lang: str, key_name: str) -> dict[str, Any]:
+    return {
+        "lineno": lineno,
+        "title": f"Fail-Open Hardcoded Fallback Secret ({lang}: {key_name})",
+        "category": "Cryptographic / Insecure Default (SAST)",
+        "severity": "High",
+        "cvss": 8.6,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+        "cwe": "CWE-1188",
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "remediation": (
+            f"`{key_name}` o'zgaruvchisi topilmaganda standart matnga qaytmasin (`Fail-Secure` qiling: "
+            "muhit o'zgaruvchisi yo'q bo'lsa dastur ishga tushishni rad etsin)."
+        ),
+    }
+
+
+def _make_fail_open_switch_finding(lineno: int, lang: str, key_name: str) -> dict[str, Any]:
+    return {
+        "lineno": lineno,
+        "title": f"Fail-Open Security Control Default ({lang}: {key_name})",
+        "category": "Authentication / Access Control (SAST)",
+        "severity": "High",
+        "cvss": 7.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+        "cwe": "CWE-636",
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "remediation": (
+            f"Xavfsizlik kaliti (`{key_name}`) odatiy holatda himoyani o'chirib qo'ymasin; "
+            "`Fail-Closed` (`true` / majburiy tekshiruv) qiymatini standart qiling."
+        ),
+    }
+
+
+def _classify_fail_open_pair(lineno: int, lang: str, key_name: str, fallback_val: str) -> dict[str, Any] | None:
+    k = (key_name or "").strip()
+    v = (fallback_val or "").strip()
+    if not k or not v:
+        return None
+    v_low = v.lower()
+    if _FAIL_OPEN_ENFORCE_KEY_RE.match(k) and v_low in _DISABLED_VALS:
+        return _make_fail_open_switch_finding(lineno, lang, k)
+    if _FAIL_OPEN_BYPASS_KEY_RE.match(k) and v_low in _ENABLED_VALS:
+        return _make_fail_open_switch_finding(lineno, lang, k)
+    if _FAIL_OPEN_SECRET_KEY_RE.search(k) and len(v) >= 3 and v_low not in ("none", "null", "undefined"):
+        return _make_fail_open_secret_finding(lineno, lang, k)
+    return None
+
 
 def _expr_uses_names(node: ast.AST, names: set[str]) -> bool:
     return any(isinstance(sub, ast.Name) and sub.id in names for sub in ast.walk(node))
@@ -53,6 +116,9 @@ _JS_DECL_RE = re.compile(r"^\s*(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*
 _JS_CONST_LIT_RE = re.compile(r"""^(?:""|''|``|"[^"$+{]*"|'[^'$+{]*'|`[^`$]*`|\d+|true|false|null)$""")
 _JS_REQ_SRC_RE = re.compile(r"\b(?:req\.(?:query|body|params|headers)|request\.(?:query|body|params)|ctx\.query)\b")
 _JS_DOM_SRC_RE = re.compile(r"\b(?:location\.(?:search|hash|href)|window\.name|URLSearchParams|event\.data)\b")
+_JS_FAIL_OPEN_RE = re.compile(
+    r"""process\.env(?:\.([A-Za-z_][A-Za-z0-9_]*)|\[\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\])\s*(?:\|\||\?\?)\s*(?:['"]([^'"\n]+)['"]|\b(true|false)\b)"""
+)
 
 
 def analyze_js_ts_taint_flow(src_text: str) -> tuple[list[dict[str, Any]], set[int]]:
@@ -69,6 +135,13 @@ def analyze_js_ts_taint_flow(src_text: str) -> tuple[list[dict[str, Any]], set[i
         s = raw_ln.strip()
         if not s or s.startswith(("//", "/*", "*")):
             continue
+        for m_fo in _JS_FAIL_OPEN_RE.finditer(s):
+            fo_key = m_fo.group(1) or m_fo.group(2) or ""
+            fo_val = m_fo.group(3) if m_fo.group(3) is not None else (m_fo.group(4) or "")
+            fo_hit = _classify_fail_open_pair(lineno, "JS/TS", fo_key, fo_val)
+            if fo_hit and (lineno, fo_hit["cwe"]) not in seen:
+                seen.add((lineno, fo_hit["cwe"]))
+                findings.append(fo_hit)
         if re.search(r"""(?i)\.(?:query|execute)\s*\(\s*['"`][^'"`+$]*(?:\?|\$\d+)[^'"`+$]*['"`]\s*,\s*\[""", s):
             safe_lines.add(lineno)
         m_decl = _JS_DECL_RE.match(s)
@@ -154,11 +227,36 @@ def analyze_go_java_taint_flow(src_text: str, ext: str) -> tuple[list[dict[str, 
     sql_tainted: set[str] = set()
     seen: set[tuple[int, str]] = set()
     is_go = ext == ".go"
+    go_env_vars: dict[str, str] = {}
 
     for lineno, raw_ln in enumerate((src_text or "").splitlines(), start=1):
         s = raw_ln.strip()
         if not s or s.startswith(("//", "/*", "*")):
             continue
+        if is_go:
+            m_ge = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*:?=\s*os\.Getenv\(\s*"([^"]+)"\s*\)$', s)
+            if m_ge:
+                go_env_vars[m_ge.group(1)] = m_ge.group(2)
+            for m_gfb in re.finditer(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"]+)"', s):
+                gv, gval = m_gfb.group(1), m_gfb.group(2)
+                if gv in go_env_vars:
+                    fo_hit = _classify_fail_open_pair(lineno, "Go", go_env_vars[gv], gval)
+                    if fo_hit and (lineno, fo_hit["cwe"]) not in seen:
+                        seen.add((lineno, fo_hit["cwe"]))
+                        findings.append(fo_hit)
+            for m_gh in re.finditer(r'(?i)\bget_?env(?:Default|Or)?\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)', s):
+                fo_hit = _classify_fail_open_pair(lineno, "Go", m_gh.group(1), m_gh.group(2))
+                if fo_hit and (lineno, fo_hit["cwe"]) not in seen:
+                    seen.add((lineno, fo_hit["cwe"]))
+                    findings.append(fo_hit)
+        else:
+            for m_jf in re.finditer(r'(?:getOrDefault|getProperty)\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)|@Value\(\s*"\$\{([^:}]+):([^}]+)\}"\s*\)', s):
+                jk = m_jf.group(1) or m_jf.group(3) or ""
+                jv = m_jf.group(2) if m_jf.group(2) is not None else (m_jf.group(4) or "")
+                fo_hit = _classify_fail_open_pair(lineno, "Java", jk, jv)
+                if fo_hit and (lineno, fo_hit["cwe"]) not in seen:
+                    seen.add((lineno, fo_hit["cwe"]))
+                    findings.append(fo_hit)
         if re.search(r"""(?i)(?:prepareStatement\s*\(|\.(?:Query|QueryRow|Exec)\s*\(\s*["`][^"`+%]*(?:\$\d+|\?)[^"`+%]*["`]\s*,)""", s):
             safe_lines.add(lineno)
 
@@ -218,6 +316,19 @@ def analyze_php_csharp_taint_flow(src_text: str, ext: str) -> tuple[list[dict[st
         if not s or s.startswith(("//", "#", "/*", "*")):
             continue
         if is_php:
+            for m_pf in re.finditer(
+                r"""(?:getenv\(\s*['"]([^'"]+)['"]\s*\)\s*\?:\s*(?:['"]([^'"]+)['"]|\b(true|false)\b)"""
+                r"""|\$_(?:ENV|SERVER)\[\s*['"]([^'"]+)['"]\s*\]\s*\?\?\s*(?:['"]([^'"]+)['"]|\b(true|false)\b)"""
+                r"""|\benv\(\s*['"]([^'"]+)['"]\s*,\s*(?:['"]([^'"]+)['"]|\b(true|false)\b)\s*\))""",
+                s,
+                re.I,
+            ):
+                pk = m_pf.group(1) or m_pf.group(4) or m_pf.group(7) or ""
+                pv = next((g for g in (m_pf.group(2), m_pf.group(3), m_pf.group(5), m_pf.group(6), m_pf.group(8), m_pf.group(9)) if g is not None), "")
+                fo_hit = _classify_fail_open_pair(lineno, "PHP", pk, pv)
+                if fo_hit and (lineno, fo_hit["cwe"]) not in seen:
+                    seen.add((lineno, fo_hit["cwe"]))
+                    findings.append(fo_hit)
             if re.search(r"(?i)(?:->prepare\s*\(|bindParam\s*\(|bindValue\s*\(|htmlspecialchars\s*\(|escapeshellarg\s*\()", s):
                 safe_lines.add(lineno)
             m_pa = re.match(r"^(\$[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?);\s*$", s)
@@ -253,6 +364,18 @@ def analyze_php_csharp_taint_flow(src_text: str, ext: str) -> tuple[list[dict[st
                     "remediation": "`escapeshellarg()` yoki Symfony Process massiv argumentlaridan foydalaning.",
                 })
         else:
+            for m_cf in re.finditer(
+                r"""(?:Environment\.GetEnvironmentVariable\(\s*"([^"]+)"\s*\)\s*\?\?\s*"([^"]+)"""
+                r'''"|Configuration\[\s*"([^"]+)"\s*\]\s*\?\?\s*"([^"]+)'''
+                r'''"|GetValue(?:<\w+>)?\(\s*"([^"]+)"\s*,\s*(?:"([^"]+)"|\b(true|false)\b)\s*\))''',
+                s,
+            ):
+                ck = m_cf.group(1) or m_cf.group(3) or m_cf.group(5) or ""
+                cv = next((g for g in (m_cf.group(2), m_cf.group(4), m_cf.group(6), m_cf.group(7)) if g is not None), "")
+                fo_hit = _classify_fail_open_pair(lineno, "C#", ck, cv)
+                if fo_hit and (lineno, fo_hit["cwe"]) not in seen:
+                    seen.add((lineno, fo_hit["cwe"]))
+                    findings.append(fo_hit)
             if re.search(r"(?i)(?:Parameters\.Add(?:WithValue)?\s*\(|new\s+SqlParameter\s*\(|FromSqlInterpolated\s*\()", s):
                 safe_lines.add(lineno)
             for m_fp in re.finditer(r"\[From(?:Query|Body|Route|Header)\]\s*string\s+([A-Za-z_][A-Za-z0-9_]*)", s):
@@ -289,6 +412,24 @@ def analyze_php_csharp_taint_flow(src_text: str, ext: str) -> tuple[list[dict[st
     return findings, safe_lines
 
 
+def _extract_py_env_call_key(node: ast.AST) -> str:
+    if not isinstance(node, ast.Call) or not node.args:
+        return ""
+    fn_s = ast.unparse(node.func) if hasattr(ast, "unparse") else ""
+    if fn_s in ("os.getenv", "getenv", "os.environ.get", "environ.get") and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+        return node.args[0].value
+    return ""
+
+
+def _const_to_str(node: ast.AST) -> str:
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, bool):
+            return "true" if node.value else "false"
+        if isinstance(node.value, (str, int)):
+            return str(node.value)
+    return ""
+
+
 def analyze_python_ast_taint(src_text: str) -> tuple[list[dict[str, Any]], set[int]]:
     """Returns `(multiline_ast_findings, safe_parameterized_sql_lines)`."""
     try:
@@ -299,6 +440,24 @@ def analyze_python_ast_taint(src_text: str) -> tuple[list[dict[str, Any]], set[i
     findings: list[dict[str, Any]] = []
     safe_sql_lines: set[int] = set()
     seen_lines: set[tuple[int, str]] = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            ek = _extract_py_env_call_key(node)
+            if ek and len(node.args) >= 2:
+                fb_s = _const_to_str(node.args[1])
+                fo_hit = _classify_fail_open_pair(node.lineno, "Python", ek, fb_s)
+                if fo_hit and (node.lineno, fo_hit["cwe"]) not in seen_lines:
+                    seen_lines.add((node.lineno, fo_hit["cwe"]))
+                    findings.append(fo_hit)
+        elif isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or) and len(node.values) >= 2:
+            ek = _extract_py_env_call_key(node.values[0])
+            fb_s = _const_to_str(node.values[1])
+            if ek and fb_s:
+                fo_hit = _classify_fail_open_pair(node.lineno, "Python", ek, fb_s)
+                if fo_hit and (node.lineno, fo_hit["cwe"]) not in seen_lines:
+                    seen_lines.add((node.lineno, fo_hit["cwe"]))
+                    findings.append(fo_hit)
 
     scopes: list[tuple[list[ast.stmt], set[str]]] = [(tree.body, set())]
     for node in ast.walk(tree):
@@ -373,4 +532,21 @@ def analyze_python_ast_taint(src_text: str) -> tuple[list[dict[str, Any]], set[i
                                 })
 
     return findings, safe_sql_lines
+
+
+def analyze_fail_open_defaults(src_text: str, ext: str) -> list[dict[str, Any]]:
+    """Returns only Fail-Open configuration / fallback-secret findings (`CWE-1188` / `CWE-636`) for any of the 6 supported languages."""
+    sfx = (ext or "").lower()
+    if sfx == ".py":
+        res, _ = analyze_python_ast_taint(src_text)
+    elif sfx in (".js", ".jsx", ".ts", ".tsx"):
+        res, _ = analyze_js_ts_taint_flow(src_text)
+    elif sfx in (".go", ".java"):
+        res, _ = analyze_go_java_taint_flow(src_text, sfx)
+    elif sfx in (".php", ".cs"):
+        res, _ = analyze_php_csharp_taint_flow(src_text, sfx)
+    else:
+        res = []
+    return [f for f in res if f.get("cwe") in ("CWE-1188", "CWE-636")]
+
 

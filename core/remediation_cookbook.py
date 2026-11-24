@@ -87,6 +87,17 @@ def build_fix_patch_snippet(finding: dict[str, Any]) -> str:
             "element.textContent = untrustedInput;\n"
             "Content-Security-Policy: default-src 'self'; object-src 'none'; base-uri 'self';"
         )
+    if cwe in ("CWE-1188", "CWE-636") or "fail-open" in title:
+        return (
+            "# Fail-Secure Configuration (Refuse Startup on Missing Secret & Enforce Strict Default):\n"
+            "JWT_SECRET = os.environ['JWT_SECRET']  # Raises KeyError if unset\n"
+            "VERIFY_SSL = os.getenv('VERIFY_SSL', 'true').lower() in ('true', '1', 'yes')"
+        )
+    if cwe in ("CWE-74", "CWE-77") or "prompt" in title:
+        return (
+            "# Isolate Untrusted Event Data & Enforce Read-Only Agent Permissions:\n"
+            "permissions:\n  contents: read\n# Never interpolate ${{ github.event.issue.body }} into AI prompt inputs"
+        )
     import re as _re
     if _re.search(r"\b(?:ai|llm|mcp|rag)\b", cat) or "ollama" in title or "qdrant" in title:
         return (
