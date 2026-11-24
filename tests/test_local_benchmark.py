@@ -239,6 +239,19 @@ def run_benchmark() -> None:
             )
             (sast_dir / "Dockerfile").write_text("FROM python:3.12-slim\nCOPY . /app\nCMD [\"python\", \"/app/main.py\"]\n", encoding="utf-8")
             (sast_dir / "main.tf").write_text('resource "aws_db_instance" "db" {\n  publicly_accessible = true\n}\n', encoding="utf-8")
+            (sast_dir / "rbac.yaml").write_text(
+                "apiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRole\nmetadata:\n  name: admin-all\n"
+                "rules:\n  - verbs: [\"*\"]\n    resources: [\"*\"]\n",
+                encoding="utf-8",
+            )
+            (sast_dir / "Billing.csproj").write_text(
+                '<Project><ItemGroup><PackageReference Include="Newtonsoft.Json" Version="12.0.3" /></ItemGroup></Project>\n',
+                encoding="utf-8",
+            )
+            (sast_dir / "handler.go").write_text(
+                'package main\nfunc load(db DB, r Req) {\n  uid := r.URL.Query().Get("uid")\n  q := fmt.Sprintf("SELECT * FROM users WHERE id = %s", uid)\n  db.Query(q)\n}\n',
+                encoding="utf-8",
+            )
 
             db = DatabaseManager(str(tmp_path / "bench.db"))
             base_url = f"http://127.0.0.1:{port}"
@@ -315,6 +328,10 @@ def run_benchmark() -> None:
             assert any("Hardcoded Package Registry Auth Token in .npmrc" in t for t in titles), f"Registry config auditor missed .npmrc: {titles}"
             assert any("Jenkinsfile" in t for t in titles), f"CI/CD auditor missed Jenkinsfile groovy sh interpolation: {titles}"
             assert any("JS/Node Multi-Line Data-Flow" in t for t in titles), f"JS/Node multi-line taint engine missed SQLi: {titles}"
+            assert any("Go Multi-Line Data-Flow" in t for t in titles), f"Go multi-line taint engine missed SQLi: {titles}"
+            assert any("Wildcard / Cluster-Admin Privileges" in t for t in titles), f"K8s RBAC auditor missed wildcard ClusterRole: {titles}"
+            assert any("Billing.csproj" in t for t in titles), f"NuGet .csproj SCA missed Newtonsoft.Json: {titles}"
+            assert any("Supply-Chain & Deployment Risk" in c for c in chains), f"CI/CD->Infra supply-chain correlation missing: {chains}"
             assert any("/internal-ops/metrics" in u for u in ep_urls), f"robots.txt Disallow harvester missed /internal-ops/metrics: {ep_urls}"
             html_out = pathlib.Path(rep_paths["html_path"]).read_text(encoding="utf-8")
             assert "spSetSev(" in html_out and "NIST CSF 2.0" in html_out and "AICPA SOC 2 TSC" in html_out, "HTML v6.0 filter or 6-framework table missing"

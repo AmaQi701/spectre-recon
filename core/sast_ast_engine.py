@@ -141,6 +141,65 @@ def analyze_js_ts_taint_flow(src_text: str) -> tuple[list[dict[str, Any]], set[i
     return findings, safe_lines
 
 
+_GO_JAVA_SRC_RE = re.compile(
+    r"\b(?:r\.URL\.Query\(\)\.Get|r\.FormValue|c\.(?:Query|Param|PostForm)|request\.getParameter|request\.getHeader)\s*\("
+)
+
+
+def analyze_go_java_taint_flow(src_text: str, ext: str) -> tuple[list[dict[str, Any]], set[int]]:
+    """Multi-line Go/Java taint tracker + PreparedStatement / parameterized SQL suppressor."""
+    findings: list[dict[str, Any]] = []
+    safe_lines: set[int] = set()
+    tainted: set[str] = set()
+    sql_tainted: set[str] = set()
+    seen: set[tuple[int, str]] = set()
+    is_go = ext == ".go"
+
+    for lineno, raw_ln in enumerate((src_text or "").splitlines(), start=1):
+        s = raw_ln.strip()
+        if not s or s.startswith(("//", "/*", "*")):
+            continue
+        if re.search(r"""(?i)(?:prepareStatement\s*\(|\.(?:Query|QueryRow|Exec)\s*\(\s*["`][^"`+%]*(?:\$\d+|\?)[^"`+%]*["`]\s*,)""", s):
+            safe_lines.add(lineno)
+
+        m_go = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:?=\s*(.+)$", s) if is_go else None
+        m_jv = re.match(r"^(?:final\s+)?String\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?);?$", s) if not is_go else None
+        m_asg = m_go or m_jv
+        if m_asg:
+            vname, rhs = m_asg.group(1), m_asg.group(2)
+            has_ext = bool(_GO_JAVA_SRC_RE.search(rhs)) or any(re.search(rf"\b{re.escape(tv)}\b", rhs) for tv in tainted)
+            if has_ext:
+                tainted.add(vname)
+                if _SQL_KW_RE.search(rhs) and ("+" in rhs or "fmt.Sprintf" in rhs or "String.format" in rhs):
+                    sql_tainted.add(vname)
+
+        m_sq = re.search(r"\b(?:Query|QueryRow|Exec|executeQuery|executeUpdate|execute)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*[\),]", s)
+        if m_sq and m_sq.group(1) in sql_tainted and (lineno, "CWE-89") not in seen:
+            seen.add((lineno, "CWE-89"))
+            findings.append({
+                "lineno": lineno,
+                "title": f"Potential SQL Injection ({'Go' if is_go else 'Java'} Multi-Line Data-Flow)",
+                "category": "Injection (SAST)", "severity": "High", "cvss": 8.6,
+                "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+                "cwe": "CWE-89", "owasp": "A03:2021 - Injection",
+                "remediation": "`PreparedStatement` (`?`) yoki Go `$1` parametrlangan so'rov ishlating.",
+            })
+
+        m_cmd = re.search(r"""(?:exec\.Command\s*\(\s*"(?:sh|bash)"\s*,\s*"-c"\s*,\s*|Runtime\.getRuntime\(\)\.exec\s*\(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*\)""", s)
+        if m_cmd and m_cmd.group(1) in tainted and (lineno, "CWE-78") not in seen:
+            seen.add((lineno, "CWE-78"))
+            findings.append({
+                "lineno": lineno,
+                "title": f"Potential OS Command Injection ({'Go' if is_go else 'Java'} Multi-Line Data-Flow)",
+                "category": "RCE / Command Injection (SAST)", "severity": "Critical", "cvss": 9.8,
+                "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "cwe": "CWE-78", "owasp": "A03:2021 - Injection",
+                "remediation": "`sh -c` va `Runtime.exec(String)` o'rniga qat'iy argumentlar massivini uzating.",
+            })
+
+    return findings, safe_lines
+
+
 def analyze_python_ast_taint(src_text: str) -> tuple[list[dict[str, Any]], set[int]]:
     """Returns `(multiline_ast_findings, safe_parameterized_sql_lines)`."""
     try:

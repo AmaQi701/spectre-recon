@@ -24,7 +24,12 @@ from core.plugin_runner import PhaseOrchestrator, QoD, ScanContextKB, ScanPhase
 from core.protocol_verifiers import run_active_protocol_verifiers
 from core.cicd_workflow_auditor import run_cicd_and_registry_audit
 from core.iac_auditor import run_iac_security_audit
-from core.sast_ast_engine import analyze_js_ts_taint_flow, analyze_python_ast_taint, is_sanitized_sast_line
+from core.sast_ast_engine import (
+    analyze_go_java_taint_flow,
+    analyze_js_ts_taint_flow,
+    analyze_python_ast_taint,
+    is_sanitized_sast_line,
+)
 from core.sca_engine import run_sca_dependency_audit, run_web_and_js_sca_audit
 
 
@@ -995,6 +1000,8 @@ class VulnAssessmentSuperAgent:
                     ast_flows, safe_sast_lns = analyze_python_ast_taint(raw_src)
                 elif sfx in (".js", ".jsx", ".ts", ".tsx"):
                     ast_flows, safe_sast_lns = analyze_js_ts_taint_flow(raw_src)
+                elif sfx in (".go", ".java"):
+                    ast_flows, safe_sast_lns = analyze_go_java_taint_flow(raw_src, sfx)
                 else:
                     ast_flows, safe_sast_lns = ([], set())
                 lines = raw_src.splitlines()

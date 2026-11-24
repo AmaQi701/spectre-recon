@@ -332,7 +332,10 @@ class TriageAndChainSuperAgent:
 
         infra_crit = [
             f for f in findings
-            if any(k in str(f.get("title", "")).lower() for k in ("docker daemon", "kubelet", "actuator environment", "ignition debug", "prometheus node exporter"))
+            if any(k in str(f.get("title", "")).lower() for k in (
+                "docker daemon", "docker registry v2", "kubelet", "actuator environment",
+                "ignition debug", "prometheus node exporter", "jdwp", "fastcgi", "java rmi",
+            ))
         ]
         if infra_crit:
             ic0 = infra_crit[0]
@@ -343,9 +346,24 @@ class TriageAndChainSuperAgent:
                 "Critical" if ic0.get("severity") == "Critical" else "High",
                 9.5 if ic0.get("severity") == "Critical" else 8.4,
                 [f"Host: {ic_h}", ic0["title"], f"Endpoint: {ic0['asset']}"],
-                "Tashqi tarmoqqa ochiq qoldirilgan konteyner, orkestrator yoki freymvork diagnostika interfeysi tizim konfiguratsiyasini oshkor qilmoqda.",
+                "Tashqi tarmoqqa ochiq qoldirilgan konteyner, orkestrator, RPC/debagger yoki diagnostika interfeysi tizim konfiguratsiyasini oshkor qilmoqda.",
                 "Muhit o'zgaruvchilari, tokenlar yoki konteyner boshqaruvi ustidan ruxsatsiz amallar xavfi.",
                 ic0.get("remediation", "Boshqaruv va diagnostika portlarini tashqi tarmoqdan Firewall orqali yoping."),
+            )
+
+        cicd_finds = [f for f in findings if str(f.get("agent", "")) == "Agent-2 (CICD-Auditor)"]
+        iac_sca_finds = [f for f in findings if str(f.get("agent", "")) in ("Agent-2 (IaC-Auditor)", "Agent-2 (SCA-Engine)")]
+        if cicd_finds and iac_sca_finds:
+            cf0, isf0 = cicd_finds[0], iac_sca_finds[0]
+            self.db.upsert_bug_chain(
+                project_id,
+                f"[CI/CD->Infra] {cf0['title']} + {isf0['title']} -> Supply-Chain & Deployment Risk",
+                "Critical" if "Critical" in (cf0.get("severity"), isf0.get("severity")) else "High",
+                9.2,
+                [f"Pipeline: {cf0['asset']}", cf0["title"], isf0["title"]],
+                "CI/CD quvuridagi zaiflik hamda konteyner/paket infratuzilmasidagi xatolik birgalikda dasturiy ta'minot zanjiri (Supply-Chain) xavfini yuzaga keltiradi.",
+                "Build muhiti va deploy qilinadigan konteyner obrazlarining yaxlitligi buzilishi.",
+                f"{cf0.get('remediation', '')} {isf0.get('remediation', '')}".strip(),
             )
 
         if sast_sinks and all_api_eps:
@@ -518,7 +536,7 @@ class TriageAndChainSuperAgent:
             f"</div>"
         )
         html_content = f"""<!DOCTYPE html>
-<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v6.0.0 Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
+<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v6.2.0 Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
 <style>
 body {{ font-family: "Inter", system-ui, sans-serif; background: #090c0a; color: #e2e8f0; padding: 32px; }}
 h1, h2 {{ color: #4ade80; border-bottom: 1px solid #1b2a21; padding-bottom: 8px; }}
@@ -532,7 +550,7 @@ code {{ color: #86efac; background: #080b09; padding: 2px 6px; border-radius: 4p
 .flt-inp {{ background: #090c0a; color: #f1f5f9; border: 1px solid #24362b; border-radius: 6px; padding: 6px 12px; min-width: 280px; font-size: 12.5px; }}
 @media print {{ body {{ background: #ffffff; color: #111827; padding: 12px; }} table, th, td {{ border-color: #d1d5db; background: #ffffff; color: #111827; }} code {{ background: #f3f4f6; color: #065f46; }} .flt-bar {{ display: none; }} }}
 </style></head><body>
-<h1>SPECTRE v6.0.0 — Enterprise Security &amp; Attack Surface Report: {_html.escape(str(proj.get('name', '')))}</h1>
+<h1>SPECTRE v6.2.0 — Enterprise Security &amp; Attack Surface Report: {_html.escape(str(proj.get('name', '')))}</h1>
 <p><b>Primary Target:</b> <code>{_html.escape(str(proj.get('primary_target', '')))}</code> | <b>In-Scope:</b> <code>{_html.escape(str(proj.get('in_scope', '')))}</code></p>
 {kpi_bar}
 <h2>🔗 Zaifliklar Zanjiri (Bug Chaining Scenarios — {len(chains)})</h2>

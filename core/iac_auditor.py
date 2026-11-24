@@ -95,14 +95,56 @@ def audit_compose_yaml(content: str) -> list[tuple[str, str, float, str, str]]:
 def audit_k8s_yaml(content: str) -> list[tuple[str, str, float, str, str]]:
     issues: list[tuple[str, str, float, str, str]] = []
     k8s_kinds = {"Pod", "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
+    rbac_kinds = {"ClusterRole", "Role", "ClusterRoleBinding", "RoleBinding", "Secret"}
     try:
         docs = list(yaml.safe_load_all(content))
     except Exception:
         return issues
     for doc in docs:
-        if not isinstance(doc, dict) or str(doc.get("kind") or "") not in k8s_kinds:
+        if not isinstance(doc, dict):
             continue
-        res_name = str((doc.get("metadata") or {}).get("name") or doc.get("kind"))
+        kind = str(doc.get("kind") or "")
+        res_name = str((doc.get("metadata") or {}).get("name") or kind)
+        if kind in ("ClusterRole", "Role"):
+            for rl in (doc.get("rules") or []):
+                if not isinstance(rl, dict):
+                    continue
+                verbs = [str(v) for v in (rl.get("verbs") or [])]
+                rsrcs = [str(r) for r in (rl.get("resources") or [])]
+                if "*" in verbs and ("*" in rsrcs or "secrets" in rsrcs or "pods/exec" in rsrcs):
+                    issues.append((
+                        f"Kubernetes {kind} Grants Wildcard / Cluster-Admin Privileges ({res_name})",
+                        "Critical", 9.1, "CWE-269",
+                        f"`{res_name}` rolida `*` (wildcard) huquqlardan voz keching va eng kam imtiyoz tamoyilini qo'llang.",
+                    ))
+                    break
+            continue
+        if kind in ("ClusterRoleBinding", "RoleBinding"):
+            for subj in (doc.get("subjects") or []):
+                sname = str((subj or {}).get("name") or "") if isinstance(subj, dict) else ""
+                if sname in ("system:unauthenticated", "system:anonymous"):
+                    issues.append((
+                        f"Kubernetes {kind} Binds Anonymous/Unauthenticated Principal ({res_name})",
+                        "Critical", 9.8, "CWE-306",
+                        f"`{res_name}` bog'lamasidan `{sname}` subyektini zudlik bilan olib tashlang.",
+                    ))
+                    break
+            continue
+        if kind == "Secret" and str(doc.get("apiVersion") or "") == "v1":
+            s_data = {}
+            if isinstance(doc.get("stringData"), dict):
+                s_data.update(doc["stringData"])
+            if isinstance(doc.get("data"), dict):
+                s_data.update(doc["data"])
+            if any(isinstance(v, str) and len(v.strip()) >= 10 and not v.strip().startswith(("$", "${", "<", "ENC(")) for v in s_data.values()):
+                issues.append((
+                    f"Cleartext Kubernetes Secret Manifest Committed in Code ({res_name})",
+                    "High", 8.1, "CWE-798",
+                    "Git repozitoriyda ochiq `kind: Secret` saqlamang; `SealedSecrets` yoki `ExternalSecrets` ishlating.",
+                ))
+            continue
+        if kind not in k8s_kinds:
+            continue
         spec_root = doc.get("spec") or {}
         pod_spec = ((spec_root.get("template") or {}).get("spec") or spec_root) if isinstance(spec_root, dict) else {}
         if not isinstance(pod_spec, dict):

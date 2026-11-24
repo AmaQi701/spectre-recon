@@ -79,6 +79,20 @@ OFFLINE_SCA_RULES: tuple[dict[str, Any], ...] = (
     {"eco": "RubyGems", "pkg": "rack", "min": "2.0.0", "max": "2.2.6", "cve": "CVE-2023-27530", "sev": "High", "cvss": 7.5},
     {"eco": "crates.io", "pkg": "hyper", "min": "0.12.0", "max": "0.14.25", "cve": "CVE-2023-26964", "sev": "High", "cvss": 7.5},
     {"eco": "crates.io", "pkg": "h2", "min": "0.1.0", "max": "0.3.26", "cve": "CVE-2024-32650", "sev": "High", "cvss": 7.5},
+    {"eco": "NuGet", "pkg": "newtonsoft.json", "min": "1.0.0", "max": "13.0.1", "cve": "CVE-2024-21907", "sev": "High", "cvss": 7.5},
+    {"eco": "NuGet", "pkg": "system.text.json", "min": "4.6.0", "max": "8.0.5", "cve": "CVE-2024-43485", "sev": "High", "cvss": 7.5},
+    {"eco": "NuGet", "pkg": "bouncycastle.cryptography", "min": "1.0.0", "max": "2.3.1", "cve": "CVE-2024-29857", "sev": "High", "cvss": 7.5},
+    {"eco": "NuGet", "pkg": "microsoft.data.sqlclient", "min": "1.0.0", "max": "5.1.4", "cve": "CVE-2024-0056", "sev": "High", "cvss": 8.7},
+    {"eco": "NuGet", "pkg": "restsharp", "min": "100.0.0", "max": "112.0.0", "cve": "CVE-2024-45302", "sev": "Medium", "cvss": 5.3},
+    {"eco": "Maven", "pkg": "io.netty:netty-codec-http2", "min": "4.1.0", "max": "4.1.100", "cve": "CVE-2023-44487", "sev": "High", "cvss": 7.5},
+    {"eco": "Maven", "pkg": "org.springframework.security:spring-security-web", "min": "5.6.0", "max": "6.2.3", "cve": "CVE-2024-22257", "sev": "High", "cvss": 8.2},
+    {"eco": "Maven", "pkg": "org.postgresql:postgresql", "min": "42.0.0", "max": "42.7.2", "cve": "CVE-2024-1597", "sev": "Critical", "cvss": 9.8},
+    {"eco": "Maven", "pkg": "org.apache.tomcat.embed:tomcat-embed-core", "min": "9.0.0", "max": "10.1.19", "cve": "CVE-2024-24549", "sev": "High", "cvss": 7.5},
+    {"eco": "Go", "pkg": "google.golang.org/grpc", "min": "1.20.0", "max": "1.58.3", "cve": "CVE-2023-44487", "sev": "High", "cvss": 7.5},
+    {"eco": "Go", "pkg": "github.com/golang-jwt/jwt", "min": "3.0.0", "max": "3.2.2", "cve": "CVE-2020-26160", "sev": "High", "cvss": 7.5},
+    {"eco": "npm", "pkg": "tar", "min": "4.0.0", "max": "6.2.1", "cve": "CVE-2024-28863", "sev": "Medium", "cvss": 6.5},
+    {"eco": "PyPI", "pkg": "fastapi", "min": "0.60.0", "max": "0.109.1", "cve": "CVE-2024-24762", "sev": "High", "cvss": 7.5},
+    {"eco": "crates.io", "pkg": "rustls", "min": "0.20.0", "max": "0.22.4", "cve": "CVE-2024-32650", "sev": "High", "cvss": 7.5},
 )
 
 _CLEAN_VER_RE = re.compile(r"(\d+\.\d+(?:\.\d+)?)")
@@ -89,6 +103,7 @@ SUPPORTED_MANIFEST_NAMES = {
     "composer.json", "composer.lock",
     "requirements.txt", "pipfile.lock", "poetry.lock", "pyproject.toml",
     "go.mod", "cargo.lock", "gemfile.lock", "pom.xml",
+    "build.gradle", "build.gradle.kts", "packages.lock.json",
 }
 
 
@@ -96,7 +111,8 @@ def build_purl(eco: str, pkg: str, ver: str) -> str:
     """Builds standardized Package URL (purl)."""
     eco_map = {
         "npm": "npm", "PyPI": "pypi", "Packagist": "composer",
-        "Go": "golang", "Maven": "maven", "RubyGems": "gem", "crates.io": "cargo",
+        "Go": "golang", "Maven": "maven", "RubyGems": "gem",
+        "crates.io": "cargo", "NuGet": "nuget",
     }
     p_type = eco_map.get(eco, eco.lower())
     clean_p = pkg.strip()
@@ -158,6 +174,20 @@ def _parse_extra_lockfiles(fname: str, content: str, _add: Any) -> None:
             mv = re.search(r"<version>\s*(\d+\.\d+(?:\.\d+)?)\s*</version>", dep_blk, re.I)
             if mg and ma and mv:
                 _add("Maven", f"{mg.group(1)}:{ma.group(1)}", mv.group(1))
+    elif fname in ("build.gradle", "build.gradle.kts"):
+        for m in re.finditer(r"""(?:implementation|api|compileOnly|runtimeOnly)\s*\(?\s*['"]([a-zA-Z0-9._\-]+:[a-zA-Z0-9._\-]+):(\d+\.\d+(?:\.\d+)?)['"]""", content):
+            _add("Maven", m.group(1), m.group(2))
+    elif fname.endswith(".csproj"):
+        for m in re.finditer(r"""<PackageReference\s+[^>]*Include=["']([^"']+)["'][^>]*Version=["'](\d+\.\d+(?:\.\d+)?)["']""", content, re.I):
+            _add("NuGet", m.group(1), m.group(2))
+    elif fname == "packages.lock.json":
+        obj = json.loads(content)
+        for _fw, pkgs in (obj.get("dependencies") or {}).items():
+            if isinstance(pkgs, dict):
+                for p_nm, meta in pkgs.items():
+                    mv = _CLEAN_VER_RE.search(str((meta or {}).get("resolved") or "")) if isinstance(meta, dict) else None
+                    if mv:
+                        _add("NuGet", str(p_nm), mv.group(1))
 
 
 def parse_manifest_dependencies(filename: str, content: str) -> list[tuple[str, str, str]]:
@@ -168,7 +198,7 @@ def parse_manifest_dependencies(filename: str, content: str) -> list[tuple[str, 
 
     def _add(eco: str, pkg: str, ver: str) -> None:
         pk = pkg.strip()
-        pk_k = pk.lower() if eco in ("PyPI", "npm", "RubyGems", "crates.io") else pk
+        pk_k = pk.lower() if eco in ("PyPI", "npm", "RubyGems", "crates.io", "NuGet") else pk
         if pk and ver and (eco, pk_k) not in seen:
             seen.add((eco, pk_k))
             deps.append((eco, pk, ver))
@@ -280,7 +310,8 @@ def run_sca_dependency_audit(
         if not root.is_dir():
             continue
         for mf in sorted(root.rglob("*")):
-            if mf.name.lower() not in manifest_names or not mf.is_file():
+            fn_low = mf.name.lower()
+            if (fn_low not in manifest_names and not fn_low.endswith(".csproj")) or not mf.is_file():
                 continue
             if any(sp in str(mf) for sp in skip_parts):
                 continue

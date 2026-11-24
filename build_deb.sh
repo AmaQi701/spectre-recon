@@ -14,7 +14,7 @@ mkdir -p "${DIST_DIR}"
 
 cat << 'EOF' > "${PKG_DIR}/DEBIAN/control"
 Package: spectre-recon
-Version: 6.0.0
+Version: 6.2.0
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -23,7 +23,7 @@ Recommends: g++, libssl-dev, nmap, whois, dnsutils
 Maintainer: AmaQi701 <67887617+AmaQi701@users.noreply.github.com>
 Description: SPECTRE Hybrid C++17/Python Attack Surface & Security Audit Studio
  Native Linux GTK3 & Headless CLI platform with C++17 v2 epoll/OpenSSL,
- 175 declarative NVTs, 42 socket verifiers, 175 CPEs, Py/JS AST SAST, IaC/CI-CD, 14-lockfile SCA, and 6-Framework Compliance.
+ 200 declarative NVTs, 42 socket verifiers, 200 CPEs, Py/JS/Go/Java SAST, K8s RBAC IaC, 16-lockfile SCA, and 6-Framework Compliance.
 EOF
 
 if command -v g++ >/dev/null 2>&1; then
