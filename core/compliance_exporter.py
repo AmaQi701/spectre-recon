@@ -9,11 +9,52 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
 
 from core.advisory_kb import extract_cpe_inventory
+
+
+_CVSS31_WEIGHTS: dict[str, dict[str, float]] = {
+    "AV": {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.20},
+    "AC": {"L": 0.77, "H": 0.44},
+    "UI": {"N": 0.85, "R": 0.62},
+    "C": {"H": 0.56, "L": 0.22, "N": 0.0},
+    "I": {"H": 0.56, "L": 0.22, "N": 0.0},
+    "A": {"H": 0.56, "L": 0.22, "N": 0.0},
+}
+
+
+def calculate_cvss31_base_score(vector: str) -> float:
+    """Official FIRST.org CVSS v3.1 Base Score calculator (`trailofbits/cvss-scoring` parity)."""
+    metrics: dict[str, str] = {}
+    for tok in (vector or "").strip().split("/"):
+        if ":" in tok and not tok.upper().startswith("CVSS"):
+            k, v = tok.split(":", 1)
+            metrics[k.upper()] = v.upper()
+    if not {"AV", "AC", "PR", "UI", "S", "C", "I", "A"}.issubset(metrics):
+        return 0.0
+    scope_changed = metrics["S"] == "C"
+    pr_map = {"N": 0.85, "L": 0.68 if scope_changed else 0.62, "H": 0.50 if scope_changed else 0.27}
+    try:
+        av = _CVSS31_WEIGHTS["AV"][metrics["AV"]]
+        ac = _CVSS31_WEIGHTS["AC"][metrics["AC"]]
+        pr = pr_map[metrics["PR"]]
+        ui = _CVSS31_WEIGHTS["UI"][metrics["UI"]]
+        c_w = _CVSS31_WEIGHTS["C"][metrics["C"]]
+        i_w = _CVSS31_WEIGHTS["I"][metrics["I"]]
+        a_w = _CVSS31_WEIGHTS["A"][metrics["A"]]
+    except KeyError:
+        return 0.0
+    iss = 1.0 - ((1.0 - c_w) * (1.0 - i_w) * (1.0 - a_w))
+    if iss <= 0.0:
+        return 0.0
+    impact = (7.52 * (iss - 0.029) - 3.25 * ((iss - 0.02) ** 15)) if scope_changed else (6.42 * iss)
+    exploitability = 8.22 * av * ac * pr * ui
+    raw = min((1.08 * (impact + exploitability)) if scope_changed else (impact + exploitability), 10.0)
+    return math.ceil(round(raw * 100000) / 10000.0) / 10.0
 
 
 def build_sarif_report(bundle: dict[str, Any]) -> dict[str, Any]:
@@ -60,7 +101,7 @@ def build_sarif_report(bundle: dict[str, Any]) -> dict[str, Any]:
             "tool": {
                 "driver": {
                     "name": "SPECTRE Hybrid Security Studio",
-                    "version": "8.1.0",
+                    "version": "8.2.0",
                     "informationUri": "https://github.com/AmaQi701/spectre-recon",
                     "rules": list(rules_map.values()),
                 }
@@ -167,23 +208,23 @@ def map_finding_compliance_controls(finding: dict[str, Any]) -> dict[str, str]:
         nist = "NIST CSF 2.0 PR.AA-01 (Identity & Credential Management)"
         soc2 = "SOC 2 CC6.1 (Authentication & Secret Protection)"
         mitre = "MITRE ATT&CK v15 T1552 / T1190 (Unsecured Credentials & Exposed Service)"
-    elif cwe in ("CWE-295", "CWE-319", "CWE-326", "CWE-327") or "tls" in cat or "ssl" in cat or "crypt" in cat:
-        api_ctrl = "API8:2023 - Security Misconfiguration (Transport TLS)"
-        pci = "PCI-DSS v4.0 Req 4.2.1 (Strong Cryptography in Transit)"
+    elif cwe in ("CWE-208", "CWE-295", "CWE-319", "CWE-326", "CWE-327") or "tls" in cat or "ssl" in cat or "crypt" in cat:
+        api_ctrl = "API8:2023 - Security Misconfiguration (Cryptography & Transport)"
+        pci = "PCI-DSS v4.0 Req 4.2.1 & Req 6.2.4 (Strong Cryptography & Side-Channel Resistance)"
         iso = "ISO/IEC 27001:2022 A.8.24 (Use of Cryptography)"
-        nist = "NIST CSF 2.0 PR.DS-02 (Data-in-Transit Protection)"
-        soc2 = "SOC 2 CC6.7 (Transmission Encryption)"
-        mitre = "MITRE ATT&CK v15 T1557 (Adversary-in-the-Middle / Weak Transport)"
-    elif cwe in ("CWE-1188", "CWE-636") or "insecure default" in cat:
+        nist = "NIST CSF 2.0 PR.DS-02 (Data-in-Transit & Cryptographic Verification)"
+        soc2 = "SOC 2 CC6.7 (Transmission & Cryptographic Integrity)"
+        mitre = "MITRE ATT&CK v15 T1557 / T1600 (Adversary-in-the-Middle & Weaken Encryption)"
+    elif cwe in ("CWE-1188", "CWE-636", "CWE-732") or "insecure default" in cat:
         api_ctrl = "API8:2023 - Security Misconfiguration (Insecure Defaults)"
         pci = "PCI-DSS v4.0 Req 2.2.2 & Req 6.2.4 (Fail-Secure Defaults & Vendor Parameters)"
         iso = "ISO/IEC 27001:2022 A.8.9 & A.8.28 (Secure Configuration & Initialization)"
         nist = "NIST CSF 2.0 PR.PS-01 (Secure Default Configuration Baseline)"
         soc2 = "SOC 2 CC6.1 & CC7.1 (Fail-Closed Access & Configuration Integrity)"
         mitre = "MITRE ATT&CK v15 T1552.001 / T1078.001 (Fallback Secrets & Default Initialization)"
-    elif cwe in ("CWE-79", "CWE-89", "CWE-78", "CWE-77", "CWE-74", "CWE-94", "CWE-502", "CWE-601", "CWE-22") or "injection" in cat or "xss" in cat or "redirect" in cat or "prompt" in cat:
-        api_ctrl = "API8:2023 - Security Misconfiguration / Input Validation"
-        pci = "PCI-DSS v4.0 Req 6.2.4 (Injection & XSS Prevention)"
+    elif cwe in ("CWE-79", "CWE-89", "CWE-78", "CWE-77", "CWE-74", "CWE-94", "CWE-502", "CWE-601", "CWE-22", "CWE-362", "CWE-915", "CWE-770") or "injection" in cat or "xss" in cat or "redirect" in cat or "prompt" in cat:
+        api_ctrl = "API3:2023 - Broken Object Property Level Authorization" if cwe == "CWE-915" else ("API4:2023 - Unrestricted Resource Consumption" if cwe == "CWE-770" else "API8:2023 - Security Misconfiguration / Input Validation")
+        pci = "PCI-DSS v4.0 Req 6.2.4 (Injection, Concurrency & Schema Integrity)"
         iso = "ISO/IEC 27001:2022 A.8.28 (Secure Coding)"
         nist = "NIST CSF 2.0 PR.PS-05 (Secure Software Development)"
         soc2 = "SOC 2 CC8.1 & CC7.1 (Change & Input Integrity)"
@@ -195,7 +236,7 @@ def map_finding_compliance_controls(finding: dict[str, Any]) -> dict[str, str]:
         nist = "NIST CSF 2.0 PR.IR-01 (Network Boundary Protection)"
         soc2 = "SOC 2 CC6.6 (External Network Boundary Controls)"
         mitre = "MITRE ATT&CK v15 T1090 / T1552.005 (Cloud Instance Metadata & Proxy)"
-    elif cwe in ("CWE-1104", "CWE-1395", "CWE-829") or "sca" in cat or "outdated" in cat or "cve" in cat or "ci/cd" in cat:
+    elif cwe in ("CWE-427", "CWE-494", "CWE-506", "CWE-1104", "CWE-1395", "CWE-829") or "sca" in cat or "supply-chain" in cat or "outdated" in cat or "cve" in cat or "ci/cd" in cat:
         api_ctrl = "API9:2023 - Improper Inventory Management"
         pci = "PCI-DSS v4.0 Req 6.3.2 & Req 6.3.3 (SBOM & Patch Management)"
         iso = "ISO/IEC 27001:2022 A.8.8 (Management of Technical Vulnerabilities)"

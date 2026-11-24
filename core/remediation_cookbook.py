@@ -87,6 +87,29 @@ def build_fix_patch_snippet(finding: dict[str, Any]) -> str:
             "element.textContent = untrustedInput;\n"
             "Content-Security-Policy: default-src 'self'; object-src 'none'; base-uri 'self';"
         )
+    if cwe == "CWE-208" or "timing" in title:
+        return (
+            "# Constant-Time Secret / HMAC Digest Verification:\n"
+            "import hmac\n"
+            "if not hmac.compare_digest(expected_sig.encode(), provided_sig.encode()):\n"
+            "    raise PermissionError('Invalid signature')"
+        )
+    if cwe == "CWE-362" or "toctou" in title or "race" in title:
+        return (
+            "-- Atomic Row-Level Balance Guard (Prevents Double-Spend Race):\n"
+            "UPDATE wallets SET balance = balance - :amt WHERE user_id = :uid AND balance >= :amt;"
+        )
+    if cwe in ("CWE-427", "CWE-494", "CWE-506") or "lifecycle hook" in title or "dependency confusion" in title:
+        return (
+            "# Lock Supply-Chain Registry & Disable Install Scripts in CI:\n"
+            "npm ci --ignore-scripts\n"
+            "pip install --index-url https://pypi.internal.example/simple --require-hashes -r requirements.txt"
+        )
+    if cwe in ("CWE-915", "CWE-770") or "additionalproperties" in title or "maxitems" in title:
+        return (
+            "# Strict DTO Schema Validation (Reject Unknown Fields & Bound Arrays):\n"
+            "{\"type\": \"object\", \"additionalProperties\": false, \"properties\": {\"items\": {\"type\": \"array\", \"maxItems\": 100}}}"
+        )
     if cwe in ("CWE-1188", "CWE-636") or "fail-open" in title:
         return (
             "# Fail-Secure Configuration (Refuse Startup on Missing Secret & Enforce Strict Default):\n"

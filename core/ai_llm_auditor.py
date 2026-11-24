@@ -8,6 +8,7 @@ white-box AI API credentials / insecure MCP server manifests.
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
 import urllib.parse
@@ -83,6 +84,66 @@ def audit_agent_workspace_config_text(filename: str, content: str) -> list[tuple
             f"Wildcard Shell Execution Permission in AI Agent Config ({filename})",
             "High", 8.5, "CWE-250",
             f"`{filename}` ruxsatlarida `{bad_perms[0]}` o'rniga faqat aniq xavfsiz buyruqlarni (`Bash(pytest)`) ruxsat eting.",
+        ))
+    return issues
+
+
+_JWT_TOKEN_RE = re.compile(r"\beyJ[A-Za-z0-9_\-]{8,}\.(eyJ[A-Za-z0-9_\-]{12,})\.[A-Za-z0-9_\-]{8,}\b")
+_FIREBASE_JSON_URL_RE = re.compile(r"https://[a-z0-9\-]+\.(?:firebaseio\.com|firebasedatabase\.app)/[A-Za-z0-9_/\-]*\.json\b", re.I)
+_COGNITO_POOL_RE = re.compile(r"\b(?:us|eu|ap|sa|ca|me|af)-[a-z]+-\d:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
+
+
+def audit_baas_and_rag_configs(filename: str, content: str) -> list[tuple[str, str, float, str, str]]:
+    """
+    BaaS & RAG Vector-DB Config Auditor (`trailofbits/firebase-apk-scanner` + `ECC/rag-pipeline-reviewer` parity):
+      1. Supabase `service_role` admin JWT leaked in client/source (`anon` role ignored -> 0% FP) (`CWE-798`);
+      2. Firebase Realtime DB direct `.json` REST endpoint or AWS Cognito IdentityPoolId (`CWE-284`);
+      3. Weaviate / ChromaDB anonymous RAG vector-store access enabled (`CWE-306`).
+    """
+    issues: list[tuple[str, str, float, str, str]] = []
+    txt = content or ""
+    if not txt:
+        return issues
+
+    for m_jwt in _JWT_TOKEN_RE.finditer(txt):
+        payload_b64 = m_jwt.group(1)
+        pad = "=" * ((4 - len(payload_b64) % 4) % 4)
+        try:
+            claims = json.loads(base64.urlsafe_b64decode(payload_b64 + pad).decode("utf-8", errors="ignore"))
+        except Exception:
+            claims = None
+        if isinstance(claims, dict) and str(claims.get("role") or "") == "service_role":
+            issues.append((
+                f"Supabase 'service_role' Admin Key Exposed in Source/Bundle ({filename})",
+                "Critical", 9.4, "CWE-798",
+                "Row-Level Security (RLS) ni chetlab o'tuvchi `service_role` kalitini hech qachon frontend yoki repozitoriyda saqlamang; faqat `anon` kalitni mijozda ishlating.",
+            ))
+            break
+
+    if _FIREBASE_JSON_URL_RE.search(txt):
+        issues.append((
+            f"Firebase Realtime Database Direct REST '.json' Endpoint Exposed ({filename})",
+            "Medium", 6.5, "CWE-284",
+            "Firebase Security Rules da `.read: false, .write: false` default qoidasini tekshiring va Firebase App Check ni yoqing.",
+        ))
+    if _COGNITO_POOL_RE.search(txt):
+        issues.append((
+            f"AWS Cognito IdentityPoolId Exposed in Client Configuration ({filename})",
+            "Medium", 5.8, "CWE-284",
+            "Cognito Identity Pool da `Unauthenticated identities` o'chirilganligini va IAM rolda minimal huquq berilganini tasdiqlang.",
+        ))
+
+    if re.search(r"(?i)AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED\s*[:=]\s*['\"]?true['\"]?", txt):
+        issues.append((
+            f"Weaviate RAG Vector Store Anonymous Access Explicitly Enabled ({filename})",
+            "High", 8.2, "CWE-306",
+            "`AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'false'` o'rnating va API-Key yoki OIDC autentifikatsiyasini majburiy qiling.",
+        ))
+    if re.search(r"(?i)\bALLOW_RESET\s*[:=]\s*['\"]?true['\"]?", txt) and "CHROMA_SERVER_AUTH" not in txt:
+        issues.append((
+            f"ChromaDB RAG Store Allows Unauthenticated Reset (`ALLOW_RESET=true` Without Auth) ({filename})",
+            "High", 8.1, "CWE-306",
+            "Production RAG bazasida `ALLOW_RESET=false` o'rnating va `CHROMA_SERVER_AUTHN_CREDENTIALS` ni yoqing.",
         ))
     return issues
 
@@ -353,4 +414,15 @@ def audit_ai_code_and_mcp_configs(db: Any, project_id: int, code_paths: list[str
                                     confidence=QoD.STATIC_SAST,
                                 )
                                 hits += 1
+            for b_title, b_sev, b_cvss, b_cwe, b_rem in audit_baas_and_rag_configs(fp.name, txt):
+                db.upsert_finding(
+                    project_id, "SPECTRE-AI-Security", b_title,
+                    "BaaS & RAG Vector-Store Security", b_sev, b_cvss,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N", b_cwe,
+                    "LLM06:2025 - Sensitive Information Disclosure", str(fp),
+                    f"Config/Source File: {fp.name}",
+                    f"`{fp.name}` faylida BaaS admin kaliti yoki ochiq RAG vektor bazasi sozlamasi aniqlandi.",
+                    b_rem, confidence=QoD.STATIC_SAST,
+                )
+                hits += 1
     return hits

@@ -46,6 +46,48 @@ def audit_dockerfile_text(content: str) -> list[tuple[str, str, float, str, str]
                 "Dockerfile yakuniy bosqichida imtiyozsiz foydalanuvchi (`USER nonroot` yoki `USER 10001`) ko'rsating.",
             ))
 
+    stage_aliases: set[str] = set()
+    for ln in lines:
+        if ln.upper().startswith("FROM "):
+            m_as = re.search(r"(?i)\bAS\s+([A-Za-z0-9._\-]+)", ln)
+            img_ref = ln.split()[1].strip() if len(ln.split()) >= 2 else ""
+            if img_ref.startswith("--"):
+                parts_f = [p for p in ln.split()[1:] if not p.startswith("--")]
+                img_ref = parts_f[0] if parts_f else ""
+            img_low = img_ref.lower()
+            if (
+                img_low
+                and img_low != "scratch"
+                and img_low not in stage_aliases
+                and "@sha256:" not in img_low
+                and not img_low.startswith("$")
+                and (":" not in img_low or img_low.endswith(":latest"))
+            ):
+                issues.append((
+                    f"Dockerfile Base Image Uses Unpinned or ':latest' Tag ({img_ref})",
+                    "Medium", 5.3, "CWE-1188",
+                    "Konteyner bazaviy obrazini aniq versiya yoki `@sha256:` digest bilan qadang (`:latest` ishlatmang).",
+                ))
+            if m_as:
+                stage_aliases.add(m_as.group(1).lower())
+
+    for ln in lines:
+        if ln.upper().startswith("RUN ") and re.search(r"(?i)\b(?:curl|wget)\b[^|\n]*\|\s*(?:ba|z)?sh\b", ln):
+            issues.append((
+                "Dockerfile Pipes Unverified Remote Script Directly to Shell (RUN curl|sh)",
+                "High", 8.2, "CWE-494",
+                "Masofaviy skriptlarni SHA-256 xesh tekshiruvisiz to'g'ridan-to'g'ri `sh`/`bash` ga uzatmang.",
+            ))
+            break
+    for ln in lines:
+        if ln.upper().startswith("RUN ") and re.search(r"\bchmod\s+(?:-R\s+)?(?:0?777|a\+rwx)\b", ln):
+            issues.append((
+                "Dockerfile Grants World-Writable Permissions (chmod 777)",
+                "Medium", 6.1, "CWE-732",
+                "Konteyner fayllarida `chmod 777` o'rniga minimal ruxsatlar (`chmod 750` / `640`) o'rnating.",
+            ))
+            break
+
     for ln in lines:
         m_sec = _ENV_SECRET_RE.match(ln)
         if m_sec and not m_sec.group(1).startswith("$"):
@@ -88,6 +130,21 @@ def audit_compose_yaml(content: str) -> list[tuple[str, str, float, str, str]]:
                 f"Host Network/PID Namespace Shared in Compose ('{svc_name}')",
                 "High", 7.5, "CWE-668",
                 "`network_mode: host` / `pid: host` o'rniga izolyatsiyalangan bridge tarmog'idan foydalaning.",
+            ))
+        caps = [str(c).upper().removeprefix("CAP_") for c in (cfg.get("cap_add") or [])]
+        bad_caps = [c for c in caps if c in ("ALL", "SYS_ADMIN", "SYS_PTRACE", "SYS_MODULE", "DAC_READ_SEARCH", "NET_ADMIN")]
+        if bad_caps:
+            issues.append((
+                f"Dangerous Linux Capabilities Added in Compose ('{svc_name}': {', '.join(bad_caps)})",
+                "High", 8.4, "CWE-250",
+                f"`{svc_name}` konteyneridan xavfli Linux capability (`{', '.join(bad_caps)}`) ruxsatlarini olib tashlang va `cap_drop: [ALL]` qo'llang.",
+            ))
+        sec_opts = [str(o).lower().replace(" ", "") for o in (cfg.get("security_opt") or [])]
+        if any("seccomp:unconfined" in o or "seccomp=unconfined" in o or "apparmor:unconfined" in o for o in sec_opts):
+            issues.append((
+                f"Container Seccomp/AppArmor Confinement Disabled in Compose ('{svc_name}')",
+                "High", 7.8, "CWE-250",
+                "`seccomp:unconfined` / `apparmor:unconfined` ni olib tashlab, default kernel filtrini yoqing.",
             ))
     return issues
 
@@ -176,12 +233,22 @@ def audit_k8s_yaml(content: str) -> list[tuple[str, str, float, str, str]]:
                 ))
         for ctr in (pod_spec.get("containers") or []):
             sc = (ctr.get("securityContext") or {}) if isinstance(ctr, dict) else {}
-            if isinstance(sc, dict) and sc.get("privileged") is True:
-                issues.append((
-                    f"Kubernetes Privileged Container Specification ({res_name})",
-                    "Critical", 9.1, "CWE-250",
-                    "`securityContext.privileged: false` va `allowPrivilegeEscalation: false` o'rnating.",
-                ))
+            if isinstance(sc, dict):
+                if sc.get("privileged") is True:
+                    issues.append((
+                        f"Kubernetes Privileged Container Specification ({res_name})",
+                        "Critical", 9.1, "CWE-250",
+                        "`securityContext.privileged: false` va `allowPrivilegeEscalation: false` o'rnating.",
+                    ))
+                caps_obj = sc.get("capabilities") if isinstance(sc.get("capabilities"), dict) else {}
+                k_caps = [str(c).upper().removeprefix("CAP_") for c in (caps_obj.get("add") or [])]
+                bad_k_caps = [c for c in k_caps if c in ("ALL", "SYS_ADMIN", "SYS_PTRACE", "SYS_MODULE", "DAC_READ_SEARCH")]
+                if bad_k_caps:
+                    issues.append((
+                        f"Kubernetes Container Adds High-Risk Linux Capabilities ({res_name}: {', '.join(bad_k_caps)})",
+                        "High", 8.4, "CWE-250",
+                        "`securityContext.capabilities.drop: [\"ALL\"]` o'rnating va `SYS_ADMIN`/`ALL` imtiyozlarini olib tashlang.",
+                    ))
     return issues
 
 

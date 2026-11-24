@@ -81,7 +81,7 @@ progressbar progress { min-height: 22px; background-image: none; background-colo
 
 class ApexNativeWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="SPECTRE Recon & Attack Surface Studio v8.1.0")
+        super().__init__(title="SPECTRE Recon & Attack Surface Studio v8.2.0")
         self.set_default_size(1340, 800)
         self.maximize()
         self.set_wmclass("spectre-recon", "spectre-recon")
@@ -271,7 +271,7 @@ class ApexNativeWindow(Gtk.Window):
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
         hb.props.title = "SPECTRE  —  Kiber-Razvedka va Hujum Yuzasi Platformasi"
-        hb.props.subtitle = "v8.1.0  •  C++17 v3 Kernel  •  250-NVT Engine  •  50-Port Socket NVTs  •  250-CPE  •  AI/MCP, 6-Lang SAST & 7-Framework Studio"
+        hb.props.subtitle = "v8.2.0  •  C++17 v3 Kernel  •  250-NVT Engine  •  50-Port Socket NVTs  •  250-CPE  •  AI/MCP/RAG, 6-Lang SAST & 7-Framework Studio"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -667,7 +667,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v8.1.0 Workstation] C++17 v3 Kernel, 250-NVT Catalog, 50-Port Socket Verifiers, 250-CPE, AI/MCP, 6-Lang SAST, 18-Format SCA & 7-Framework Studio initialized.\n")
+        self.term_buf.set_text("[SPECTRE v8.2.0 Workstation] C++17 v3 Kernel, 250-NVT Catalog, 50-Port Socket Verifiers, 250-CPE, AI/MCP/RAG, 6-Lang Sharp-Edges/Taint SAST, 18-Format Supply-Chain SCA & 7-Framework Studio initialized.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)
@@ -1323,7 +1323,7 @@ class ApexNativeWindow(Gtk.Window):
             return
         res = cli_orchestrator.export_project_artifacts(self.db, self.current_project_id)
         msg = (
-            "--- SPECTRE v8.1.0 MULTI-FORMAT & 7-FRAMEWORK ARTIFACTS EXPORTED ---\n"
+            "--- SPECTRE v8.2.0 MULTI-FORMAT & 7-FRAMEWORK ARTIFACTS EXPORTED ---\n"
             f"- OASIS SARIF 2.1.0 (GitHub/DefectDojo): {res['sarif_json']}\n"
             f"- CycloneDX 1.5 VEX SBOM (CPE + purl): {res['cyclonedx_sbom_json']}\n"
             f"- CI/CD JUnit XML Gate: {res['junit_xml']}\n"

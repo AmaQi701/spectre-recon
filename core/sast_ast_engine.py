@@ -550,3 +550,194 @@ def analyze_fail_open_defaults(src_text: str, ext: str) -> list[dict[str, Any]]:
     return [f for f in res if f.get("cwe") in ("CWE-1188", "CWE-636")]
 
 
+_SECRET_TIMING_ID_RE = re.compile(
+    r"(?i)(?:^|[._$])(?:expected_sig|sig_hex|signature|hmac(?:_digest|_hex|_sig)?|mac_digest|"
+    r"webhook_secret|api_secret|api_key|secret_token|csrf_token|verify_token|digest_hex)$"
+)
+_SAFE_CONST_TIME_CALL_RE = re.compile(
+    r"(?:compare_digest|timingSafeEqual|ConstantTimeCompare|MessageDigest\.isEqual|"
+    r"hash_equals|FixedTimeEquals|secure_compare)"
+)
+_BENIGN_COMPARE_RHS_RE = re.compile(
+    r"^(?:None|null|nil|undefined|false|true|False|True|0|-1|\"\"|''|``|\[\]|\{\}|len\b|length\b)$"
+)
+_INSECURE_EQ_RE = re.compile(
+    r"(\$?[A-Za-z_][A-Za-z0-9_.]*)\s*(?:===?|!==?)\s*(\$?[A-Za-z0-9_.\"']+)"
+)
+_JAVA_CS_EQUALS_RE = re.compile(
+    r"([A-Za-z_][A-Za-z0-9_.]*)\s*\.\s*[Ee]quals\s*\(\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\)"
+)
+
+
+def analyze_sharp_edges_and_timing(filename: str, src_text: str) -> list[dict[str, Any]]:
+    """
+    6-Language Cryptographic Sharp-Edges & Timing Side-Channel Analyzer:
+      1. Non-constant-time HMAC/signature/token equality (`CWE-208`);
+      2. JWT signature verification disabled / `alg: none` (`CWE-347`);
+      3. Block cipher ECB mode (`CWE-327`);
+      4. Unchecked archive `extractall` ZipSlip/TarSlip (`CWE-22`).
+    """
+    findings: list[dict[str, Any]] = []
+    seen: set[tuple[int, str]] = set()
+    lines = (src_text or "").splitlines()
+
+    def _emit(ln: int, title: str, sev: str, cvss: float, vec: str, cwe: str, owasp: str, rem: str) -> None:
+        if (ln, cwe) not in seen:
+            seen.add((ln, cwe))
+            findings.append({
+                "lineno": ln, "title": title, "category": "Cryptographic & API Sharp-Edges (SAST)",
+                "severity": sev, "cvss": cvss, "vector": vec, "cwe": cwe, "owasp": owasp, "remediation": rem,
+            })
+
+    has_path_guard = bool(re.search(r"(?:commonpath|abspath|resolve\(\)|getCanonicalPath|Clean\()", src_text or ""))
+
+    for idx, raw_ln in enumerate(lines, start=1):
+        s = raw_ln.strip()
+        if not s or s.startswith(("#", "//", "/*", "*")):
+            continue
+        if not _SAFE_CONST_TIME_CALL_RE.search(s):
+            pairs = list(_INSECURE_EQ_RE.findall(s)) + list(_JAVA_CS_EQUALS_RE.findall(s))
+            for lhs, rhs in pairs:
+                l_clean, r_clean = lhs.strip(), rhs.strip()
+                if _BENIGN_COMPARE_RHS_RE.match(l_clean) or _BENIGN_COMPARE_RHS_RE.match(r_clean):
+                    continue
+                if _SECRET_TIMING_ID_RE.search(l_clean) or _SECRET_TIMING_ID_RE.search(r_clean):
+                    _emit(
+                        idx,
+                        "Non-Constant-Time Cryptographic Signature / Secret Comparison (Timing Side-Channel)",
+                        "High", 7.4, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                        "CWE-208", "A02:2021 - Cryptographic Failures",
+                        "Standart `==` / `.equals()` o'rniga `hmac.compare_digest`, `crypto.timingSafeEqual`, `subtle.ConstantTimeCompare` yoki `hash_equals` ishlating.",
+                    )
+                    break
+
+        if re.search(
+            r"(?:verify_signature\s*[\"']?\s*:\s*(?:False|false)|jwt\.decode\([^)]*verify\s*=\s*False|"
+            r"algorithms\s*[=:]\s*\[[^\]]*[\"']none[\"']|parseClaimsJwt\s*\(|InsecureIgnoreSignature)",
+            s,
+        ):
+            _emit(
+                idx,
+                "JWT Signature Verification Disabled or 'alg: none' Accepted",
+                "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                "CWE-347", "A02:2021 - Cryptographic Failures",
+                "JWT imzosini har doim qat'iy algoritm ro'yxati (`RS256`/`ES256`/`HS256`) bilan tekshiring va `verify_signature: True` saqlang.",
+            )
+
+        if re.search(r"(?:AES\.MODE_ECB|modes\.ECB\s*\(|Cipher\.getInstance\(\s*[\"']AES/ECB|aes-\d+-ecb)", s, re.I):
+            _emit(
+                idx,
+                "Deterministic Block Cipher Mode (AES-ECB) Used in Cryptography",
+                "Medium", 5.9, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                "CWE-327", "A02:2021 - Cryptographic Failures",
+                "`AES-ECB` rejimidan voz keching va autentifikatsiyalangan `AES-256-GCM` yoki `ChaCha20-Poly1305` AEAD rejimini qo'llang.",
+            )
+
+        if ".extractall(" in s and "filter=" not in s and not has_path_guard:
+            _emit(
+                idx,
+                "Unvalidated Archive Extraction (ZipSlip / TarSlip Path Traversal)",
+                "High", 8.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+                "CWE-22", "A01:2021 - Broken Access Control",
+                "`tar.extractall(..., filter='data')` ishlating va har bir arxiv fayl yo'lini `os.path.commonpath` orqali tekshiring.",
+            )
+
+    return findings
+
+
+_ROUTE_DECL_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"@(?:app|router|bp)\.(?:post|put|delete|patch)\(\s*[\"']([^\"']+)[\"']"),
+    re.compile(r"\b(?:app|router)\.(?:post|put|delete|patch)\(\s*[\"']([^\"']+)[\"']"),
+    re.compile(r"\b(?:r|router|g|e|mux)\.(?:POST|PUT|DELETE|PATCH)\(\s*\"([^\"]+)\""),
+    re.compile(r"@(?:PostMapping|PutMapping|DeleteMapping|PatchMapping)\(\s*(?:value\s*=\s*)?[\"']([^\"']+)[\"']"),
+    re.compile(r"\bRoute::(?:post|put|delete|patch)\(\s*[\"']([^\"']+)[\"']"),
+    re.compile(r"\[Http(?:Post|Put|Delete|Patch)\(\s*[\"']([^\"']+)[\"']\s*\)\]"),
+)
+_PRIV_ROUTE_SEG_RE = re.compile(
+    r"(?i)(?:^|/)(?:admin|internal|transfer|withdraw|payout|refund|users|roles|permissions|config|backup|delete|purge)(?:/|$)"
+)
+_PUBLIC_ROUTE_SKIP_RE = re.compile(
+    r"(?i)(?:^|/)(?:login|signin|register|signup|webhook|health|public|oauth|callback|reset|forgot)(?:/|$)"
+)
+_AUTH_GUARD_RE = re.compile(
+    r"(?:Depends\s*\(|Security\s*\(|login_required|jwt_required|permission_required|require_auth|"
+    r"authMiddleware|authenticate|UseGuards|AuthGuard|PreAuthorize|Secured|RolesAllowed|"
+    r"\[Authorize\b|middleware\s*\([^)]*(?:auth|sanctum|admin)|AuthRequired|RequireAdmin)",
+    re.I,
+)
+
+
+def analyze_unauthenticated_entry_points(filename: str, src_text: str) -> list[dict[str, Any]]:
+    """6-Framework State-Changing Privileged Route Auth-Guard Verifier (`CWE-306`)."""
+    lines = (src_text or "").splitlines()
+    if not lines:
+        return []
+    file_level_guard = bool(re.search(r"(?:\[Authorize\b|@PreAuthorize\b|router\.use\([^)]*auth|middleware\(\s*\[?['\"]auth)", (src_text or "")[:1500], re.I))
+    findings: list[dict[str, Any]] = []
+    for idx, raw_ln in enumerate(lines, start=1):
+        s = raw_ln.strip()
+        if not s or s.startswith(("#", "//", "/*", "*")):
+            continue
+        matched_route = ""
+        for rx in _ROUTE_DECL_PATTERNS:
+            m = rx.search(s)
+            if m:
+                matched_route = m.group(1)
+                break
+        if not matched_route or _PUBLIC_ROUTE_SKIP_RE.search(matched_route) or not _PRIV_ROUTE_SEG_RE.search(matched_route):
+            continue
+        win = "\n".join(lines[max(0, idx - 4): min(len(lines), idx + 5)])
+        explicit_anon = bool(re.search(r"(?:\[AllowAnonymous\]|@Public\s*\()", win))
+        if explicit_anon or (not file_level_guard and not _AUTH_GUARD_RE.search(win)):
+            findings.append({
+                "lineno": idx,
+                "title": f"Privileged State-Changing Route Lacks Authentication Guard ({matched_route})",
+                "category": "Entry-Point Access Control (SAST)",
+                "severity": "High", "cvss": 8.2,
+                "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:N",
+                "cwe": "CWE-306", "owasp": "A01:2021 - Broken Access Control",
+                "remediation": f"`{matched_route}` endpointiga qat'iy autentifikatsiya va RBAC middleware (`Depends(require_admin)`, `@PreAuthorize`, `[Authorize]`) bog'lang.",
+            })
+    return findings
+
+
+_TOCTOU_CHECK_RE = re.compile(
+    r"\bif\b[^\n]{0,100}\b(?:balance|wallet|credits?|quota|stock|coupon_count)\b\s*(?:>=|>|<=|<)"
+)
+_TOCTOU_MUTATE_RE = re.compile(
+    r"(?:\b(?:balance|wallet|credits?|quota|stock|coupon_count)\b\s*-=|"
+    r"UPDATE\s+[A-Za-z0-9_]+\s+SET\s+(?:balance|wallet|credits?|quota|stock)\s*=)",
+    re.I,
+)
+_TOCTOU_LOCK_RE = re.compile(
+    r"(?:FOR\s+UPDATE|with_for_update|select_for_update|transaction\.atomic|Lock\s*\(|"
+    r"Mutex|Semaphore|synchronized|Serializable|Interlocked|WHERE[^\n;]+>=\s*)",
+    re.I,
+)
+
+
+def analyze_toctou_race_patterns(filename: str, src_text: str) -> list[dict[str, Any]]:
+    """Detects Non-Atomic Financial/Quota Check-Then-Deduct Race Windows (`CWE-362`)."""
+    lines = (src_text or "").splitlines()
+    findings: list[dict[str, Any]] = []
+    for idx, raw_ln in enumerate(lines, start=1):
+        if not _TOCTOU_CHECK_RE.search(raw_ln):
+            continue
+        win_start = max(0, idx - 8)
+        win_end = min(len(lines), idx + 12)
+        window = "\n".join(lines[win_start:win_end])
+        if _TOCTOU_MUTATE_RE.search(window) and not _TOCTOU_LOCK_RE.search(window):
+            findings.append({
+                "lineno": idx,
+                "title": "Non-Atomic Balance / Quota Check-Then-Act Race Window (TOCTOU)",
+                "category": "Concurrency & Database Integrity (SAST)",
+                "severity": "High", "cvss": 7.5,
+                "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N",
+                "cwe": "CWE-362", "owasp": "A04:2021 - Insecure Design",
+                "remediation": "Balans/kvota yechishni `SELECT ... FOR UPDATE` qator qulfi yoki bitta atomik `UPDATE ... WHERE balance >= :amount` so'rovi bilan bajaring.",
+            })
+    return findings
+
+
+
+

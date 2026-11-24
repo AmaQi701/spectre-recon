@@ -2,9 +2,9 @@
 
 <img src="ui/apex-icon.svg" width="105" alt="SPECTRE Logo" />
 
-# SPECTRE (`spectre-recon`) v8.1.0
+# SPECTRE (`spectre-recon`) v8.2.0
 
-**Hybrid C++17 v3 / Python Enterprise ASM, AI/LLM/RAG, Agentic CI/CD & MCP Security Auditor, 250-Rule Declarative + Custom YAML NVT, 50-Port Active Socket NVT, 250-Product NIST CPE 2.3, 6-Language Taint & Fail-Open SAST, Cloud/IaC v3, 18-Format 90-CVE SCA, 1-Click Reproducer/Patch Cookbook & 7-Framework (+MITRE ATT&CK v15) Platform**
+**Hybrid C++17 v3 / Python Enterprise ASM, AI/LLM/RAG/BaaS, Agentic CI/CD & MCP Security Auditor, 250-Rule Declarative + Custom YAML NVT, 50-Port Active Socket NVT, 250-Product NIST CPE 2.3, 6-Language Taint, Fail-Open, Sharp-Edges & Entry-Point SAST, Cloud/IaC v3, 18-Format Supply-Chain SCA, 1-Click Reproducer/Patch Cookbook & 7-Framework (+MITRE ATT&CK v15) Platform**
 
 [![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Kali%20%7C%20Debian-0ea5e9?style=for-the-badge&logo=linux)](https://github.com/AmaQi701/spectre-recon)
 [![Engine](https://img.shields.io/badge/Core-C%2B%2B17%20epoll%20%2B%20OpenSSL-ef4444?style=for-the-badge&logo=cplusplus)](https://isocpp.org/)
@@ -16,9 +16,9 @@
 
 ---
 
-## Why SPECTRE v8.1 Over Legacy Scanners?
+## Why SPECTRE v8.2 Over Legacy Scanners?
 
-| Capability | **SPECTRE v8.1 (OSS)** | Nessus Pro | OpenVAS / Greenbone | Nuclei | Trivy |
+| Capability | **SPECTRE v8.2 (OSS)** | Nessus Pro | OpenVAS / Greenbone | Nuclei | Trivy |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **100% Free & Open-Source** | **Yes (MIT)** | Paid Commercial | Yes | Yes | Yes |
 | **Hybrid C++17 `epoll` + OpenSSL Kernel** | **Yes (`>350 MB/s`)** | Proprietary C/NASL | C / NASL | Go | Go |
@@ -146,7 +146,7 @@ python3 spectre_cli.py --benchmark
 python3 spectre_cli.py --target example.org --mode full --fail-on high --min-qod 90
 # Compare Attack-Surface & Vulnerability Drift vs Baseline Project #1:
 python3 spectre_cli.py --target example.org --diff-project 1 --fail-on-drift
-# Fast offline artifact re-export (HTML v8.1 SVG, SARIF 2.1.0, CycloneDX 1.5 VEX, 7-Framework Matrix):
+# Fast offline artifact re-export (HTML v8.2 SVG, SARIF 2.1.0, CycloneDX 1.5 VEX, 7-Framework Matrix):
 python3 spectre_cli.py --export-project 1
 ```
 
@@ -155,7 +155,7 @@ python3 spectre_cli.py --export-project 1
 ```bash
 chmod +x build_deb.sh
 ./build_deb.sh
-sudo dpkg -i dist/spectre-recon_8.1.0_amd64.deb
+sudo dpkg -i dist/spectre-recon_8.2.0_amd64.deb
 spectre-recon
 ```
 

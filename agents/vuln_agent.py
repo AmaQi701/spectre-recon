@@ -30,6 +30,9 @@ from core.sast_ast_engine import (
     analyze_js_ts_taint_flow,
     analyze_php_csharp_taint_flow,
     analyze_python_ast_taint,
+    analyze_sharp_edges_and_timing,
+    analyze_toctou_race_patterns,
+    analyze_unauthenticated_entry_points,
     is_sanitized_sast_line,
 )
 from core.sca_engine import run_sca_dependency_audit, run_web_and_js_sca_audit
@@ -1008,6 +1011,13 @@ class VulnAssessmentSuperAgent:
                     ast_flows, safe_sast_lns = analyze_php_csharp_taint_flow(raw_src, sfx)
                 else:
                     ast_flows, safe_sast_lns = ([], set())
+                if sfx in (".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".java", ".php", ".cs"):
+                    ast_flows = (
+                        list(ast_flows)
+                        + analyze_sharp_edges_and_timing(fpath.name, raw_src)
+                        + analyze_unauthenticated_entry_points(fpath.name, raw_src)
+                        + analyze_toctou_race_patterns(fpath.name, raw_src)
+                    )
                 lines = raw_src.splitlines()
                 ast_reported_lines: set[int] = set()
                 for af in ast_flows:
@@ -1635,7 +1645,7 @@ class VulnAssessmentSuperAgent:
         kb = ScanContextKB(project_id, str(proj.get("primary_target", "")))
         kb.hydrate_from_bundle(bundle, has_auth_a=bool(self.role_a_headers), has_auth_b=bool(self.role_b_headers))
 
-        log_fn(f"--- [PHASE 2] SPECTRE v8.1.0 KB-GATED CVE, NVT, AI/MCP & BOLA AUDIT ({proj['name']}) ---")
+        log_fn(f"--- [PHASE 2] SPECTRE v8.2.0 KB-GATED CVE, NVT, AI/MCP & BOLA AUDIT ({proj['name']}) ---")
         http_svcs = bundle.get("http_services", [])
         ports = bundle.get("ports", [])
         eps = bundle.get("endpoints", [])

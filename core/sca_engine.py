@@ -124,8 +124,74 @@ SUPPORTED_MANIFEST_NAMES = {
     "requirements.txt", "pipfile.lock", "poetry.lock", "pyproject.toml",
     "go.mod", "cargo.lock", "gemfile.lock", "pom.xml",
     "build.gradle", "build.gradle.kts", "packages.lock.json",
-    "pubspec.lock", "mix.lock",
+    "pubspec.lock", "mix.lock", ".npmrc", "pip.conf",
 }
+
+CISA_KEV_CVES: frozenset[str] = frozenset({
+    "CVE-2021-44228", "CVE-2022-22965", "CVE-2023-44487", "CVE-2021-44906",
+    "CVE-2022-25845", "CVE-2022-42889", "CVE-2023-37466", "CVE-2023-48022",
+    "CVE-2024-1597", "CVE-2024-27198", "CVE-2024-3400",
+})
+
+_SUSPICIOUS_HOOK_RE = re.compile(
+    r"(?i)(?:\b(?:curl|wget|Invoke-WebRequest|iwr|powershell|pwsh|nc|ncat)\b|"
+    r"\b(?:sh|bash|zsh)\s+-c\b|\bnode\s+-e\b|\bpython3?\s+-c\b|\beval\s*\(|base64\s+-d)"
+)
+
+
+def audit_supply_chain_manifest_risks(filename: str, content: str) -> list[tuple[str, str, float, str, str]]:
+    """
+    Supply-Chain Risk Auditor (`trailofbits/supply-chain-risk-auditor` parity):
+      1. Malicious/risky `preinstall`/`install`/`postinstall` shell/network hooks (`CWE-506`);
+      2. Dependency Confusion `--extra-index-url` / cleartext `http://` registry (`CWE-427`);
+      3. Unpinned `*` / `latest` / `http://` tarball production dependencies (`CWE-1104`).
+    """
+    issues: list[tuple[str, str, float, str, str]] = []
+    fname = (filename or "").lower().split("/")[-1]
+    txt = content or ""
+
+    if fname in ("package.json", "composer.json"):
+        try:
+            obj = json.loads(txt)
+        except Exception:
+            obj = None
+        if isinstance(obj, dict):
+            scripts = obj.get("scripts") if isinstance(obj.get("scripts"), dict) else {}
+            hook_keys = ("preinstall", "install", "postinstall", "preuninstall", "post-install-cmd", "post-update-cmd")
+            for hk in hook_keys:
+                cmd_val = scripts.get(hk)
+                cmd_str = " && ".join(str(x) for x in cmd_val) if isinstance(cmd_val, list) else str(cmd_val or "")
+                if cmd_str and _SUSPICIOUS_HOOK_RE.search(cmd_str):
+                    issues.append((
+                        f"Suspicious Package Lifecycle Hook '{hk}' Executes Shell/Network Payload ({fname})",
+                        "Critical", 9.3, "CWE-506",
+                        f"`{fname}` ichidagi `{hk}` lifecycle skriptini tekshiring va CI da `npm ci --ignore-scripts` rejimini yoqing.",
+                    ))
+                    break
+            deps_sec = obj.get("dependencies") if fname == "package.json" else obj.get("require")
+            if isinstance(deps_sec, dict):
+                unpinned = [
+                    f"{k}:{v}" for k, v in deps_sec.items()
+                    if isinstance(v, str) and (v.strip() in ("*", "latest") or v.strip().startswith(("http://", "git+http://")))
+                ]
+                if unpinned:
+                    issues.append((
+                        f"Unpinned Wildcard or Insecure HTTP Dependency in {fname} ({', '.join(unpinned[:3])})",
+                        "Medium", 6.5, "CWE-1104",
+                        "Production bog'liqliklarda `*`/`latest`/`http://` o'rniga aniq versiya va lockfile (`package-lock.json`) ishlating.",
+                    ))
+
+    if fname in ("requirements.txt", "pip.conf", ".npmrc", "pyproject.toml"):
+        clean_lines = [ln.split("#", 1)[0].strip() for ln in txt.splitlines() if ln.split("#", 1)[0].strip()]
+        joined = "\n".join(clean_lines)
+        if "--extra-index-url" in joined or re.search(r"(?i)(?:registry|index-url|extra-index-url)\s*[=:]?\s*http://", joined) or "--trusted-host" in joined:
+            issues.append((
+                f"Dependency Confusion / Unencrypted Package Index Configuration ({fname})",
+                "High", 8.2, "CWE-427",
+                "`--extra-index-url` va `http://` reestr o'rniga yagona HTTPS ichki proxy (`--index-url https://...`) va namespace scoping qo'llang.",
+            ))
+
+    return issues
 
 
 def build_purl(eco: str, pkg: str, ver: str) -> str:
@@ -316,6 +382,8 @@ def match_dependencies_advisories(
                         "eco": eco, "pkg": pkg, "ver": ver, "cves": list(cached_ids[:3]),
                         "sev": "High", "cvss": 7.5,
                     }
+    for item in hits_map.values():
+        item["kev"] = any(str(c).upper() in CISA_KEV_CVES for c in item.get("cves", []))
     return list(hits_map.values())
 
 
@@ -346,6 +414,24 @@ def run_sca_dependency_audit(
                 raw_txt = mf.read_text(encoding="utf-8", errors="ignore")[:300000]
             except Exception:
                 continue
+            for sc_title, sc_sev, sc_cvss, sc_cwe, sc_rem in audit_supply_chain_manifest_risks(mf.name, raw_txt):
+                db.upsert_finding(
+                    project_id,
+                    "SPECTRE-SCA",
+                    sc_title,
+                    "Software Supply-Chain Security",
+                    sc_sev,
+                    sc_cvss,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                    sc_cwe,
+                    "A08:2021 - Software and Data Integrity Failures",
+                    str(mf),
+                    f"Manifest: {mf.name} | Supply-chain posture rule matched",
+                    f"`{mf.name}` paket manifestida ta'minot zanjiri (Supply-Chain) xavfsizligi kamchiligi aniqlandi.",
+                    sc_rem,
+                    confidence=QoD.HEADER_CONFIG,
+                )
+                total_written += 1
             deps = parse_manifest_dependencies(mf.name, raw_txt)
             vuln_deps = match_dependencies_advisories(deps, allow_online_osv=allow_online_osv)
             if not vuln_deps:

@@ -31,7 +31,7 @@ FIND_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI v8.1.0")
+    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI v8.2.0")
     p.add_argument("-t", "--target", default="", help="Primary target domain, host, or URL (required unless --export-project/--benchmark/--doctor)")
     p.add_argument("--export-project", type=int, default=0, help="Re-generate HTML/SARIF/SBOM/JUnit/Compliance artifacts for an existing project ID without re-scanning")
     p.add_argument("--benchmark", action="store_true", help="Run live 1 MB C++17 libspectre_accel.so throughput benchmark and exit")
@@ -83,7 +83,7 @@ def _run_live_cpp_benchmark() -> int:
     r_sec = _rate(fast_secret_prefilter_mask)
     r_tok = _rate(fast_js_token_mask)
     r_str = _rate(fast_structural_hash, iters=4)
-    print(f"SPECTRE v8.1.0 Hybrid C++17 Kernel Benchmark (CppLoaded={lib is not None})")
+    print(f"SPECTRE v8.2.0 Hybrid C++17 Kernel Benchmark (CppLoaded={lib is not None})")
     print("=" * 72)
     print(f"  1. C++17 MurmurHash3 (Favicon/Asset Fingerprint) : {r_mmh:8.1f} MB/s")
     print(f"  2. C++17 Secret & AI Key Pre-Filter Mask         : {r_sec:8.1f} MB/s")

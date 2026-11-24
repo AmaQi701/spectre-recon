@@ -76,6 +76,75 @@ def map_iam_and_keycloak_realms(db, session, project_id: int, base_url: str, log
 
 # 2. OPENAPI / SWAGGER $REF SCHEMA PARAMETER & BODY SYNTHESIZER
 
+def audit_openapi_spectral_rules(spec: dict[str, Any]) -> list[tuple[str, str, float, str, str, str]]:
+    """
+    Enterprise OpenAPI Security Linter (`AgentSecOps/api-spectral` parity):
+      1. Mass Assignment `additionalProperties: true` (`CWE-915`);
+      2. Cleartext `http://` production server URL or scheme (`CWE-319`);
+      3. Unbounded request array schema lacking `maxItems` (`CWE-770`).
+    """
+    issues: list[tuple[str, str, float, str, str, str]] = []
+    if not isinstance(spec, dict):
+        return issues
+
+    http_srvs = [
+        str(sv.get("url") or "") for sv in (spec.get("servers") or [])
+        if isinstance(sv, dict)
+        and str(sv.get("url") or "").lower().startswith("http://")
+        and not re.search(r"^http://(?:localhost|127\.0\.0\.1)(?:[:/]|$)", str(sv.get("url") or ""), re.I)
+    ]
+    schemes = [str(s).lower() for s in (spec.get("schemes") or []) if isinstance(s, str)]
+    if http_srvs or ("http" in schemes and "https" not in schemes):
+        ev = ", ".join(http_srvs[:3]) if http_srvs else f"schemes={schemes}"
+        issues.append((
+            "OpenAPI Specification Declares Unencrypted HTTP Transport",
+            "Medium", 5.9, "CWE-319", ev,
+            "OpenAPI `servers` va `schemes` bo'limlarida faqat `https://` shifrlangan transportni qoldiring.",
+        ))
+
+    mass_assign_schemas: list[str] = []
+    unbounded_arrays: list[str] = []
+    comp_schemas = ((spec.get("components") or {}).get("schemas") or spec.get("definitions") or {})
+    if isinstance(comp_schemas, dict):
+        for s_nm, s_obj in comp_schemas.items():
+            if isinstance(s_obj, dict) and s_obj.get("additionalProperties") is True:
+                mass_assign_schemas.append(str(s_nm))
+            props = s_obj.get("properties") if isinstance(s_obj, dict) else None
+            if isinstance(props, dict):
+                for p_nm, p_cfg in props.items():
+                    if isinstance(p_cfg, dict) and p_cfg.get("type") == "array" and "maxItems" not in p_cfg:
+                        unbounded_arrays.append(f"{s_nm}.{p_nm}")
+
+    for p_str, methods in (spec.get("paths") or {}).items():
+        if not isinstance(methods, dict):
+            continue
+        for verb, op in methods.items():
+            if str(verb).upper() not in ("POST", "PUT", "PATCH") or not isinstance(op, dict):
+                continue
+            req_c = ((op.get("requestBody") or {}).get("content") or {})
+            for ct_obj in req_c.values():
+                sch = ct_obj.get("schema") if isinstance(ct_obj, dict) else None
+                if isinstance(sch, dict):
+                    if sch.get("additionalProperties") is True:
+                        mass_assign_schemas.append(f"{verb.upper()} {p_str}")
+                    if sch.get("type") == "array" and "maxItems" not in sch:
+                        unbounded_arrays.append(f"{verb.upper()} {p_str}[]")
+
+    if mass_assign_schemas:
+        issues.append((
+            f"OpenAPI Schema Allows Arbitrary Object Properties / Mass Assignment ({len(mass_assign_schemas)} schemas)",
+            "Medium", 6.5, "CWE-915", f"additionalProperties=true in: {', '.join(mass_assign_schemas[:6])}",
+            "DTO va OpenAPI sxemalarida `additionalProperties: false` o'rnatib, ruxsat etilmagan maydonlarni rad eting.",
+        ))
+    if unbounded_arrays:
+        issues.append((
+            f"OpenAPI Schema Defines Unbounded Array Input Without 'maxItems' ({len(unbounded_arrays)} fields)",
+            "Low", 4.3, "CWE-770", f"Unbounded arrays: {', '.join(unbounded_arrays[:6])}",
+            "DoS va batch-overload hujumlarining oldini olish uchun massiv maydonlariga qat'iy `maxItems` chegarasini qo'ying.",
+        ))
+    return issues
+
+
 def resolve_openapi_schema_refs(db, session, project_id: int, base_url: str, log_fn) -> int:
     doc_paths = ("/v3/api-docs", "/v2/api-docs", "/openapi.json", "/swagger.json", "/api/openapi.json")
     synthesized = 0
@@ -141,6 +210,15 @@ def resolve_openapi_schema_refs(db, session, project_id: int, base_url: str, log
                     "Ommaviy OpenAPI hujjatining `servers` bo'limida ichki RFC-1918 IP yoki korporativ `.internal/.local` xost manzillari qolib ketgan.",
                     "Production OpenAPI spetsifikatsiyasida faqat ommaviy API Gateway manzilini qoldiring.",
                     confidence="Header/Config-Verified (QoD: 90%)",
+                )
+            for sp_title, sp_sev, sp_cvss, sp_cwe, sp_ev, sp_rem in audit_openapi_spectral_rules(spec):
+                db.upsert_finding(
+                    project_id, "SPECTRE-Schema (OpenAPI-Audit)", sp_title,
+                    "API Schema Security Review", sp_sev, sp_cvss,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N", sp_cwe,
+                    "A04:2021 - Insecure Design", u, sp_ev,
+                    "OpenAPI spetsifikatsiyasi Spectral API xavfsizlik qoidalariga javob bermaydi.",
+                    sp_rem, confidence="Header/Config-Verified (QoD: 90%)",
                 )
             all_dto_fields: set[str] = set()
             unauth_mutations: list[str] = []
