@@ -63,7 +63,7 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
     if not domains:
         return
 
-    log_fn(f"[SPECTRE Ultra #1 -> Origin IP Unmasker] {primary_host} uchun True TLS SNI + Host Injection orqali Origin IP tekshirilmoqda...")
+    log_fn(f"[SPECTRE Origin IP Unmasker] {primary_host} uchun True TLS SNI + Host Injection orqali Origin IP tekshirilmoqda...")
 
     base_title = ""
     base_body = ""
@@ -144,9 +144,9 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
                 reasons.append(f"HTML Similarity {int(sim_ratio * 100)}%")
             if len_match:
                 reasons.append(f"Content-Length Match ({len(body_b)}B)")
-            log_fn(f"  [🎯 ORIGIN IP UNMASKED] {ip_addr} -> {primary_host} ({', '.join(reasons)})")
+            log_fn(f"  [ORIGIN-IP-UNMASKED] {ip_addr} -> {primary_host} ({', '.join(reasons)})")
             db.upsert_finding(
-                project_id, "SPECTRE-Agent1 (Origin Unmasker)", f"Direct Origin Server IP Confirmed: {ip_addr} ({primary_host})",
+                project_id, "SPECTRE-Origin (SNI-Unmasker)", f"Direct Origin Server IP Confirmed: {ip_addr} ({primary_host})",
                 "Origin IP Exposure / WAF Bypass Vector", "Medium", 5.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
                 "CWE-200", "A05:2021 - Security Misconfiguration", f"{scheme_used}://{ip_addr} (Host: {primary_host})",
                 f"Origin Proof: {', '.join(reasons)} | HTTP {code} ({len(body_b)}B)\nPoC: curl -k -i --resolve {primary_host}:443:{ip_addr} https://{primary_host}/",
@@ -184,7 +184,7 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
     if not neighbor_candidates:
         return
 
-    log_fn(f"[SPECTRE Ultra #2 -> /24 Subnet PTR Sweeper] {len(neighbor_candidates)} ta qo'shni IP manzilda Reverse-DNS (PTR) tekshirilmoqda...")
+    log_fn(f"[SPECTRE /24 Subnet PTR Sweeper] {len(neighbor_candidates)} ta qo'shni IP manzilda Reverse-DNS (PTR) tekshirilmoqda...")
     ptr_map = {}
     ptr_resolver = dns.resolver.Resolver(configure=False)
     ptr_resolver.nameservers = ["8.8.8.8", "1.1.1.1", "9.9.9.9"]
@@ -201,7 +201,7 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
                     ptr_map[n_ip] = ptr_host
                     if ptr_host.endswith(apex_domain) or scope.is_in_scope(ptr_host)[0]:
                         db.upsert_domain(project_id, ptr_host, ip=n_ip, source="subnet_ptr_sweep")
-                        log_fn(f"  [🌐 /24 In-Scope PTR Hit] {n_ip} -> {ptr_host}")
+                        log_fn(f"  [PTR-Hit] {n_ip} -> {ptr_host}")
         except Exception:
             pass
 
@@ -212,7 +212,7 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
 
     if ptr_map:
         sample_ptrs = [f"{k} -> {v}" for k, v in sorted(ptr_map.items())[:12]]
-        log_fn(f"  [🗺️ /24 Neighborhood Map] Jami {len(ptr_map)} ta qo'shni server PTR yozuvi aniqlandi: {', '.join(sample_ptrs[:6])}")
+        log_fn(f"  [Neighborhood-PTR-Map] Jami {len(ptr_map)} ta qo'shni server PTR yozuvi aniqlandi: {', '.join(sample_ptrs[:6])}")
         db.log_task(
             project_id,
             "SPECTRE-Intel",
@@ -230,7 +230,7 @@ def deconstruct_spa_manifests_and_ssr_state(db, session: requests.Session, proje
     if not services:
         return
 
-    log_fn(f"[SPECTRE Ultra #3 -> SPA Manifest & SSR State Deconstructor] Next.js/Nuxt/Vite manifestlari va SSR JSON obyektlari tekshirilmoqda...")
+    log_fn("[SPECTRE SPA Manifest & SSR State Deconstructor] Next.js/Nuxt/Vite manifestlari va SSR JSON obyektlari tekshirilmoqda...")
 
     manifest_paths = [
         "/asset-manifest.json",
@@ -253,7 +253,7 @@ def deconstruct_spa_manifests_and_ssr_state(db, session: requests.Session, proje
                     nd = json.loads(m_next.group(1).strip())
                     build_id = nd.get("buildId", "")
                     runtime_cfg = nd.get("runtimeConfig") or nd.get("publicRuntimeConfig") or {}
-                    log_fn(f"  [⚡ Next.js SSR] {base_url} -> buildId={build_id} | runtimeConfig keys={list(runtime_cfg.keys())}")
+                    log_fn(f"  [Next.js-SSR] {base_url} -> buildId={build_id} | runtimeConfig keys={list(runtime_cfg.keys())}")
                     if build_id:
                         bm_url = urllib.parse.urljoin(base_url, f"/_next/static/{build_id}/_buildManifest.js")
                         rbm = session.get(bm_url, timeout=5, verify=False)
@@ -262,7 +262,7 @@ def deconstruct_spa_manifests_and_ssr_state(db, session: requests.Session, proje
                             for rt in set(routes):
                                 if not rt.endswith(".js") and not rt.endswith(".css") and record_url_fn:
                                     record_url_fn(project_id, rt, base_url, scope, "nextjs_build_manifest")
-                            log_fn(f"  [🗺️ Next.js _buildManifest] {len(set(routes))} ta yashirin frontend route ajratib olindi!")
+                            log_fn(f"  [Next.js-BuildManifest] {len(set(routes))} ta yashirin frontend route ajratib olindi!")
                 except Exception:
                     pass
 
@@ -279,7 +279,7 @@ def deconstruct_spa_manifests_and_ssr_state(db, session: requests.Session, proje
                     if "function(" not in val_str and "createElement" not in val_str:
                         cms_vars.append(f"{v_label}: {val_str}")
             if cms_vars:
-                log_fn(f"  [🧩 Frontend/CMS State] {base_url} -> {' | '.join(cms_vars[:4])}")
+                log_fn(f"  [Frontend-CMS-State] {base_url} -> {' | '.join(cms_vars[:4])}")
                 if any("dle_" in x for x in cms_vars) and record_url_fn:
                     for dle_ep in ("/engine/ajax/controller.php", "/engine/ajax/search.php", "/index.php?do=register", "/index.php?do=lostpassword", "/admin.php"):
                         record_url_fn(project_id, dle_ep, base_url, scope, "dle_cms_deconstructor")
@@ -307,7 +307,7 @@ def hunt_deep_secrets_and_uz_ecosystem(db, session: requests.Session, project_id
     if not js_assets and not services:
         return
 
-    log_fn("[SPECTRE Ultra #4 -> SecretHunter v2] Telegram Bot, Payme/Click/Uzum, AWS, Firebase va WSS sirlari tekshirilmoqda...")
+    log_fn("[SPECTRE Secret Scanner] Telegram Bot, Payme/Click/Uzum, AWS, Firebase va WSS sirlari tekshirilmoqda...")
 
     patterns = [
         ("Telegram Bot Token", "Critical", 9.1, r"\b(\d{8,10}:AA[A-Za-z0-9_-]{33})\b"),
@@ -346,10 +346,10 @@ def hunt_deep_secrets_and_uz_ecosystem(db, session: requests.Session, project_id
                         except Exception:
                             pass
 
-                    log_fn(f"  [🚨 SECRET V2] {label}: {val[:45]}... ({t_url}){extra_note}")
+                    log_fn(f"  [SECRET-DETECTED] {label}: {val[:45]}... ({t_url}){extra_note}")
                     db.upsert_finding(
                         project_id,
-                        "SPECTRE-Agent1 (SecretHunter v2)",
+                        "SPECTRE-Origin (Secret-Scanner)",
                         f"Exposed {label} in {t_url.split('/')[-1] or t_url}{extra_note}",
                         "Hardcoded Secret / Credential Exposure",
                         sev,
@@ -373,7 +373,7 @@ def mine_well_known_and_mobile_links(db, session: requests.Session, project_id: 
     if not services:
         return
 
-    log_fn("[SPECTRE Ultra #5 -> Mobile App & .well-known Miner] Android/iOS Deep-Link va OAuth2 OpenID konfiguratsiyalari tekshirilmoqda...")
+    log_fn("[SPECTRE Mobile App & .well-known Miner] Android/iOS Deep-Link va OAuth2 OpenID konfiguratsiyalari tekshirilmoqda...")
 
     wk_paths = [
         ("/.well-known/assetlinks.json", "Android Digital Asset Links"),
@@ -445,7 +445,7 @@ def mine_well_known_and_mobile_links(db, session: requests.Session, project_id: 
                         if wk_sig in seen_wk_hashes:
                             continue
                         seen_wk_hashes.add(wk_sig)
-                        log_fn(f"  [📱 {label}] {full_u} -> {summary[:140]}")
+                        log_fn(f"  [{label}] {full_u} -> {summary[:140]}")
                         db.log_task(
                             project_id,
                             "SPECTRE-Intel",
@@ -465,7 +465,7 @@ def trace_redirect_chains_and_oauth_flows(db, session: requests.Session, project
     if not services:
         return
 
-    log_fn("[SPECTRE Ultra #6 -> Redirect-Chain & SSO Tracker] 301/302 redirect zanjirlari va SSO/OAuth redirect_uri parametrlari kuzatilmoqda...")
+    log_fn("[SPECTRE Redirect-Chain & SSO Tracker] 301/302 redirect zanjirlari va SSO/OAuth redirect_uri parametrlari kuzatilmoqda...")
     probe_routes = ["/", "/admin", "/login", "/dashboard", "/cabinet", "/auth", "/sso", "/profile"]
 
     seen_oauth_issues: set[tuple[str, str]] = set()
@@ -482,7 +482,7 @@ def trace_redirect_chains_and_oauth_flows(db, session: requests.Session, project
                         hops.append(f"{r.status_code}:{nxt}")
                         nxt_l = nxt.lower()
                         if any(p in nxt_l for p in ("redirect_uri=", "returnurl=", "return_to=", "next=", "client_id=", "continue=")):
-                            log_fn(f"  [🔄 OAuth/Redirect Flow] {' -> '.join(hops)}")
+                            log_fn(f"  [OAuth-Redirect-Flow] {' -> '.join(hops)}")
                             if record_url_fn:
                                 record_url_fn(project_id, nxt, base_url, scope, "redirect_chain_tracker")
                             p_nx = urllib.parse.urlparse(nxt)
@@ -529,7 +529,7 @@ def extract_document_metadata_osint(db, session: requests.Session, project_id: i
     if not doc_urls:
         return
 
-    log_fn(f"[SPECTRE Ultra #7 -> Document Metadata OSINT] {len(doc_urls[:8])} ta PDF/DOCX/XLSX hujjat ichidan muallif va dastur metadatasi o'qilmoqda...")
+    log_fn(f"[SPECTRE Document Metadata OSINT] {len(doc_urls[:8])} ta PDF/DOCX/XLSX hujjat ichidan muallif va dastur metadatasi o'qilmoqda...")
     for d_url in doc_urls[:8]:
         try:
             with session.get(d_url, timeout=6, verify=False, stream=True) as r:
@@ -551,7 +551,7 @@ def extract_document_metadata_osint(db, session: requests.Session, project_id: i
                             if m:
                                 meta_hits.append(f"{tag}: {m.group(1)}")
             if meta_hits:
-                log_fn(f"  [📄 Document Metadata] {d_url} -> {' | '.join(meta_hits)}")
+                log_fn(f"  [Document-Metadata] {d_url} -> {' | '.join(meta_hits)}")
                 db.log_task(
                     project_id,
                     "SPECTRE-Intel",
@@ -610,7 +610,7 @@ def run_adaptive_brain_strategy(db, session: requests.Session, project_id: int, 
     if not services:
         return
 
-    log_fn("[SPECTRE Ultra #8 -> Context-Aware Adaptive Brain] Aniqlangan texnologiyalarga moslashtirilgan (Observe -> Think -> Act) chuqur tekshiruv boshlandi...")
+    log_fn("[SPECTRE Context-Aware Playbook Engine] Aniqlangan texnologiyalarga moslashtirilgan chuqur tekshiruv boshlandi...")
 
     for svc in services[:12]:
         base_url = svc["url"]
@@ -623,7 +623,7 @@ def run_adaptive_brain_strategy(db, session: requests.Session, project_id: int, 
 
         for pb_key, pb in TECH_PLAYBOOKS.items():
             if any(trig in tech_blob for trig in pb["triggers"]):
-                log_fn(f"  [🧠 ADAPTIVE BRAIN] {base_url} da '{pb['label']}' aniqlandi -> Maxsus {len(pb['paths'])} ta vektor tekshirilmoqda!")
+                log_fn(f"  [TECH-PLAYBOOK] {base_url} da '{pb['label']}' aniqlandi -> Maxsus {len(pb['paths'])} ta vektor tekshirilmoqda!")
                 for clean_p in pb["paths"]:
                     target_u = urllib.parse.urljoin(base_url, clean_p)
                     try:
@@ -635,15 +635,15 @@ def run_adaptive_brain_strategy(db, session: requests.Session, project_id: int, 
                                 body_sample = rp.text[:220].replace("\n", " ")
                                 if "<!doctype html" not in body_sample.lower():
                                     db.upsert_finding(
-                                        project_id, "SPECTRE-Agent1 (Adaptive Brain)", f"[CONFIRMED] Exposed {pb['label']} Sensitive Endpoint ({clean_p})",
+                                        project_id, "SPECTRE-Origin (Tech-Playbook)", f"[CONFIRMED] Exposed {pb['label']} Sensitive Endpoint ({clean_p})",
                                         "Technology-Specific Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
                                         "CWE-200", "A05:2021 - Security Misconfiguration", target_u,
                                         f"HTTP {rp.status_code} ({len(rp.content)}B) | Sample: {body_sample[:140]}",
-                                        f"Adaptive Brain tomonidan {pb['label']} uchun maxsus sezgir yo'l ({clean_p}) ochiq ekanligi tasdiqlandi.",
+                                        f"Texnologiya playbooki tomonidan {pb['label']} uchun maxsus sezgir yo'l ({clean_p}) ochiq ekanligi tasdiqlandi.",
                                         f"{clean_p} manziliga tashqi kirishni veb-server yoki framework darajasida yoping.",
                                         confidence="Confirmed-PoC",
                                     )
-                                    log_fn(f"    [🔥 CONFIRMED HIT] {target_u} -> HTTP {rp.status_code} ({len(rp.content)}B)")
+                                    log_fn(f"    [CONFIRMED-HIT] {target_u} -> HTTP {rp.status_code} ({len(rp.content)}B)")
                     except Exception:
                         pass
 

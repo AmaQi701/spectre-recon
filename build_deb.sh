@@ -22,8 +22,8 @@ Depends: python3, python3-gi, gir1.2-gtk-3.0, python3-requests, python3-yaml, py
 Recommends: g++, libssl-dev, nmap, whois, dnsutils
 Maintainer: AmaQi701 <67887617+AmaQi701@users.noreply.github.com>
 Description: SPECTRE Hybrid C++17/Python Attack Surface & Security Audit Studio
- Native Linux GTK3 & Headless CLI platform with C++17 v2 epoll/OpenSSL,
- 200 declarative NVTs, 42 socket verifiers, 200 CPEs, Py/JS/Go/Java SAST, K8s RBAC IaC, 16-lockfile SCA, and 6-Framework Compliance.
+ Native Linux GTK3 & Headless CLI platform with C++17 v3 epoll/OpenSSL,
+ 250 declarative NVTs, 50 socket verifiers, 250 CPEs, AI/MCP auditor, 6-lang SAST, Cloud/IaC v3, 18-format SCA, and 7-Framework (+MITRE v15) Compliance.
 EOF
 
 if command -v g++ >/dev/null 2>&1; then
@@ -44,7 +44,7 @@ Version=1.0
 Type=Application
 Name=SPECTRE Recon Studio
 GenericName=Cyber-Recon & Attack Surface Studio
-Comment=SPECTRE v5.2.0 Hybrid C++17/Python Recon, 150-NVT, 34-Port NVT, IaC/SCA/EPSS & Compliance Studio
+Comment=SPECTRE v8.0.0 Hybrid C++17/Python ASM, 250-NVT, 50-Port Socket NVT, AI/MCP, 6-Lang SAST & 7-Framework Studio
 Exec=/bin/bash /opt/apex-asm-studio/launch_apex.sh
 Path=/opt/apex-asm-studio
 Icon=/opt/apex-asm-studio/ui/apex-icon.svg
@@ -54,5 +54,5 @@ Keywords=pentest;recon;security;audit;spectre;scanner;
 StartupNotify=true
 EOF
 
-dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_5.2.0_amd64.deb"
-echo "[+] Built package: ${DIST_DIR}/spectre-recon_5.2.0_amd64.deb"
+dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_8.0.0_amd64.deb"
+echo "[+] Built package: ${DIST_DIR}/spectre-recon_8.0.0_amd64.deb"

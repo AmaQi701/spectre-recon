@@ -1,5 +1,5 @@
 """
-SPECTRE v3.0 — Active Web Surface, API Parameter & Client-Side Security Modules
+SPECTRE — Active Web Surface, API Parameter & Client-Side Security Modules
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
 
     matched_tech = KNOWN_FAVICON_HASHES.get(fav_hash, "")
     shodan_dork = f"http.favicon.hash:{fav_hash}"
-    log_fn(f"  [🕵️ FAVICON MMH3] {used_fav_url} -> Hash: {fav_hash} ({shodan_dork})" + (f" [{matched_tech}]" if matched_tech else ""))
+    log_fn(f"  [FAVICON-MMH3] {used_fav_url} -> Hash: {fav_hash} ({shodan_dork})" + (f" [{matched_tech}]" if matched_tech else ""))
     if matched_tech:
         db.merge_http_tech_stack(project_id, base_url, [f"Favicon:{matched_tech}"])
 
@@ -140,7 +140,7 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
         desc_extra = f" | Origin IP Match: {', '.join(matched_origins)}" if matched_origins else ""
         if matched_origins:
             db.upsert_finding(
-                project_id, "SPECTRE-Predator (Favicon-MMH3)",
+                project_id, "SPECTRE-Web (Favicon-MMH3)",
                 f"Favicon MurmurHash3 Origin Match ({fav_hash})" + (f" — {matched_tech}" if matched_tech else ""),
                 "Reconnaissance & Shadow Asset Intelligence",
                 "Medium", 5.3,
@@ -246,7 +246,7 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
                     unpacked_count += 1
                     sample_files = ", ".join(sources[:8])
                     db.upsert_finding(
-                        project_id, "SPECTRE-Predator (SourceMap-Unpacker)",
+                        project_id, "SPECTRE-Web (SourceMap-Unpacker)",
                         f"[CONFIRMED] Exposed JavaScript SourceMap ({urllib.parse.urlparse(map_u).path.split('/')[-1]})",
                         "Source Code Exposure", "High", 7.5,
                         "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-540", "A05:2021 - Security Misconfiguration",
@@ -255,7 +255,7 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
                         "Production serverda .js.map (SourceMap) fayli ochiq qolgan — dasturning asl TypeScript/JSX manba kodini 100% tiklash va SAST orqali tahlil qilish mumkin.",
                         "Build jarayonida 'productionSourceMap: false' o'rnating yoki Nginx'da *.map fayllariga kirishni bloklang.",
                     )
-                    log_fn(f"  [🧬 SOURCEMAP UNPACKED] {map_u} -> {saved_files} ta asl fayl '{out_dir.name}' ga tiklandi ({len(extracted_routes)} ta ichki route)!")
+                    log_fn(f"  [SOURCEMAP-UNPACKED] {map_u} -> {saved_files} ta asl fayl '{out_dir.name}' ga tiklandi ({len(extracted_routes)} ta ichki route)!")
                     break
             except Exception:
                 pass
@@ -315,7 +315,7 @@ def audit_reverse_proxy_acl_misconfigs(db, session, project_id: int, base_url: s
                     if rp_hash not in (home_hash, notfound_hash, base_block_hash) and abs(len(rp.text) - base_block_len) > 25 and abs(len(rp.text) - home_len) > max(40, int(home_len * 0.05)):
                         confirmed += 1
                         db.upsert_finding(
-                            project_id, "SPECTRE-Predator (ACL-Auditor)",
+                            project_id, "SPECTRE-Web (ACL-Auditor)",
                             f"[CONFIRMED] Reverse-Proxy ACL Normalization Discrepancy ({path})",
                             "Broken Access Control", "High", 8.2,
                             "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N", "CWE-436", "A01:2021 - Broken Access Control",
@@ -324,7 +324,7 @@ def audit_reverse_proxy_acl_misconfigs(db, session, project_id: int, base_url: s
                             "Reverse-proxy va backend server o'rtasida URL normalizatsiyasi yoki X-Original-URL/X-Forwarded-For sarlavhalarini qayta ishlashda nomuvofiqlik aniqlandi.",
                             "ACL tekshiruvini faqat reverse-proxy darajasida emas, backend router darajasida ham majburiy bajaring va X-Original-URL sarlavhalarini bloklang.",
                         )
-                        log_fn(f"  [🔓 ACL BYPASS CONFIRMED] {full_u} ({r_base.status_code}) -> HTTP 200 via {label}!")
+                        log_fn(f"  [ACL-BYPASS-CONFIRMED] {full_u} ({r_base.status_code}) -> HTTP 200 via {label}!")
                         break
         except Exception:
             pass
@@ -412,7 +412,7 @@ def mine_hidden_query_parameters(db, session, project_id: int, base_url: str, lo
                 discovered_total += len(found_for_url)
                 db.upsert_endpoint(project_id, target_u, method="GET", params=found_for_url, category="high_value_endpoint", risk_tags=["hidden_params"], source="arjun_param_miner")
                 param_hits.append((target_u, list(found_for_url)))
-                log_fn(f"  [🧩 PARAM MINER] {target_u} -> Yashirin parametrlar topildi: {', '.join(found_for_url)}")
+                log_fn(f"  [PARAM-MINER] {target_u} -> Yashirin parametrlar topildi: {', '.join(found_for_url)}")
         except Exception:
             pass
 
@@ -427,7 +427,7 @@ def mine_hidden_query_parameters(db, session, project_id: int, base_url: str, lo
             p_title = f"Hidden Query Parameters Discovered ({len(param_hits)} Routes on {urllib.parse.urlparse(u0).hostname or u0})"
             p_ev = f"Reactive Parameters: {', '.join(all_p)} | Sample Routes: {routes_s}"
         db.upsert_finding(
-            project_id, "SPECTRE-Predator (Param-Miner)", p_title,
+            project_id, "SPECTRE-Web (Param-Miner)", p_title,
             "Hidden Attack Surface", "Low", 3.7,
             "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A04:2021 - Insecure Design",
             u0, p_ev,
@@ -470,7 +470,7 @@ def audit_websocket_endpoints_and_cswsh(db, session, project_id: int, base_url: 
             if is_ws101 or (is_sio and acao in ("*", "https://evil.spectre-audit.org")):
                 found += 1
                 db.upsert_finding(
-                    project_id, "SPECTRE-Predator (WebSocket-CSWSH)",
+                    project_id, "SPECTRE-Web (WebSocket-CSWSH)",
                     f"[CONFIRMED] Cross-Origin WebSocket / Socket.IO Handshake Allowed ({urllib.parse.urlparse(wt).path})",
                     "Cross-Site WebSocket Hijacking (CSWSH)", "High", 7.4,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:L/A:N", "CWE-1385", "A01:2021 - Broken Access Control",
@@ -478,7 +478,7 @@ def audit_websocket_endpoints_and_cswsh(db, session, project_id: int, base_url: 
                     "WebSocket yoki Socket.IO endpointi tashqi Origin sarlavhasini tekshirmasdan ulanishga ruxsat bermoqda (CSWSH xavfi).",
                     "WebSocket handshake vaqtida Origin sarlavhasini oq ro'yxat (allowlist) asosida tekshiring va CSRF/JWT token talab qiling.",
                 )
-                log_fn(f"  [📡 WEBSOCKET CSWSH] {wt} -> Cross-Origin handshake ruxsat etilgan (HTTP {r.status_code})!")
+                log_fn(f"  [WEBSOCKET-CSWSH] {wt} -> Cross-Origin handshake ruxsat etilgan (HTTP {r.status_code})!")
         except Exception:
             pass
     return found
@@ -498,7 +498,7 @@ def enumerate_multicloud_and_containers(db, session, project_id: int, apex_domai
             if rf.status_code == 200 and rf.text.strip() not in ("null", "") and "Permission denied" not in rf.text:
                 hits += 1
                 db.upsert_finding(
-                    project_id, "SPECTRE-Predator (Cloud-Enum)",
+                    project_id, "SPECTRE-Web (Cloud-Enum)",
                     f"[CONFIRMED] Publicly Readable Firebase Database ({fb_name}.firebaseio.com)",
                     "Cloud Storage Misconfiguration", "Critical", 9.1,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-284", "A05:2021 - Security Misconfiguration",
@@ -506,7 +506,7 @@ def enumerate_multicloud_and_containers(db, session, project_id: int, apex_domai
                     "Firebase Realtime Database (/.json) autentifikatsiyasiz ochiq qoldirilgan.",
                     "Firebase Security Rules ichida '.read': 'auth != null' qoidasini o'rnating.",
                 )
-                log_fn(f"  [☁️ FIREBASE OPEN] {fb_url} ochiq ekanligi aniqlandi!")
+                log_fn(f"  [FIREBASE-OPEN] {fb_url} ochiq ekanligi aniqlandi!")
         except Exception:
             pass
 
@@ -525,7 +525,7 @@ def enumerate_multicloud_and_containers(db, session, project_id: int, apex_domai
                 if rh.status_code == 200 and "octet-stream" in rh.headers.get("Content-Type", "").lower() and int(rh.headers.get("Content-Length", "0") or 0) > 100000:
                     hits += 1
                     db.upsert_finding(
-                        project_id, "SPECTRE-Predator (Infra-Auditor)", f"[CONFIRMED] {title}",
+                        project_id, "SPECTRE-Web (Infra-Auditor)", f"[CONFIRMED] {title}",
                         "Infrastructure Exposure", sev, cvss, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
                         "CWE-200", "A05:2021 - Security Misconfiguration", u,
                         f"Content-Type: {rh.headers.get('Content-Type')} | Size: {rh.headers.get('Content-Length')} bytes",
@@ -536,14 +536,14 @@ def enumerate_multicloud_and_containers(db, session, project_id: int, apex_domai
             if r.status_code == 200 and marker and marker in r.text:
                 hits += 1
                 db.upsert_finding(
-                    project_id, "SPECTRE-Predator (Infra-Auditor)", f"[CONFIRMED] {title}",
+                    project_id, "SPECTRE-Web (Infra-Auditor)", f"[CONFIRMED] {title}",
                     "Infrastructure Exposure", sev, cvss, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
                     "CWE-200", "A05:2021 - Security Misconfiguration", u,
                     f"Matched signature '{marker}' in {u} ({len(r.text)}B)",
                     "Bulutli konteyner yoki monitoring interfeysi tashqi internet uchun ochiq qoldirilgan.",
                     "Ushbu endpointni reverse-proxy orqali bloklang yoki mTLS/Basic-Auth bilan himoyalang.",
                 )
-                log_fn(f"  [☁️ INFRA EXPOSED] {title}: {u}")
+                log_fn(f"  [INFRA-EXPOSED] {title}: {u}")
         except Exception:
             pass
     return hits
@@ -589,7 +589,7 @@ def introspect_graphql_field_suggestions(db, session, project_id: int, base_url:
                 cvss_i = 7.5 if priv_muts else 5.3
                 mut_ev = f" | Privileged Mutations ({len(priv_muts)}): {', '.join(priv_muts[:8])}" if priv_muts else f" | Mutations: {len(all_muts)}"
                 db.upsert_finding(
-                    project_id, "SPECTRE-Predator (GraphQL-Introspect)",
+                    project_id, "SPECTRE-Web (GraphQL-Introspect)",
                     f"[CONFIRMED] GraphQL Introspection Enabled{' with Privileged Mutations' if priv_muts else ''} ({gp})",
                     "API Schema Disclosure", sev_i, cvss_i,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
@@ -603,7 +603,7 @@ def introspect_graphql_field_suggestions(db, session, project_id: int, base_url:
             r_ide = session.get(gurl, headers={"Accept": "text/html"}, timeout=4.0, verify=False, allow_redirects=False)
             if r_ide.status_code == 200 and any(ide_k in r_ide.text[:16384] for ide_k in ("GraphiQL", "GraphQL Playground", "Apollo Sandbox")):
                 db.upsert_finding(
-                    project_id, "SPECTRE-Predator (GraphQL-IDE)",
+                    project_id, "SPECTRE-Web (GraphQL-IDE)",
                     f"[CONFIRMED] Exposed Interactive GraphQL IDE in Production ({gp})",
                     "Debug / Development Interface Exposure", "Low", 3.7,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-489", "A05:2021 - Security Misconfiguration",
@@ -624,7 +624,7 @@ def introspect_graphql_field_suggestions(db, session, project_id: int, base_url:
             r_batch = session.post(gurl, json=[{"query": "{__typename}"}, {"query": "{__typename}"}], timeout=4.5, verify=False)
             if r_batch.status_code == 200 and r_batch.text.lstrip().startswith("[") and r_batch.text.count("__typename") >= 2:
                 db.upsert_finding(
-                    project_id, "SPECTRE-Predator (GraphQL-Batching)",
+                    project_id, "SPECTRE-Web (GraphQL-Batching)",
                     f"[CONFIRMED] GraphQL Query Array Batching Enabled ({gp})",
                     "API Rate-Limit Bypass / DoS", "Medium", 5.3,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L", "CWE-770", "A04:2021 - Insecure Design",
@@ -632,12 +632,12 @@ def introspect_graphql_field_suggestions(db, session, project_id: int, base_url:
                     "GraphQL serveri bitta HTTP so'rov ichida massiv ko'rinishidagi ko'plab so'rovlarni (Batching) cheklovsiz bajarmoqda (2FA/OTP brute-force xavfi).",
                     "GraphQL serverda query batching limitini o'rnating yoki array batching'ni o'chiring.",
                 )
-                log_fn(f"  [🧠 GRAPHQL BATCHING] {gurl} -> Array Batching yoqilgan!")
+                log_fn(f"  [GRAPHQL-BATCHING] {gurl} -> Array Batching yoqilgan!")
 
             if discovered_fields:
                 fld_list = sorted(discovered_fields)
                 db.upsert_finding(
-                    project_id, "SPECTRE-Predator (GraphQL-Suggest)",
+                    project_id, "SPECTRE-Web (GraphQL-Suggest)",
                     f"[CONFIRMED] GraphQL Schema Leaked via Field Suggestions ({gp})",
                     "API Schema Disclosure", "Medium", 5.3,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-209", "A05:2021 - Security Misconfiguration",
@@ -645,7 +645,7 @@ def introspect_graphql_field_suggestions(db, session, project_id: int, base_url:
                     "GraphQL serverida Introspection o'chirilgan bo'lsa ham, 'Did you mean...?' xatolik xabarlari orqali yashirin sxema maydonlari fosh bo'lmoqda.",
                     "Apollo/GraphQL serverda field suggestion xususiyatini production muhitida o'chirib qo'ying.",
                 )
-                log_fn(f"  [🧠 GRAPHQL SUGGEST] {gurl} -> {len(fld_list)} ta yashirin GraphQL field tiklandi: {', '.join(fld_list[:8])}")
+                log_fn(f"  [GRAPHQL-SUGGEST] {gurl} -> {len(fld_list)} ta yashirin GraphQL field tiklandi: {', '.join(fld_list[:8])}")
                 break
         except Exception:
             pass
@@ -701,7 +701,7 @@ def hunt_dependency_confusion_risks(db, session, project_id: int, js_urls: list[
             if r_npm.status_code == 404:
                 unclaimed += 1
                 db.upsert_finding(
-                    project_id, "SPECTRE-Predator (Dep-Confusion)",
+                    project_id, "SPECTRE-Web (Dep-Confusion)",
                     f"[CONFIRMED] Unclaimed Private NPM Package ({pkg}) — Dependency Confusion",
                     "Supply-Chain / Dependency Confusion", "Critical", 9.8,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H", "CWE-427", "A08:2021 - Software and Data Integrity Failures",
@@ -709,7 +709,7 @@ def hunt_dependency_confusion_risks(db, session, project_id: int, js_urls: list[
                     "Loyiha ichida ishlatilgan xususiy (private) NPM paketi ommaviy NPM reestrida band qilinmagan (Dependency Confusion xavfi).",
                     "Ichki paket scope nomini (@org) npmjs.com da rasman band qiling va .npmrc faylida scoped registryni qat'iy belgilang.",
                 )
-                log_fn(f"  [📦 DEPENDENCY CONFUSION] Ommaviy reestrda bo'sh qolgan paket topildi: {pkg}!")
+                log_fn(f"  [DEPENDENCY-CONFUSION] Ommaviy reestrda bo'sh qolgan paket topildi: {pkg}!")
         except Exception:
             pass
     return unclaimed
@@ -807,7 +807,7 @@ def harvest_and_audit_jwt_tokens(db, session, project_id: int, apex_domain: str,
 
             if matched_secret or alg.lower() == "none":
                 db.upsert_finding(
-                    project_id, "SPECTRE-Predator (JWT-Auditor)",
+                    project_id, "SPECTRE-Web (JWT-Auditor)",
                     f"[CONFIRMED] Critical JWT Cryptographic Weakness (alg={alg}" + (f", key='{matched_secret}')" if matched_secret else ")"),
                     "Cryptographic Failures", "Critical", 9.8,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N", "CWE-347", "A02:2021 - Cryptographic Failures",
@@ -816,13 +816,13 @@ def harvest_and_audit_jwt_tokens(db, session, project_id: int, apex_domain: str,
                     "JWT imzolash uchun kamida 256-bitli kriptografik tasodifiy kalit yoki RS256/EdDSA asimmetrik kalitlardan foydalaning.",
                     confidence="Confirmed-PoC (QoD: 99%)",
                 )
-                log_fn(f"  [🔐 JWT CRACKED] {base_url} -> JWT kaliti aniqlandi: '{matched_secret or 'alg:none'}'!")
+                log_fn(f"  [JWT-WEAK-SECRET] {base_url} -> JWT kaliti aniqlandi: '{matched_secret or 'alg:none'}'!")
             elif jwk_inject_hdrs or sens_claim_keys:
                 sev_j = "High"
                 cvss_j = 8.1 if jwk_inject_hdrs else 7.5
                 cwe_j = "CWE-347" if jwk_inject_hdrs else "CWE-312"
                 db.upsert_finding(
-                    project_id, "SPECTRE-Predator (JWT-Auditor)",
+                    project_id, "SPECTRE-Web (JWT-Auditor)",
                     f"JWT Header Key-Injection / Sensitive Claim Risk ({','.join(jwk_inject_hdrs or sens_claim_keys)})",
                     "Cryptographic / Token Posture", sev_j, cvss_j,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N", cwe_j, "A02:2021 - Cryptographic Failures",
@@ -835,7 +835,7 @@ def harvest_and_audit_jwt_tokens(db, session, project_id: int, apex_domain: str,
                 risky_hdrs = [h for h in ("kid",) if h in hdr]
                 if not has_exp or risky_hdrs:
                     db.upsert_finding(
-                        project_id, "SPECTRE-Predator (JWT-Auditor)",
+                        project_id, "SPECTRE-Web (JWT-Auditor)",
                         f"Discovered JWT Token Structure (alg={alg}, exp={'Yes' if has_exp else 'MISSING'})" + (f" [Headers: {','.join(risky_hdrs)}]" if risky_hdrs else ""),
                         "Authentication Intelligence", "Medium", 5.3,
                         "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-613", "A07:2021 - Identification and Authentication Failures",
@@ -931,7 +931,7 @@ def hunt_broken_external_links_and_script_hijack(db, session, project_id: int, b
         except dns.resolver.NXDOMAIN:
             issues += 1
             db.upsert_finding(
-                project_id, "SPECTRE-Predator (Script-Hijack)",
+                project_id, "SPECTRE-Web (Script-Hijack)",
                 f"[CONFIRMED] Second-Order Script Domain Takeover — NXDOMAIN ({shost})",
                 "Second-Order Domain Takeover / Stored XSS", "Critical", 9.6,
                 "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N", "CWE-829",
@@ -940,7 +940,7 @@ def hunt_broken_external_links_and_script_hijack(db, session, project_id: int, b
                 "Sahifaga ulangan tashqi JavaScript faylining domeni muddati tugagan (NXDOMAIN) — ushbu domenni sotib olib, butun saytda Stored XSS bajarish mumkin.",
                 "Eskirgan tashqi <script> teglarini darhol olib tashlang va Subresource Integrity (SRI) xeshlaridan foydalaning.",
             )
-            log_fn(f"  [🚨 SECOND-ORDER TAKEOVER] <script src='{s_url}'> domeni NXDOMAIN qaytaruvda ({shost})!")
+            log_fn(f"  [SECOND-ORDER-TAKEOVER] <script src='{s_url}'> domeni NXDOMAIN qaytaruvda ({shost})!")
         except Exception:
             pass
 
@@ -951,7 +951,7 @@ def hunt_broken_external_links_and_script_hijack(db, session, project_id: int, b
             if rg.status_code == 404:
                 issues += 1
                 db.upsert_finding(
-                    project_id, "SPECTRE-Predator (Broken-Link)",
+                    project_id, "SPECTRE-Web (Broken-Link)",
                     f"[CONFIRMED] Unclaimed GitHub Organization/Account Link ({gh_u})",
                     "Broken Link Hijacking", "High", 7.1,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:H/A:N", "CWE-350", "A05:2021 - Security Misconfiguration",
@@ -959,7 +959,7 @@ def hunt_broken_external_links_and_script_hijack(db, session, project_id: int, b
                     "Rasmiy saytda ko'rsatilgan GitHub havolasi bo'sh (404) — uni begona shaxs ro'yxatdan o'tkazib, kompaniya nomidan zararli kod tarqatishi mumkin.",
                     "Saytdagi eskirgan GitHub havolasini yangilang yoki tegishli username'ni band qiling.",
                 )
-                log_fn(f"  [🕸️ BROKEN GITHUB LINK] {gh_u} bo'sh (HTTP 404)!")
+                log_fn(f"  [BROKEN-GITHUB-LINK] {gh_u} bo'sh (HTTP 404)!")
         except Exception:
             pass
 
@@ -970,7 +970,7 @@ def hunt_broken_external_links_and_script_hijack(db, session, project_id: int, b
             if rt.status_code == 200 and "tgme_page_extra" not in rt.text and "tgme_page_title" not in rt.text:
                 issues += 1
                 db.upsert_finding(
-                    project_id, "SPECTRE-Predator (Broken-Link)",
+                    project_id, "SPECTRE-Web (Broken-Link)",
                     f"[CONFIRMED] Unclaimed Telegram Handle Linked on Site (@{tg_h})",
                     "Broken Link / Social Hijacking", "Medium", 6.5,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:H/A:N", "CWE-350", "A05:2021 - Security Misconfiguration",
@@ -978,7 +978,7 @@ def hunt_broken_external_links_and_script_hijack(db, session, project_id: int, b
                     "Saytda ko'rsatilgan rasmiy Telegram havolasi (@username) bo'sh qolgan — uni begona shaxs band qilib fishing uchun ishlatishi mumkin.",
                     "Saytdagi Telegram havolasini yangilang yoki @username ni darhol band qiling.",
                 )
-                log_fn(f"  [🕸️ UNCLAIMED TELEGRAM] https://t.me/{tg_h} bo'sh qolgan!")
+                log_fn(f"  [UNCLAIMED-TELEGRAM] https://t.me/{tg_h} bo'sh qolgan!")
         except Exception:
             pass
 

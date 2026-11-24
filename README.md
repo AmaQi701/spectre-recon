@@ -49,21 +49,22 @@ Instead of chaining fragile shell scripts or running heavy browser-bound wrapper
 ### 1. Strict Scope & RoE Enforcement (`core/scope_guard.py`)
 - RFC-1123 hostname validation, multi-level ccTLD apex resolution, CIDR/IPv4/IPv6 matching, explicit Out-of-Scope blocking, and automatic third-party CDN/Analytics exclusion.
 
-### 2. Agent 1 — Multi-Stage Autonomous Recon (`agents/recon_agent.py`)
+### 2. Phase 1 — Multi-Stage Autonomous Recon (`agents/recon_agent.py`)
 - **DNS & Passive OSINT (`cli_orchestrator.py`, `protocol_and_client.py`):** Certificate Transparency (`crt.sh`), wildcard DNS pre-filtering, recursive SPF/DMARC evaluation, and parallel CLI orchestration (`subfinder`, `amass`, `puredns`, `dnsx`, etc.).
 - **Network, TLS & Dual-Stack Surface (`surface_prober.py`, `runtime_and_network.py`):** TLS SAN extraction, Nmap XML service/NSE parsing, Shodan InternetDB enrichment, ASN/subnet mapping, IPv6 dual-stack probing, non-standard web port discovery, and safe UDP service checks (`161/SNMP`, `123/NTP`).
 - **Calibrated Web & API Discovery (`active_web_auditor.py`, `schema_and_iam.py`):** Soft-404 SHA-256 baseline calibration, reverse-proxy ACL bypass checks, OpenAPI `$ref` DTO synthesis, GraphQL field-suggestion introspection, Keycloak/OIDC realm mapping, and hidden parameter discovery.
 - **SPA, SourceMap & Runtime Analysis (`origin_and_spa.py`, `runtime_and_network.py`):** Deep JS bundle & Webpack lazy-chunk extraction, `.js.map` SourceMap reconstruction, Headless Chromium V8 DOM route interception, `postMessage` receiver analysis, and WebAssembly (`.wasm`) endpoint extraction.
 
-### 3. Agent 2 — Hybrid C++17 & KB-Gated Vulnerability Assessment (`agents/vuln_agent.py`)
-- **Native C++17 Accelerator v2 (`core/native/spectre_accel.cpp`, `core/native_bridge.py`):** Dual-stack IPv4/IPv6 Linux `epoll` multi-port TCP/banner sweep, single-pass `spectre_structural_hash` HTML/JSON skeleton engine, `spectre_js_token_mask` byte pre-scanner, OpenSSL `HMAC` JWT key validation, hardware `popcount` `SimHash64` Hamming distance, `MurmurHash3`, and Shannon entropy scanning.
-- **Active Socket Protocol NVTs (`core/protocol_verifiers.py`):** Direct read-only TCP & TLS protocol handshakes across 42 services (`RFC 4253 SSH_MSG_KEXINIT`, `MySQL/MariaDB`, `PostgreSQL`, `MongoDB`, `LDAP/LDAPS`, `Redis/Redis-TLS`, `Memcached`, `Elasticsearch`, `etcd`, `Consul`, `RabbitMQ`, `5672/AMQP`, `1883/8883/MQTT`, `2181/ZooKeeper`, `4222/NATS`, `9092/Kafka`, `8086/InfluxDB`, `8123/ClickHouse`, `Prometheus`, `Docker API`, `5000/Docker Registry v2`, `Kubernetes Kubelet`, `5900/VNC`, `3389/RDP X.224 NLA`, `5985/WinRM`, `1099/Java RMI`, `5005/JDWP`, `9000/FastCGI`, `1433/MSSQL`, `9042/Cassandra`, `Rsync`, `FTP`, `110/POP3`, `143/IMAP`, and `SMTP`).
-- **200-Rule Declarative & CMS NVT Engine (`core/nvt_declarative_engine.py`, `config/nvt_catalog.json`, `core/cms_enterprise_nvts.py`):** C++17 structural-hash calibrated checks across 200 enterprise gateways (`Envoy`, `Caddy`, `Kong`, `KrakenD`, `Tyk`), AI/ML & Vector DB servers (`Ollama`, `vLLM`, `LiteLLM`, `LocalAI`, `OpenWebUI`, `Dify`, `MLflow`, `Ray`, `Triton`, `Gradio`, `Langflow`, `Flowise`, `Qdrant`, `ChromaDB`, `Milvus`, `Weaviate`), IAM providers (`Authelia`, `Authentik`, `Ory Hydra/Kratos`), observability (`Fluent Bit`, `Jaeger`, `Zipkin`, `Netdata`), DevOps control planes, databases, and CMS platforms.
-- **200-Product CPE 2.3, K8s RBAC IaC, CI/CD Workflow Auditor, CISA KEV + FIRST.org EPSS & 16-Format SCA Engine (`core/advisory_kb.py`, `core/iac_auditor.py`, `core/cicd_workflow_auditor.py`, `core/sca_engine.py`, `core/feed_updater.py`):** Deterministic SemVer advisory matching across 200 enterprise products, multi-stage `Dockerfile` / `docker-compose` / Kubernetes Pod & RBAC (`ClusterRole`, `ClusterRoleBinding`, `Secret`) / Terraform IaC security checks, GitHub Actions / `.gitlab-ci.yml` / `Jenkinsfile` / `.npmrc` / `application.properties` supply-chain & credential hygiene, 16-format lockfile/manifest auditing (`npm`, `PyPI`, `Packagist`, `Go`, `Maven`, `Gradle`, `NuGet`, `RubyGems`, `crates.io` with `purl` + VEX), and CISA `KEV` + `EPSS` exploit probability correlation.
-- **Differential Access Control & Intra-Procedural AST Taint SAST (`agents/vuln_agent.py`, `core/sast_ast_engine.py`):** Compares `Guest`, `Role A`, and `Role B` responses across API routes to confirm Broken Object Level Authorization (`CWE-639`) and unauthenticated API exposure (`CWE-306`), alongside calibrated GET/POST output encoding, `X-Forwarded-Host`, Open Redirect, OAuth2, JWT/JWS key-injection, GraphQL introspection, and multi-line Python AST taint-flow / sanitizer-aware SourceMap SAST checks.
+### 3. Phase 2 — Hybrid C++17 v3 & KB-Gated Vulnerability Assessment (`agents/vuln_agent.py`)
+- **Native C++17 Accelerator v3 (`core/native/spectre_accel.cpp`, `core/native_bridge.py`):** Dual-stack IPv4/IPv6 Linux `epoll` multi-port TCP/banner sweep, single-pass `spectre_secret_prefilter_mask` (`>350 MB/s`), `spectre_structural_hash` HTML/JSON skeleton engine, `spectre_js_token_mask` byte pre-scanner, OpenSSL `HMAC` JWT key validation, hardware `popcount` `SimHash64`, `MurmurHash3`, and Shannon entropy scanning.
+- **50-Port Active Socket Protocol NVTs (`core/protocol_verifiers.py`):** Direct read-only TCP & TLS protocol handshakes across 50 services (`RFC 4253 SSH_MSG_KEXINIT`, `MySQL/MariaDB`, `PostgreSQL`, `MongoDB`, `LDAP/LDAPS`, `Redis/Redis-TLS`, `Memcached`, `Elasticsearch`, `etcd`, `Consul`, `RabbitMQ`, `AMQP`, `MQTT/MQTTS`, `ZooKeeper`, `NATS`, `Kafka`, `InfluxDB`, `ClickHouse`, `Prometheus`, `Docker API`, `Docker Registry v2`, `Kubernetes Kubelet`, `VNC`, `RDP X.224 NLA`, `WinRM`, `Java RMI`, `JDWP`, `FastCGI`, `MSSQL`, `Cassandra`, `WebLogic T3`, `ActiveMQ OpenWire`, `SOCKS5`, `Hadoop HDFS`, `Oracle TNS`, `NFSv4 RPC`, `SIP`, `Zabbix`, `Rsync`, `FTP`, `POP3`, `IMAP`, and `SMTP`).
+- **AI/LLM, RAG Vector DB & MCP Security Auditor (`core/ai_llm_auditor.py`):** Read-only exposure verification across `Ollama` (`/api/tags`), `vLLM` / `LiteLLM` (`/v1/models`), `Qdrant` (`/collections`), `ChromaDB`, `Ray Dashboard`, and `Model Context Protocol (MCP)` JSON-RPC `tools/list` endpoints.
+- **250-Rule Declarative, Custom YAML & CMS NVT Engine (`core/nvt_declarative_engine.py`, `config/nvt_catalog.json`, `core/cms_enterprise_nvts.py`):** C++17 structural-hash calibrated checks across 250 enterprise gateways, AI/ML & Vector DB servers, Zero-Trust/VPN appliances, IAM providers, observability control planes, databases, and CMS platforms, plus user-extensible YAML / Nuclei-compatible rules (`config/custom_nvts/`).
+- **250-Product CPE 2.3, Cloud/IaC v3, CI/CD Auditor, CISA KEV + EPSS & 18-Format SCA Engine (`core/advisory_kb.py`, `core/iac_auditor.py`, `core/cicd_workflow_auditor.py`, `core/sca_engine.py`, `core/feed_updater.py`):** Deterministic SemVer advisory matching across 250 products, `Dockerfile` / `docker-compose` / Kubernetes Pod, RBAC & Ingress / Helm `values.yaml` / Ansible / `nginx.conf` / Terraform IaC checks, GitHub Actions / GitLab CI / Jenkinsfile / `.npmrc` / Spring config hygiene, 18-format lockfile/manifest SCA (`90` offline CVEs + OSV.dev + `purl` + VEX across npm, PyPI, Packagist, Go, Maven, Gradle, NuGet, RubyGems, Cargo, Dart/Flutter, Elixir), and CISA `KEV` + `EPSS` correlation.
+- **Differential Access Control & 6-Language Multi-Line Taint-Flow SAST (`agents/vuln_agent.py`, `core/sast_ast_engine.py`):** Compares `Guest`, `Role A`, and `Role B` responses across API routes to confirm Broken Object Level Authorization (`CWE-639`) and unauthenticated API exposure (`CWE-306`), alongside OAuth2 PKCE, JWT header (`jku`/`x5u`/`kid`) & key-confusion checks, GraphQL batching/field-suggestion checks, and 6-language multi-line taint-flow SAST (`Python`, `JS/TS`, `Go`, `Java`, `PHP`, `C#`).
 
-### 4. Agent 3 — Asset-Bound Attack Graph, Surface Drift & Compliance Studio (`agents/triage_chain_agent.py`, `core/compliance_exporter.py`, `core/surface_diff_engine.py`)
-- Host-exact correlation of findings, session flags, dangling CNAMEs, exposed data stores/brokers, and API routes into multi-step **Attack Chains**, continuous **EASM Attack-Surface Drift** comparison across projects, and automated **OASIS SARIF 2.1.0, CycloneDX 1.5 VEX SBOM, JUnit XML, OWASP Top 10:2021 / OWASP API:2023 / PCI-DSS v4.0 / ISO 27001 Compliance Matrix, Markdown, HTML, CSV, JSON, and Burp Suite Scope** exports.
+### 4. Phase 3 — Attack-Graph Correlation, Reproducer Cookbook & 7-Framework Compliance (`agents/triage_chain_agent.py`, `core/remediation_cookbook.py`, `core/compliance_exporter.py`, `core/surface_diff_engine.py`)
+- Host-exact correlation of findings, session flags, AI/MCP & Cloud Ingress exposures, dangling CNAMEs, data stores, and API routes into interactive **SVG Kill-Chain Graphs**, 1-click safe `curl`/`openssl` verification reproducers and ready-to-apply fix patches, continuous **EASM Attack-Surface Drift**, and automated **OASIS SARIF 2.1.0, CycloneDX 1.5 VEX SBOM, JUnit XML, and 7-Framework Compliance (`OWASP Top 10:2021`, `OWASP API:2023`, `PCI-DSS v4.0`, `ISO/IEC 27001:2022`, `NIST CSF 2.0`, `AICPA SOC 2 TSC`, `MITRE ATT&CK Enterprise v15`)** exports.
 
 ---
 
@@ -102,6 +103,21 @@ spectre-recon/
 │   ├── models.py                 # Strict TypedDict schema contracts
 │   ├── plugin_runner.py          # ScanContextKB & PhaseOrchestrator engine
 │   └── scope_guard.py            # Rules of Engagement (RoE) scope enforcer
+├── agents/
+│   ├── recon_agent.py            # Phase 1: 6-stage autonomous OSINT, DNS, TLS & web surface mapper
+│   ├── stages.py                 # Modular stage registry & execution pipeline
+│   ├── active_web_auditor.py     # Soft-404 calibrated ACL, SourceMap, GraphQL, JWT & parameter auditor
+│   ├── origin_and_spa.py         # Origin IP unmasking, SPA manifest & JS bundle route/secret extractor
+│   ├── protocol_and_client.py    # SPF/DMARC, Web Cache Deception, VCS & CORS verification
+│   ├── runtime_and_network.py    # Chromium V8 DOM, IPv6 dual-stack, CSP nonce, UDP & WASM analyzer
+│   ├── schema_and_iam.py         # OpenAPI DTO synthesis, OAuth2 PKCE, JWT header & OIDC realm auditor
+│   ├── surface_prober.py         # Non-standard web ports, VHost hunter & target dossier builder
+│   ├── cli_orchestrator.py       # External CLI wrappers, HTTP repeater & multi-format exporter
+│   ├── vuln_agent.py             # Phase 2: KB-gated NVT, 50-port socket, AI/MCP, SAST, IaC, SCA & BOLA
+│   └── triage_chain_agent.py     # Phase 3: SVG Kill-Chain correlation & 7-framework report studio
+└── tests/
+    ├── test_integrity_gate.py    # AST, schema, signature & deterministic runtime gate
+    └── test_local_benchmark.py   # Full loopback E2E multi-protocol & multi-language benchmark
 ```
 
 ---
@@ -139,7 +155,7 @@ python3 spectre_cli.py --export-project 1
 ```bash
 chmod +x build_deb.sh
 ./build_deb.sh
-sudo dpkg -i dist/spectre-recon_5.0.0_amd64.deb
+sudo dpkg -i dist/spectre-recon_8.0.0_amd64.deb
 spectre-recon
 ```
 

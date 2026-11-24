@@ -1,5 +1,5 @@
 """
-SPECTRE v3.0 — Headless V8 DOM, IPv6 Dual-Stack, CSP Nonce, UDP & WASM Modules
+SPECTRE — Headless V8 DOM, IPv6 Dual-Stack, CSP Nonce, UDP & WASM Modules
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ def headless_chrome_dom_and_route_renderer(db, session, project_id: int, base_ur
         new_discoveries += 1
 
     if new_discoveries:
-        log_fn(f"  [🎭 HEADLESS V8 DOM] {base_url} -> Chromium V8 ijrosidan so'ng {new_discoveries} ta dinamik JS/route ushlandi!")
+        log_fn(f"  [HEADLESS-V8-DOM] {base_url} -> Chromium V8 ijrosidan so'ng {new_discoveries} ta dinamik JS/route ushlandi!")
     return new_discoveries
 
 
@@ -136,7 +136,7 @@ def resolve_and_probe_ipv6_dual_stack(db, session, project_id: int, apex_domain:
                         is_cf_v6 = "cloudflare" in srv6.lower() or "cf-ray" in {k.lower() for k in r6.headers.keys()}
                         if is_cf_v4 and not is_cf_v6:
                             db.upsert_finding(
-                                project_id, "SPECTRE-v12 (IPv6-DualStack)",
+                                project_id, "SPECTRE-Runtime (IPv6-DualStack)",
                                 f"[CONFIRMED] IPv6 Dual-Stack Origin Direct Access ({dom_name} -> [{v6_addr}])",
                                 "WAF / CDN Bypass via IPv6", "High", 7.8,
                                 "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N", "CWE-284", "A05:2021 - Security Misconfiguration",
@@ -157,7 +157,7 @@ def resolve_and_probe_ipv6_dual_stack(db, session, project_id: int, apex_domain:
     ex_v6.shutdown(wait=False, cancel_futures=True)
 
     if ipv6_hits:
-        log_fn(f"  [🌐 IPv6 DUAL-STACK] {ipv6_hits} ta subdomenda AAAA (IPv6) yozuvlari aniqlandi va tekshirildi!")
+        log_fn(f"  [IPv6-DUAL-STACK] {ipv6_hits} ta subdomenda AAAA (IPv6) yozuvlari aniqlandi va tekshirildi!")
     return ipv6_hits
 
 
@@ -183,7 +183,7 @@ def audit_csp_deep_and_static_nonce(db, session, project_id: int, base_url: str,
         if reused_nonces:
             issues += 1
             db.upsert_finding(
-                project_id, "SPECTRE-v12 (CSP-Auditor)",
+                project_id, "SPECTRE-Runtime (CSP-Auditor)",
                 f"[CONFIRMED] Static / Reusable CSP Nonce Detected ({reused_nonces[0][:18]})",
                 "Content-Security-Policy Weakness", "High", 7.4,
                 "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N", "CWE-330", "A05:2021 - Security Misconfiguration",
@@ -191,7 +191,7 @@ def audit_csp_deep_and_static_nonce(db, session, project_id: int, base_url: str,
                 "Content-Security-Policy sarlavhasidagi 'nonce' qiymati har bir so'rovda yangilanmasdan statik qaytmoqda — bu CSP himoyasini bekor qiladi.",
                 "CSP nonce qiymatini har bir HTTP javob uchun kriptografik tasodifiy (CSPRNG) generatsiya qiling.",
             )
-            log_fn(f"  [🛡️ STATIC CSP NONCE] {base_url} -> Statik CSP nonce aniqlandi: {reused_nonces[0][:16]}!")
+            log_fn(f"  [STATIC-CSP-NONCE] {base_url} -> Statik CSP nonce aniqlandi: {reused_nonces[0][:16]}!")
 
         csp_subs = set()
         ws_eps = set()
@@ -210,7 +210,7 @@ def audit_csp_deep_and_static_nonce(db, session, project_id: int, base_url: str,
                 db.upsert_endpoint(project_id, full_rep, method="POST", params=[], category="api_endpoint", risk_tags=["csp_collector"], source="csp_report_uri")
 
         if csp_subs or ws_eps:
-            log_fn(f"  [🛡️ CSP MINER] {base_url} -> {len(csp_subs)} ta subdomen va {len(ws_eps)} ta WebSocket CSP ichidan ajratib olindi!")
+            log_fn(f"  [CSP-MINER] {base_url} -> {len(csp_subs)} ta subdomen va {len(ws_eps)} ta WebSocket CSP ichidan ajratib olindi!")
     except Exception:
         pass
     return issues
@@ -248,7 +248,7 @@ def build_corporate_org_and_backend_correlation_graph(db, session, project_id: i
             apex_domain,
             ("Shared Backend Clusters: " + " ; ".join(summary_parts))[:240],
         )
-        log_fn(f"  [🕸️ BACKEND CORRELATOR] {len(shared_backends)} ta umumiy backend klasteri aniqlandi!")
+        log_fn(f"  [BACKEND-CORRELATOR] {len(shared_backends)} ta umumiy backend klasteri aniqlandi!")
     return shared_backends
 
 
@@ -298,7 +298,7 @@ def predict_and_verify_semantic_rest_endpoints(db, session, project_id: int, bas
 
     if verified_preds:
         db.upsert_finding(
-            project_id, "SPECTRE-v12 (Semantic-Predictor)",
+            project_id, "SPECTRE-Runtime (Semantic-Predictor)",
             f"[CONFIRMED] Undocumented Semantic REST Endpoints Discovered ({len(verified_preds)} routes)",
             "Hidden API Surface", "Medium", 5.3,
             "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
@@ -306,7 +306,7 @@ def predict_and_verify_semantic_rest_endpoints(db, session, project_id: int, bas
             "Mavjud API resurs nomlaridan semantik bashorat (/export, /search, /config, /me) orqali hujjatlashtirilmagan faol JSON endpointlar topildi.",
             "Ichki export/config/stats endpointlarida qat'iy avtorizatsiya tekshiruvini o'rnating.",
         )
-        log_fn(f"  [🔮 SEMANTIC API] {base_url} -> {len(verified_preds)} ta yashirin REST endpoint topildi: {', '.join(verified_preds[:5])}")
+        log_fn(f"  [SEMANTIC-API] {base_url} -> {len(verified_preds)} ta yashirin REST endpoint topildi: {', '.join(verified_preds[:5])}")
     return len(verified_preds)
 
 
@@ -338,7 +338,7 @@ def probe_udp_services_safe(db, project_id: int, log_fn) -> int:
                     ascii_sys = "".join(chr(b) if 32 <= b < 127 else " " for b in data[24:]).strip()
                     db.upsert_port(project_id, ip, 161, "udp", ip=ip, service="snmp", version=ascii_sys[:120], source="udp_prober")
                     db.upsert_finding(
-                        project_id, "SPECTRE-v12 (UDP-Inspector)",
+                        project_id, "SPECTRE-Runtime (UDP-Inspector)",
                         f"[CONFIRMED] Exposed SNMP Service with Default 'public' Community ({ip}:161/udp)",
                         "Network Service Exposure", "Critical", 9.1,
                         "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-287", "A05:2021 - Security Misconfiguration",
@@ -346,7 +346,7 @@ def probe_udp_services_safe(db, project_id: int, log_fn) -> int:
                         "Serverda UDP 161 (SNMP) porti standart 'public' kaliti bilan tashqi internet uchun ochiq qoldirilgan.",
                         "SNMP xizmatini tashqi interfeysdan Firewall orqali yoping va SNMPv3 autentifikatsiyasiga o'ting.",
                     )
-                    log_fn(f"  [📡 UDP SNMP HIT] {ip}:161/udp -> 'public' sysDescr: {ascii_sys[:80]}!")
+                    log_fn(f"  [UDP-SNMP-HIT] {ip}:161/udp -> 'public' sysDescr: {ascii_sys[:80]}!")
         except Exception:
             pass
 
@@ -358,7 +358,7 @@ def probe_udp_services_safe(db, project_id: int, log_fn) -> int:
                 if ndata and len(ndata) >= 48:
                     hits += 1
                     db.upsert_port(project_id, ip, 123, "udp", ip=ip, service="ntp", version="NTPv3/v4", source="udp_prober")
-                    log_fn(f"  [📡 UDP NTP] {ip}:123/udp ochiq (NTP javob olindi).")
+                    log_fn(f"  [UDP-NTP] {ip}:123/udp ochiq (NTP javob olindi).")
         except Exception:
             pass
     return hits
@@ -394,7 +394,7 @@ def analyze_wasm_binaries_and_server_timing(db, session, project_id: int, base_u
                     "HTTP javobidagi Server-Timing sarlavhasi ichki mikroservis nomlari va ma'lumotlar bazasi vaqtlarini oshkor qilmoqda.",
                     "Production reverse-proxy darajasida Server-Timing sarlavhasini tashqi foydalanuvchilardan yashiring.",
                 )
-                log_fn(f"  [⏱️ SERVER-TIMING] {base_url} -> {st_hdr[:100]}")
+                log_fn(f"  [SERVER-TIMING] {base_url} -> {st_hdr[:100]}")
         for wm in wasm_re.findall(r.text[:200000]):
             wasm_urls.add(urllib.parse.urljoin(base_url, wm))
     except Exception:
@@ -426,7 +426,7 @@ def analyze_wasm_binaries_and_server_timing(db, session, project_id: int, base_u
                     wu,
                     f"WASM ({len(rw.content)}B, {len(wasm_eps)} routes): {', '.join(wasm_eps[:8])}",
                 )
-                log_fn(f"  [🧬 WASM BINARY] {wu} -> {len(wasm_eps)} ta endpoint tiklandi!")
+                log_fn(f"  [WASM-BINARY] {wu} -> {len(wasm_eps)} ta endpoint tiklandi!")
         except Exception:
             pass
     return hits

@@ -30,7 +30,7 @@ def enrich_asn_and_isp_intel(db, project_id: int, log_fn):
     if not unique_ips:
         return
 
-    log_fn(f"[SPECTRE v5 ASN/ISP Mapper] {len(unique_ips)} ta server IP manzili bo'yicha ASN, Provayder va /24 Subnet aniqlanmoqda...")
+    log_fn(f"[SPECTRE ASN/ISP Mapper] {len(unique_ips)} ta server IP manzili bo'yicha ASN, Provayder va /24 Subnet aniqlanmoqda...")
     ip_info_map = {}
     try:
         r = requests.post("http://ip-api.com/batch?fields=status,query,country,city,isp,org,as", json=unique_ips[:90], timeout=8)
@@ -49,7 +49,7 @@ def enrich_asn_and_isp_intel(db, project_id: int, log_fn):
                         "subnet": subnet,
                         "label": f"{asn_str} ({isp_str[:22]})" if asn_str else isp_str[:25],
                     }
-                    log_fn(f"  [🌐 ASN] {q_ip} ({subnet}) -> {asn_str} | ISP: {isp_str} | {city}")
+                    log_fn(f"  [ASN] {q_ip} ({subnet}) -> {asn_str} | ISP: {isp_str} | {city}")
     except Exception as e:
         log_fn(f"  [!] ASN lookup ogohlantirish: {e}")
 
@@ -74,7 +74,7 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
     if not https_urls:
         return
 
-    log_fn(f"[SPECTRE v5 SSL/TLS Auditor] {len(https_urls[:20])} ta HTTPS servisda sertifikat muddati va imzosi tekshirilmoqda...")
+    log_fn(f"[SPECTRE SSL/TLS Auditor] {len(https_urls[:20])} ta HTTPS servisda sertifikat muddati va imzosi tekshirilmoqda...")
     tls_lock = threading.Lock()
     mismatch_items: list[tuple[str, str, str]] = []
     expired_items: list[tuple[str, str, str]] = []
@@ -113,7 +113,7 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
             err_msg = str(ssl_err)
             with tls_lock:
                 mismatch_items.append((f"{host}:{port}", url, err_msg[:140]))
-            log_fn(f"  [🔐 TLS ALERT] {url} -> {err_msg[:90]}")
+            log_fn(f"  [TLS-ALERT] {url} -> {err_msg[:90]}")
         except Exception:
             pass
 
@@ -126,7 +126,7 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
         lbl = expired_items[0][0] if len(expired_items) == 1 else f"{len(expired_items)} HTTPS Hosts"
         ev = " | ".join(f"{hp}: {msg}" for hp, _, msg in expired_items[:8])
         db.upsert_finding(
-            project_id, "SPECTRE-v5 (TLS-Audit)", f"Expired SSL/TLS Certificate ({lbl})",
+            project_id, "SPECTRE-TLS-Audit", f"Expired SSL/TLS Certificate ({lbl})",
             "Cryptographic Failure (TLS)", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
             "CWE-298", "A02:2021 - Cryptographic Failures", expired_items[0][1],
             ev, "Serverning SSL/TLS sertifikati muddati tugagan.",
@@ -136,7 +136,7 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
         lbl = weak_tls_items[0][0] if len(weak_tls_items) == 1 else f"{len(weak_tls_items)} HTTPS Hosts"
         ev = " | ".join(f"{hp} ({msg})" for hp, _, msg in weak_tls_items[:8])
         db.upsert_finding(
-            project_id, "SPECTRE-v5 (TLS-Audit)", f"Deprecated TLS Protocol Enabled ({lbl})",
+            project_id, "SPECTRE-TLS-Audit", f"Deprecated TLS Protocol Enabled ({lbl})",
             "Cryptographic Failure (TLS)", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
             "CWE-326", "A02:2021 - Cryptographic Failures", weak_tls_items[0][1],
             ev, "Eskirgan TLS protokoli yoqilgan.",
@@ -156,7 +156,7 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
         lbl = mismatch_items[0][0] if len(mismatch_items) == 1 else f"{len(mismatch_items)} Subdomains"
         hosts_sample = ", ".join(hp for hp, _, _ in mismatch_items[:8])
         db.upsert_finding(
-            project_id, "SPECTRE-v5 (TLS-Audit)", f"Untrusted / Self-Signed / Mismatched SSL Certificate ({lbl})",
+            project_id, "SPECTRE-TLS-Audit", f"Untrusted / Self-Signed / Mismatched SSL Certificate ({lbl})",
             "Cryptographic / Certificate Misconfiguration", "Low", 3.7, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
             "CWE-295", "A02:2021 - Cryptographic Failures", mismatch_items[0][1],
             f"Affected Hosts ({len(mismatch_items)}): {hosts_sample} | Sample Error: {mismatch_items[0][2]}",
@@ -165,7 +165,7 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
         )
 
 
-# --- -AWARE BACKUP & ARCHIVE EXPOSURE AUDITOR ---
+# --- BACKUP & ARCHIVE EXPOSURE AUDITOR ---
 def audit_domain_backup_exposure(db, project_id: int, apex_domain: str, log_fn, session: requests.Session | None = None):
     base_word = apex_domain.split(".")[0]
     candidates = [
@@ -179,7 +179,7 @@ def audit_domain_backup_exposure(db, project_id: int, apex_domain: str, log_fn, 
         "Accept-Encoding": "identity",
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     }
-    log_fn(f"[SPECTRE v5 Backup Auditor] Domen nomiga mos arxiv/backup fayllar ({base_word}.zip/.sql) tekshirilmoqda...")
+    log_fn(f"[SPECTRE Backup Auditor] Domen nomiga mos arxiv/backup fayllar ({base_word}.zip/.sql) tekshirilmoqda...")
 
     def check_archive(path: str):
         url = urllib.parse.urljoin(base_url, path)
@@ -199,7 +199,7 @@ def audit_domain_backup_exposure(db, project_id: int, apex_domain: str, log_fn, 
             is_sql = b"CREATE TABLE" in magic or b"-- MySQL dump" in magic or b"-- PostgreSQL" in magic
             if is_zip_or_gzip or is_sql:
                 db.upsert_finding(
-                    project_id, "SPECTRE-v5 (BackupAudit)", f"[CONFIRMED] Exposed Backup / Database Archive ({url})",
+                    project_id, "SPECTRE-Backup-Audit", f"[CONFIRMED] Exposed Backup / Database Archive ({url})",
                     "Critical Backup Exposure", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
                     "CWE-530", "A05:2021 - Security Misconfiguration", url,
                     f"HTTP {code} | Content-Type: {ctype} | Magic Bytes Verified ({magic[:12]!r})",
@@ -207,7 +207,7 @@ def audit_domain_backup_exposure(db, project_id: int, apex_domain: str, log_fn, 
                     "Arxiv va .sql fayllarni veb-server katalogidan darhol o'chiring.",
                     confidence="Confirmed-PoC (QoD: 99%)",
                 )
-                log_fn(f"  [🚨 BACKUP LEAK] Tasdiqlangan arxiv topildi: {url}")
+                log_fn(f"  [BACKUP-LEAK] Tasdiqlangan arxiv topildi: {url}")
         except Exception:
             pass
 
@@ -297,19 +297,17 @@ def send_repeater_request(method: str, url: str, auth_header: str = "", proxy_ur
         except Exception:
             pass
         return (
-            f"╔══ ⚡ SPECTRE INTERACTIVE REPEATER ({elapsed_ms} ms) ══╗\n"
-            f"▶ REQUEST: {method.upper()} {url.strip()}\n"
-            f"◀ STATUS : HTTP/1.1 {r.status_code} {r.reason}\n"
+            f"--- SPECTRE INTERACTIVE REPEATER ({elapsed_ms} ms) ---\n"
+            f"> REQUEST: {method.upper()} {url.strip()}\n"
+            f"< STATUS : HTTP/1.1 {r.status_code} {r.reason}\n"
             f"{hdr_lines}\n\n"
-            f"── 📄 RESPONSE BODY ({len(body_bytes)} bytes) ──\n"
+            f"--- RESPONSE BODY ({len(body_bytes)} bytes) ---\n"
             f"{body_text[:5000]}"
         )
     except Exception as e:
         return f"[HTTP REPEATER ERROR] So'rov yuborishda xatolik: {e}"
 
 
-
-# ---   ---
 def generate_ai_tactical_analysis(db, project_id: int, selected_domain: str = "") -> str:
     b = db.get_project_bundle(project_id)
     domains = b.get("domains", [])
@@ -331,13 +329,13 @@ def generate_ai_tactical_analysis(db, project_id: int, selected_domain: str = ""
             direct_ips.append(f"{d['domain']} ({d_ip} - {d_rec.get('isp', '')})")
 
     summary_lines = [
-        f"╔══ 🧠 SPECTRE AI TACTICAL ANALYST REPORT: {selected_domain} ══╗",
-        f"• Host: {selected_domain} | IP: {ip or 'N/A'} | ASN/ISP: {asn_info.get('asn', '')} {asn_info.get('isp', '')} ({asn_info.get('subnet', '')})",
-        f"• Noyob Ochiq Portlar: {pnums} | Aniqlangan Zaifliklar: {len(host_finds)} ta",
+        f"--- SPECTRE TACTICAL SURFACE BRIEF: {selected_domain} ---",
+        f"- Host: {selected_domain} | IP: {ip or 'N/A'} | ASN/ISP: {asn_info.get('asn', '')} {asn_info.get('isp', '')} ({asn_info.get('subnet', '')})",
+        f"- Noyob Ochiq Portlar: {pnums} | Aniqlangan Zaifliklar: {len(host_finds)} ta",
     ]
     if direct_ips:
-        summary_lines.append(f"• 🎯 WAF/Cloudflare Ortidan Tashqaridagi To'g'ridan-to'g'ri (Direct) Serverlar: {', '.join(direct_ips[:6])}")
-    summary_lines.extend(["", "── 🎯 EKSPERT XAVFSIZLIK BAHOSI VA HUJUM VEKTORLARI ──"])
+        summary_lines.append(f"- WAF/CDN Ortidan Tashqaridagi Direct Serverlar: {', '.join(direct_ips[:6])}")
+    summary_lines.extend(["", "--- XAVFSIZLIK BAHOSI VA USTUVOR VEKTORLAR ---"])
 
     if 445 in pnums or 137 in pnums:
         summary_lines.append("1. [CRITICAL RISK - SMB/NetBIOS Exposed] Tashqi internetda 445/137 portlar ochiq. SMB signing, Null-Session va eskirgan Samba/Windows CVE'larini darhol tekshiring.")
@@ -346,9 +344,9 @@ def generate_ai_tactical_analysis(db, project_id: int, selected_domain: str = ""
     if any(p in pnums for p in (8080, 8086, 8087, 8443, 9080, 10000)):
         summary_lines.append("3. [HIGH VALUE - Management Panels] Nostandart portlarda (8080/8443/8086/9080) boshqaruv panellari (Plesk, Tomcat, Wowza) aniqlandi — Default Credentials va CVE'larni tekshiring.")
     for f in host_finds[:6]:
-        summary_lines.append(f"• [{f['severity']} | CVSS {f['cvss_score']}] {f['title']} -> {f['remediation']}")
+        summary_lines.append(f"- [{f['severity']} | CVSS {f['cvss_score']}] {f['title']} -> {f['remediation']}")
 
-    # Try local Ollama if running on 127.0.0.1:11434
+    # Optional local Ollama summary if running on 127.0.0.1:11434
     try:
         r_tags = requests.get("http://127.0.0.1:11434/api/tags", timeout=1.5)
         if r_tags.status_code == 200 and r_tags.json().get("models"):
@@ -356,14 +354,14 @@ def generate_ai_tactical_analysis(db, project_id: int, selected_domain: str = ""
             prompt = f"O'zbek tilida qisqa pentest tahlili yoz: Host={selected_domain}, IP={ip}, Ports={list(pnums)}, Findings={[f['title'] for f in host_finds[:5]]}"
             r_gen = requests.post("http://127.0.0.1:11434/api/generate", json={"model": model_name, "prompt": prompt, "stream": False}, timeout=12)
             if r_gen.status_code == 200:
-                summary_lines.append(f"\n── 🤖 LOCAL OLLAMA ({model_name}) AI XULOSASI ──\n" + r_gen.json().get("response", ""))
+                summary_lines.append(f"\n--- LOCAL OLLAMA ({model_name}) SUMMARY ---\n" + r_gen.json().get("response", ""))
     except Exception:
         pass
 
     return "\n".join(summary_lines)
 
 
-# --- -TOOL EXECUTION & STRUCTURED PARSERS (v7.0) ---
+# --- PARALLEL CLI EXECUTION & STRUCTURED PARSERS ---
 def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, active_ids: set, log_fn):
     import os
     import re
@@ -575,7 +573,7 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
                         f"DNS server ({ns_host}) AXFR so'roviga butun domen zonasini ochiq qaytardi!",
                         "DNS serverda allow-transfer (AXFR) ruxsatini faqat ishonchli ikkilamchi NS IP manzillar bilan cheklang.",
                     )
-                    log_fn(f"  [🚨 CRITICAL DNS AXFR] {ns_host} butun DNS zonasini oshkor qildi!")
+                    log_fn(f"  [CRITICAL-DNS-AXFR] {ns_host} butun DNS zonasini oshkor qildi!")
 
     # 2.4 Whois Deep Parser
     if "whois" in active_ids and agent._find_binary("whois"):
@@ -588,7 +586,7 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
                     if l_str not in info_bits:
                         info_bits.append(l_str)
             summary = " | ".join(info_bits[:8]) if info_bits else w_out[:220].replace("\n", " ")
-            log_fn(f"  [📋 WHOIS Intel] {summary[:180]}")
+            log_fn(f"  [WHOIS-Intel] {summary[:180]}")
             agent.db.log_task(project_id, "SPECTRE-Agent1", "whois", "COMPLETED", f"whois {apex_domain}", summary[:400])
     total_s1 = len(agent.db.get_project_bundle(project_id).get("domains", []))
     agent.db.log_task(project_id, "SPECTRE-Agent1", "stage1_subdomain_suite", "COMPLETED", f"stage1_suite {apex_domain}", f"Total in-scope subdomains after Stage 1: {total_s1}")
@@ -718,7 +716,7 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
                                         )
                                 full_ver = f"{product} {ver} {extra} {' '.join(nse_notes[:2])}".strip()
                                 agent.db.upsert_port(project_id, canon_host, port_id, proto, ip=ip_addr, service=svc_name, version=full_ver[:220], source="nmap_deep_nse")
-                                log_fn(f"  [🔬 Nmap Deep] {canon_host} ({n_ip}):{port_id}/{proto} -> {svc_name} | {full_ver[:120]}")
+                                log_fn(f"  [Nmap-Deep] {canon_host} ({n_ip}):{port_id}/{proto} -> {svc_name} | {full_ver[:120]}")
                 except Exception as ex:
                     log_fn(f"  [!] Nmap Deep XML parse ogohlantirish: {ex}")
 
@@ -733,7 +731,7 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
             nxc_out = agent._run_cli(f"{nxc_bin} smb {shlex.quote(sip)}", log_fn, timeout=20, project_id=project_id)
             if nxc_out.strip():
                 clean_line = nxc_out.strip().splitlines()[-1]
-                log_fn(f"  [🛡️ NetExec SMB] {clean_line}")
+                log_fn(f"  [NetExec-SMB] {clean_line}")
                 agent.db.upsert_port(project_id, canon_h, 445, "tcp", ip=sip, service="microsoft-ds", version=clean_line[:200], source="netexec_smb")
                 if "signing:false" in clean_line.lower():
                     agent.db.upsert_finding(
@@ -811,7 +809,7 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                 except Exception:
                     pass
             if ww_techs:
-                log_fn(f"  [🔬 WhatWeb Deep] {url} -> {', '.join(ww_techs[:10])}")
+                log_fn(f"  [WhatWeb-Deep] {url} -> {', '.join(ww_techs[:10])}")
                 agent.db.merge_http_tech_stack(project_id, url, ww_techs)
             agent.db.log_task(project_id, "SPECTRE-Agent1", "whatweb", "COMPLETED", f"whatweb -a 3 {url}", (", ".join(ww_techs) or ww_out)[:300])
 
@@ -845,7 +843,7 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                         hx_obj = json.loads(line.strip())
                         hx_techs = hx_obj.get("tech", [])
                         if hx_techs:
-                            log_fn(f"  [⚡ HTTPX Tech] {url} -> {', '.join(hx_techs[:8])}")
+                            log_fn(f"  [HTTPX-Tech] {url} -> {', '.join(hx_techs[:8])}")
                             agent.db.merge_http_tech_stack(project_id, url, hx_techs)
                     except Exception:
                         pass
@@ -885,7 +883,7 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
             if m_waf:
                 waf_name = m_waf.group(1).strip()
                 waf_summary = f"Detected WAF: {waf_name}"
-                log_fn(f"  [🛡️ Wafw00f] Aniqlangan WAF: {waf_name}")
+                log_fn(f"  [Wafw00f] Aniqlangan WAF: {waf_name}")
                 with agent.db._lock, agent.db._get_conn() as conn:
                     conn.execute("UPDATE http_services SET waf=? WHERE project_id=? AND url=?", (waf_name[:80], project_id, url))
             agent.db.log_task(project_id, "SPECTRE-Agent1", "wafw00f", "COMPLETED", f"wafw00f -a {url}", waf_summary)
@@ -987,7 +985,7 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                         f_len = int(res.get("length", 0))
                         if f_url:
                             agent._record_discovered_url(project_id, f_url, url, scope, f"ffuf_ac_{f_stat}")
-                            log_fn(f"  [📂 FFUF Hit] HTTP {f_stat} ({f_len}B) -> {f_url}")
+                            log_fn(f"  [FFUF-Hit] HTTP {f_stat} ({f_len}B) -> {f_url}")
                 except Exception as ex:
                     log_fn(f"  [!] FFUF JSON parse ogohlantirish: {ex}")
 
@@ -1007,7 +1005,7 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
                     for ep_u, ep_info in a_data.items():
                         params_found = ep_info.get("params", []) if isinstance(ep_info, dict) else []
                         if params_found:
-                            log_fn(f"  [🎯 Arjun Hidden Params] {ep_u} -> {params_found}")
+                            log_fn(f"  [Arjun-Params] {ep_u} -> {params_found}")
                             agent._record_discovered_url(project_id, ep_u, url, scope, "arjun_miner", extra_params=params_found)
                 except Exception:
                     pass

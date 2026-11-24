@@ -37,7 +37,7 @@ from core.sca_engine import run_sca_dependency_audit, run_web_and_js_sca_audit
 
 class VulnAssessmentSuperAgent:
     """
-    2-SuperAgent: Vulnerability Assessment & SAST Auditor.
+    Phase 2 Engine: KB-Gated Vulnerability Assessment, Socket NVT, AI/MCP, SCA & SAST Auditor.
     1. HTTP Security Headers, CORS, TLS va Cookie bayroqlarini audit qiladi.
     2. Topilgan endpoint va parametrlarni IDOR, SSRF, Injection va Business Logic bo'yicha saralaydi.
     3. JS DOM Sink va API hujjatlaridagi xavflarni tahlil qiladi.
@@ -1635,7 +1635,7 @@ class VulnAssessmentSuperAgent:
         kb = ScanContextKB(project_id, str(proj.get("primary_target", "")))
         kb.hydrate_from_bundle(bundle, has_auth_a=bool(self.role_a_headers), has_auth_b=bool(self.role_b_headers))
 
-        log_fn(f"═══ 2-SUPERAGENT (SPECTRE v4.0): KB-GATED CVE, POSTURE & BOLA AUDIT ({proj['name']}) ═══")
+        log_fn(f"--- [PHASE 2] SPECTRE v8.0.0 KB-GATED CVE, NVT, AI/MCP & BOLA AUDIT ({proj['name']}) ---")
         http_svcs = bundle.get("http_services", [])
         ports = bundle.get("ports", [])
         eps = bundle.get("endpoints", [])
@@ -1687,10 +1687,10 @@ class VulnAssessmentSuperAgent:
         orch.execute_all(progress_fn=progress_fn, start_frac=0.89, end_frac=0.95)
 
         if progress_fn:
-            progress_fn(0.95, "2-SuperAgent: SourceMap SAST, SCA/OSV & CISA KEV Enrichment...")
+            progress_fn(0.95, "Phase 2: SourceMap SAST, Polyglot SCA, IaC & CISA KEV Enrichment...")
         smap_dir = Path(__file__).resolve().parent.parent / "workspaces" / "sourcemaps" / f"project_{project_id}"
         if smap_dir.is_dir() and any(smap_dir.rglob("*")):
-            log_fn(f"  [SOURCEMAP->SAST] 1-SuperAgent tiklagan asl manba kodlari ({smap_dir.name}) White-Box SAST orqali tekshirilmoqda...")
+            log_fn(f"  [SOURCEMAP->SAST] Tiklangan asl manba kodlari ({smap_dir.name}) 6-tilli Taint SAST orqali tekshirilmoqda...")
             self._run_sast_scan(project_id, str(smap_dir), log_fn)
 
         sca_dirs = [p_s for p_s in (proj.get("source_code_path", ""), str(smap_dir) if smap_dir.is_dir() else "") if p_s]
@@ -1705,7 +1705,7 @@ class VulnAssessmentSuperAgent:
         cpe_cnt = len(kb.get_facts("CPE/inventory"))
         log_fn(f"  [KB-GATEKEEPER] Executed: {kb.executed_plugins} | Skipped (0 ms): {kb.skipped_plugins} | CPE 2.3 Inventory: {cpe_cnt}")
         self.db.update_project_status(project_id, "VULN_AUDIT_COMPLETED")
-        log_fn("═══ 2-SUPERAGENT: ZAIFLIKLAR VA AVTORIZATSIYA TAHLILI YAKUNLANDI ═══")
+        log_fn("--- [PHASE 2] ZAIFLIKLAR VA AVTORIZATSIYA TAHLILI YAKUNLANDI ---")
 
 
 

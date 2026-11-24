@@ -1,6 +1,6 @@
 """
-SPECTRE v3.0 — Automated AST, Signature, Schema & Runtime Integrity Gate
-========================================================================
+SPECTRE — Automated AST, Signature, Schema & Runtime Integrity Gate
+===================================================================
 Run before every commit to guarantee zero invalid keys, zero mismatched
 function signatures, zero hardcoded developer paths, and 49/49 tool readiness.
 """
@@ -342,7 +342,7 @@ def run_integrity_gate() -> list[str]:
         if not any("secret" in x and "CRITICAL" in x for x in jwt_res.get("issues", [])):
             errors.append(f"[JWT HMAC KEY CHECK BROKEN] {jwt_res}")
 
-        # Phase 1 Gate: C++17 Native Accelerator (libspectre_accel.so + Linux epoll + SimHash64)
+        # C++17 Native Accelerator Gate (libspectre_accel.so + Linux epoll + SimHash64)
         from core.native_bridge import get_native_lib, fast_epoll_tcp_probe, fast_simhash64, fast_shannon_entropy
         if get_native_lib() is None:
             errors.append("[NATIVE C++ ENGINE FAILED TO COMPILE OR LOAD]")
@@ -368,20 +368,20 @@ def run_integrity_gate() -> list[str]:
         if fast_simhash64("<html><body>Admin Panel</body></html>") == 0 or fast_shannon_entropy("A9f8K2m9P0q7Z1x4") < 3.5:
             errors.append("[NATIVE C++ HASH/ENTROPY BROKEN]")
 
-        # Phase 7–10 Gate: 68-Product Catalog + SourceMap Chain + CISA KEV HTML Badge
+        # Enterprise Advisory Catalog + SourceMap Chain + CISA KEV HTML Badge Gate
         m_infra = match_version_advisories("FortiOS 7.2.1\nConfluence 8.5.1\nArgoCD 2.9.3\nDjango 4.2.10")
         inf_prods = {x["product"] for x in m_infra}
         if not {"fortios", "confluence", "argocd", "django"}.issubset(inf_prods):
             errors.append(f"[68-PRODUCT INFRA CATALOG BROKEN] {inf_prods}")
-        db.upsert_finding(pid_scale, "Predator", "[CONFIRMED] Exposed JavaScript SourceMap (app.js.map)", "Source Code Exposure", "High", 7.5, "", "CWE-540", "A05", "https://example.org/app.js.map", "ev", "rc", "rem")
+        db.upsert_finding(pid_scale, "SPECTRE-Web", "[CONFIRMED] Exposed JavaScript SourceMap (app.js.map)", "Source Code Exposure", "High", 7.5, "", "CWE-540", "A05", "https://example.org/app.js.map", "ev", "rc", "rem")
         db.upsert_endpoint(pid_scale, "https://example.org/api/v1/users", "GET", category="api_endpoint")
         tc_g.run_triage_and_chaining(pid_scale, lambda _m: None)
         reps_g = tc_g.generate_reports(pid_scale)
         html_rep_txt = pathlib.Path(reps_g["html_path"]).read_text(encoding="utf-8")
         if "CISA KEV" not in html_rep_txt or not any("SourceMap->API" in c["chain_title"] for c in db.get_project_bundle(pid_scale)["bug_chains"]):
-            errors.append("[PHASE 8-10 REPORT KEV BADGE OR SOURCEMAP CHAIN BROKEN]")
+            errors.append("[REPORT KEV BADGE OR SOURCEMAP CHAIN BROKEN]")
 
-        # OP-3, OP-4 & OP-7 Gate: C++17 Multi-Token Byte Pre-Scanner, Bundle Cache & Consolidated Intel
+        # C++17 Multi-Token Byte Pre-Scanner, Bundle Cache & Consolidated Intel Gate
         from core.native_bridge import JS_TOK_CHUNK, JS_TOK_ROUTE, JS_TOK_SECRET, JS_TOK_SINK, JS_TOK_SOURCEMAP, fast_js_token_mask
         if fast_js_token_mask("function sum(a, b) { return a + b; }") != 0:
             errors.append("[NATIVE C++ JS TOKEN PRE-SCANNER FALSE BIT ON CLEAN CODE]")
@@ -428,7 +428,7 @@ def run_integrity_gate() -> list[str]:
         if "diffie-hellman-group14-sha1" not in _parsed_kex.get("kex", []) or "aes128-cbc" not in _parsed_kex.get("enc", []):
             errors.append(f"[SSH KEXINIT PARSER BROKEN] {_parsed_kex}")
 
-        # v3.4.0 Gate: 42-Rule Declarative NVT Catalog + 100+ Product CPE 2.3 Catalog
+        # Declarative NVT Catalog + NIST CPE 2.3 Catalog Gate
         from core.nvt_declarative_engine import load_nvt_catalog
         from core.advisory_kb import _CPE_VENDOR_PRODUCT
         nvt_rules = load_nvt_catalog()

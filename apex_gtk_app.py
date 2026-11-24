@@ -271,7 +271,7 @@ class ApexNativeWindow(Gtk.Window):
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
         hb.props.title = "SPECTRE  —  Kiber-Razvedka va Hujum Yuzasi Platformasi"
-        hb.props.subtitle = "●  v5.2.0  •  Hybrid C++17 v2, 150-NVT Engine, 34-Port Socket NVTs, 150-CPE, IaC/SCA/EPSS & Drift Studio"
+        hb.props.subtitle = "v8.0.0  •  C++17 v3 Kernel  •  250-NVT Engine  •  50-Port Socket NVTs  •  250-CPE  •  AI/MCP, 6-Lang SAST & 7-Framework Studio"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -473,7 +473,7 @@ class ApexNativeWindow(Gtk.Window):
         dos_lbl = Gtk.Label(label="TARGET DOSSIER & PENTESTING TASK TREE", xalign=0)
         dos_lbl.get_style_context().add_class("section-hdr")
         dos_bar.pack_start(dos_lbl, True, True, 4)
-        dos_bar.pack_end(self._make_btn("AI Tactical Brief", "btn-purple", self.on_ai_dossier_analysis), False, False, 2)
+        dos_bar.pack_end(self._make_btn("Tactical Surface Brief", "btn-purple", self.on_ai_dossier_analysis), False, False, 2)
         dos_bar.pack_end(self._make_btn("Deep Scan Host", "btn-green", self.on_deep_scan_selected_subdomain), False, False, 2)
         dossier_box.pack_start(dos_bar, False, False, 2)
 
@@ -564,6 +564,7 @@ class ApexNativeWindow(Gtk.Window):
         triage_bar.pack_end(self._make_btn("Mark False-Positive", "btn-red", lambda _: self.on_set_triage("False-Positive")), False, False, 2)
         triage_bar.pack_end(self._make_btn("Needs Review", "btn-amber", lambda _: self.on_set_triage("Manual-Review")), False, False, 2)
         triage_bar.pack_end(self._make_btn("Mark Verified", "btn-green", lambda _: self.on_set_triage("Verified")), False, False, 2)
+        triage_bar.pack_end(self._make_btn("Copy Reproducer", "act-btn", self.on_copy_reproducer), False, False, 2)
         triage_bar.pack_end(self._make_btn("Send to Repeater", "act-btn", self.on_send_finding_to_repeater), False, False, 4)
         tab3_box.pack_start(triage_bar, False, False, 2)
 
@@ -666,7 +667,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v5.2.0 Hybrid Workstation] C++17 v2 Kernel, 150-NVT Catalog, 34-Port Socket NVTs, 150-CPE, IaC/SCA/EPSS & Drift/Compliance Studio initialized.\n")
+        self.term_buf.set_text("[SPECTRE v8.0.0 Workstation] C++17 v3 Kernel, 250-NVT Catalog, 50-Port Socket Verifiers, 250-CPE, AI/MCP, 6-Lang SAST, 18-Format SCA & 7-Framework Studio initialized.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)
@@ -674,7 +675,7 @@ class ApexNativeWindow(Gtk.Window):
 
     def log_msg(self, msg: str):
         import time as _time
-        clean_m = re.sub(r"[🚀🛰️🎯🧠🚨🗂️🔌🔍🔎👻🔥⚡🛡️📂✅❌🗑️📋🌐🕵️]", "", str(msg or "")).replace("  ", " ").strip()
+        clean_m = re.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F]", "", str(msg or "")).replace("  ", " ").strip()
         ts_prefix = "" if clean_m.startswith("[") and ":" in clean_m[:10] else f"[{_time.strftime('%H:%M:%S')}] "
         line_out = f"{ts_prefix}{clean_m}"
         def _append():
@@ -722,7 +723,7 @@ class ApexNativeWindow(Gtk.Window):
         self._last_data_sig = None
         self.refresh_projects()
         self.load_bundle()
-        self.log_msg(f"[DELETE] 🗑️ Loyiha #{old_id} bazadan o'chirildi.")
+        self.log_msg(f"[DELETE] Loyiha #{old_id} bazadan o'chirildi.")
 
 
     @staticmethod
@@ -752,51 +753,46 @@ class ApexNativeWindow(Gtk.Window):
 
     @staticmethod
     def _format_finding_detail(f_obj: dict) -> str:
-        import shlex as _shlex
+        from core.compliance_exporter import map_finding_compliance_controls
+        from core.remediation_cookbook import build_fix_patch_snippet, build_safe_reproducer
+
         fid = f_obj.get("id", "")
         ev_str = str(f_obj.get("evidence", "") or "-")
         asset_s = str(f_obj.get("asset", "") or "").strip()
         m_cpe = re.search(r"(cpe:2\.3:[^\s|]+)", ev_str)
         cpe_line = f"NIST CPE 2.3: {m_cpe.group(1)}" if m_cpe else ""
-        if asset_s.startswith(("http://", "https://")):
-            ver_cmd = f"curl -isk --max-time 6 {_shlex.quote(asset_s)} | head -n 25"
-        elif re.match(r"^[a-zA-Z0-9.\-_]+:\d+(/udp|/tcp)?$", asset_s):
-            hp_parts = asset_s.split("/")[0].rsplit(":", 1)
-            u_flag = "-sU " if "/udp" in asset_s else ""
-            ver_cmd = f"nmap -Pn {u_flag}-sV -p {hp_parts[1]} {_shlex.quote(hp_parts[0])}"
-        elif ":" in asset_s and "/" in asset_s:
-            ver_cmd = f"Inspect source line -> {asset_s}"
-        else:
-            ver_cmd = f"Asset scope check -> {asset_s or '-'}"
+        ver_cmd = build_safe_reproducer(f_obj)
+        patch_snip = build_fix_patch_snippet(f_obj)
+        comp_c = map_finding_compliance_controls(f_obj)
 
         detail_lines = [
             f"FINDING #{fid}  |  {f_obj.get('severity', '').upper()} (CVSS {f_obj.get('cvss_score', '')})  |  STATUS: {f_obj.get('triage_status', '')}",
             "─" * 88,
             f"Title       : {f_obj.get('title', '')}",
-            f"Category    : {f_obj.get('category', '')}   |   Agent: {f_obj.get('agent', '')}",
+            f"Category    : {f_obj.get('category', '')}   |   Module: {f_obj.get('agent', '')}",
             f"Confidence  : {f_obj.get('confidence', '')}",
         ]
         if cpe_line:
             detail_lines.append(cpe_line)
-        from core.compliance_exporter import map_finding_compliance_controls
-        comp_c = map_finding_compliance_controls(f_obj)
         detail_lines.extend([
             f"Taxonomy    : {f_obj.get('cwe', '')}   |   {f_obj.get('owasp', '')}",
-            f"Compliance  : {comp_c['owasp_api_2023']}  |  {comp_c['pci_dss_v4']}  |  {comp_c['iso_27001_2022']}",
+            f"MITRE v15   : {comp_c.get('mitre_attack_v15', '-')}   |   NIST CSF 2.0: {comp_c.get('nist_csf_2_0', '-')}",
+            f"Compliance  : {comp_c['owasp_api_2023']}  |  {comp_c['pci_dss_v4']}  |  {comp_c['iso_27001_2022']}  |  {comp_c.get('soc2_tsc', '-')}",
             f"CVSS Vector : {f_obj.get('cvss_vector', '')}",
             f"Target Asset: {asset_s}",
             "",
             "[TECHNICAL EVIDENCE / TELEMETRY]",
             ev_str,
             "",
-            "[DIAGNOSTIC VERIFICATION COMMAND]",
+            "[READ-ONLY VERIFICATION REPRODUCER]",
             ver_cmd,
             "",
             "[ROOT CAUSE ANALYSIS]",
             str(f_obj.get("root_cause", "") or "-"),
             "",
-            "[REMEDIATION GUIDANCE]",
+            "[REMEDIATION & FIX PATCH]",
             str(f_obj.get("remediation", "") or "-"),
+            patch_snip,
         ])
         return "\n".join(detail_lines)
 
@@ -824,7 +820,7 @@ class ApexNativeWindow(Gtk.Window):
             dossier_txt = surface_prober.build_target_dossier(self.db, pid, dom_name)
             full_txt = ai_txt + "\n\n" + dossier_txt
             GLib.idle_add(lambda: self.dossier_view.get_buffer().set_text(full_txt) or False)
-            self.log_msg(f"[AI ANALYST] Tactical analysis generated for '{dom_name or 'Primary Target'}'.")
+            self.log_msg(f"[SURFACE-BRIEF] Tactical analysis generated for '{dom_name or 'Primary Target'}'.")
 
         threading.Thread(target=_ai_worker, daemon=True).start()
 
@@ -992,7 +988,7 @@ class ApexNativeWindow(Gtk.Window):
 
         self.store_chain.clear()
         for c in chains:
-            nodes = " ➔ ".join(json.loads(c.get("nodes_json") or "[]"))
+            nodes = " -> ".join(json.loads(c.get("nodes_json") or "[]"))
             self.store_chain.append([
                 self._color_sev(c["severity"]),
                 f"<b>{c['cvss_score']}</b>",
@@ -1134,7 +1130,7 @@ class ApexNativeWindow(Gtk.Window):
                 cr.fill()
 
                 h_p_cnt = len(ports_by_key.get(h_low, set()))
-                lbl_s = h_name[:24] + (f" [{h_p_cnt}p]" if h_p_cnt else "") + (" ⚡" if has_chain else "")
+                lbl_s = h_name[:24] + (f" [{h_p_cnt}p]" if h_p_cnt else "") + (" [CHAIN]" if has_chain else "")
                 cr.set_source_rgb(0.88, 0.91, 0.94)
                 cr.set_font_size(10)
                 cr.move_to(ox + 11, oy + 4)
@@ -1228,10 +1224,10 @@ class ApexNativeWindow(Gtk.Window):
                 if agent_type in ("recon", "all"):
                     self.recon_agent.run_full_recon(pid, None, self.log_msg, recon_mode=rec_mode or "full", progress_fn=update_prog)
                 if agent_type in ("vuln", "all"):
-                    update_prog(0.89, "2-SuperAgent: Vulnerability, NVT, SCA & SAST Audit...")
+                    update_prog(0.89, "Phase 2: Vulnerability, NVT, AI/MCP, SCA & SAST Audit...")
                     self.vuln_agent.run_assessment(pid, self.log_msg, progress_fn=update_prog)
                 if agent_type in ("triage", "all"):
-                    update_prog(0.96, "3-SuperAgent: Triage, Dynamic Bug Chaining & Report Generation...")
+                    update_prog(0.96, "Phase 3: Triage, Attack-Graph Chaining & Report Generation...")
                     self.triage_agent.run_triage_and_chaining(pid, self.log_msg)
                     rep_res = self.triage_agent.generate_reports(pid)
                     rep_txt = (
@@ -1240,7 +1236,7 @@ class ApexNativeWindow(Gtk.Window):
                     )
                     GLib.idle_add(lambda t=rep_txt: self.rep_view.get_buffer().set_text(t) or False)
                     self.log_msg(f"[REPORT] Avtomatik hisobot yaratildi: {rep_res['html_path']}")
-                update_prog(1.0, "✅ Barcha tanlangan jarayonlar yakunlandi!")
+                update_prog(1.0, "Barcha tanlangan jarayonlar yakunlandi.")
             finally:
                 self.is_running_job = False
                 self._last_data_sig = None
@@ -1271,7 +1267,7 @@ class ApexNativeWindow(Gtk.Window):
             cmd = f'curl -i -s -k -X {method}{h_flag} "{url}"'
             clip = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
             clip.set_text(cmd, -1)
-            self.log_msg(f"[CLIPBOARD] ✅ cURL nusxalandi: {cmd}")
+            self.log_msg(f"[CLIPBOARD] cURL nusxalandi: {cmd}")
         else:
             self.log_msg("[!] Endpointlar jadvali bo'sh yoki qator tanlanmagan.")
 
@@ -1297,7 +1293,7 @@ class ApexNativeWindow(Gtk.Window):
         req_body = self.rep_body_entry.get_text().strip()
         auth = self.auth_entry.get_text().strip()
         proxy_val = self.proxy_entry.get_text().strip() if hasattr(self, "proxy_entry") else ""
-        self.repeater_view.get_buffer().set_text(f"⏳ So'rov yuborilmoqda: {method} {url} ...")
+        self.repeater_view.get_buffer().set_text(f"So'rov yuborilmoqda: {method} {url} ...")
 
         def _req_worker():
             out = cli_orchestrator.send_repeater_request(method, url, auth, proxy_val, req_body=req_body)
@@ -1327,19 +1323,19 @@ class ApexNativeWindow(Gtk.Window):
             return
         res = cli_orchestrator.export_project_artifacts(self.db, self.current_project_id)
         msg = (
-            "╔══ 📤 SPECTRE v5.0 MULTI-FORMAT & COMPLIANCE ARTIFACTS EXPORTED ══╗\n"
-            f"• OASIS SARIF 2.1.0 (GitHub/DefectDojo): {res['sarif_json']}\n"
-            f"• CycloneDX 1.5 VEX SBOM (CPE + purl): {res['cyclonedx_sbom_json']}\n"
-            f"• CI/CD JUnit XML Gate: {res['junit_xml']}\n"
-            f"• OWASP / PCI-DSS 4.0 / ISO 27001 Matrix: {res['compliance_matrix_json']}\n"
-            f"• Burp Suite Scope JSON: {res['burp_scope_json']}\n"
-            f"• Live URLs (Nuclei/HTTPX): {res['live_urls_txt']}\n"
-            f"• Subdomains List: {res['subdomains_txt']}\n"
-            f"• Findings CSV: {res['findings_csv']}\n"
-            f"• Full Database JSON: {res['full_json']}\n"
+            "--- SPECTRE v8.0.0 MULTI-FORMAT & 7-FRAMEWORK ARTIFACTS EXPORTED ---\n"
+            f"- OASIS SARIF 2.1.0 (GitHub/DefectDojo): {res['sarif_json']}\n"
+            f"- CycloneDX 1.5 VEX SBOM (CPE + purl): {res['cyclonedx_sbom_json']}\n"
+            f"- CI/CD JUnit XML Gate: {res['junit_xml']}\n"
+            f"- 7-Framework Compliance (+MITRE ATT&CK v15): {res['compliance_matrix_json']}\n"
+            f"- Burp Suite Scope JSON: {res['burp_scope_json']}\n"
+            f"- Live URLs (Nuclei/HTTPX): {res['live_urls_txt']}\n"
+            f"- Subdomains List: {res['subdomains_txt']}\n"
+            f"- Findings CSV: {res['findings_csv']}\n"
+            f"- Full Database JSON: {res['full_json']}\n"
         )
         self.rep_view.get_buffer().set_text(msg)
-        self.log_msg(f"[EXPORT] ✅ SARIF, CycloneDX VEX SBOM, JUnit XML, Compliance Matrix va CSV saqlandi.")
+        self.log_msg("[EXPORT] SARIF 2.1.0, CycloneDX VEX SBOM, JUnit XML, 7-Framework Matrix va CSV saqlandi.")
 
     def on_compare_surface_drift(self, _btn):
         if not self.current_project_id or not hasattr(self, "diff_base_combo"):
@@ -1355,6 +1351,26 @@ class ApexNativeWindow(Gtk.Window):
         self._set_styled_text(self.rep_view, txt)
         self.log_msg(f"[DRIFT] Project #{base_id_s} -> #{self.current_project_id} taqqoslandi: {diff_obj['drift_level']}")
 
+
+    def on_copy_reproducer(self, _btn):
+        if not self.current_project_id:
+            return
+        sel = self.tree_find.get_selection()
+        model, treeiter = sel.get_selected()
+        if treeiter is None and len(model) > 0:
+            treeiter = model.get_iter_first()
+        if treeiter is None:
+            self.log_msg("[!] Avval Topilmalar jadvalidan qatorni tanlang.")
+            return
+        fid = int(model[treeiter][0])
+        finds = self.db.get_project_bundle(self.current_project_id).get("findings", [])
+        f_obj = next((f for f in finds if int(f.get("id", 0)) == fid), None)
+        if f_obj:
+            from core.remediation_cookbook import build_safe_reproducer
+            cmd = build_safe_reproducer(f_obj)
+            clip = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+            clip.set_text(cmd, -1)
+            self.log_msg(f"[REPRODUCER] Nusxalandi: {cmd}")
 
     def on_send_finding_to_repeater(self, _btn):
         sel = self.tree_find.get_selection()
@@ -1382,7 +1398,7 @@ class ApexNativeWindow(Gtk.Window):
             self.db.update_finding_triage(int(fid), status)
             self._last_data_sig = None
             self.load_bundle()
-            self.log_msg(f"[TRIAGE] ✅ Topilma #{fid} statusi '{status}' ga o'zgartirildi.")
+            self.log_msg(f"[TRIAGE] Topilma #{fid} statusi '{status}' ga o'zgartirildi.")
         else:
             self.log_msg("[!] Avval Topilmalar jadvalidan qatorni tanlang.")
 

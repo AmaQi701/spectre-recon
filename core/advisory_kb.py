@@ -1,6 +1,6 @@
 """
-SPECTRE v3.0 — Semantic Version Parser & Curated Vendor CVE Advisory Catalog
-============================================================================
+SPECTRE — Semantic Version Parser & Curated Vendor CVE Advisory Catalog
+=======================================================================
 Matches observed service/server banners and technology versions against
 official vendor security advisories using deterministic semantic version bounds.
 Assigned Quality of Detection: `QoD.BANNER_CVE` (75%) to account for OS backports.

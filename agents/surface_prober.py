@@ -155,7 +155,7 @@ def probe_nonstandard_web_ports(db, session, project_id: int, log_fn):
                     f"Nostandart {pnum}-portda ochiq HTTP/HTTPS servis yoki boshqaruv paneli aniqlandi.",
                     f"{pnum}-portni tashqi internetdan Firewall orqali cheklang.",
                 )
-                log_fn(f"  [🔥 PORT-WEB] {url} -> HTTP {code} | Title: '{title[:45]}' | Server: {srv}")
+                log_fn(f"  [PORT-WEB] {url} -> HTTP {code} | Title: '{title[:45]}' | Server: {srv}")
                 break
             except Exception:
                 pass
@@ -238,7 +238,7 @@ def hunt_virtual_hosts(db, session, project_id: int, apex_domain: str, log_fn):
                         "Ommaviy DNS'da yo'q bo'lgan, lekin serverda sozlangan yashirin VirtualHost aniqlandi.",
                         "Ichki VirtualHost'larni faqat ichki IP interfeyslarida tinglaydigan qiling.",
                     )
-                    log_fn(f"  [🚨 HIDDEN VHOST] {cand_vhost} @ {ip} -> HTTP {r.status_code} (Title: {title[:40]})")
+                    log_fn(f"  [HIDDEN-VHOST] {cand_vhost} @ {ip} -> HTTP {r.status_code} (Title: {title[:40]})")
             except Exception:
                 pass
 
@@ -277,7 +277,7 @@ def hunt_cloud_and_storage_buckets(db, session, project_id: int, apex_domain: st
                     "Fayl yoki media serverda kataloglar ro'yxati (autoindex / public bucket list) ochiq qolgan.",
                     "Nginx da 'autoindex off;' qiling yoki S3/MinIO bucket Public List ruxsatini yoping.",
                 )
-                log_fn(f"  [🚨 BUCKET/DIR] Ochiq katalog aniqlandi: {url}")
+                log_fn(f"  [BUCKET-DIR] Ochiq katalog aniqlandi: {url}")
         except Exception:
             pass
 
@@ -377,7 +377,7 @@ def harvest_emails_and_osint(db, project_id: int, apex_domain: str, text_blobs: 
             "Veb-sayt va JS kodlar ichidan tashkilotning korporativ elektron pochta manzillari yig'ildi.",
             "Korporativ pochta hisoblarida 2FA va SPF/DKIM/DMARC himoyasini kuchaytiring.",
         )
-        log_fn(f"  [📧 OSINT EMAILS] {len(sorted_em)} ta korporativ email topildi: {', '.join(sorted_em[:6])}")
+        log_fn(f"  [OSINT-EMAILS] {len(sorted_em)} ta korporativ email topildi: {', '.join(sorted_em[:6])}")
 
 
 # --- (PERSISTENT SQLITE SNAPSHOTS) ---
@@ -411,11 +411,11 @@ def log_incremental_diff(before: dict, db, project_id: int, log_fn):
     new_ports = sorted(curr_ports - before["ports"])
     new_eps = sorted(curr_eps - before["endpoints"])
     if new_doms or new_ports or new_eps:
-        log_fn(f"[SPECTRE Persistent Diff vs {before.get('snapshot_date')}] 🆕 Yangi subdomenlar: +{len(new_doms)} | Yangi portlar: +{len(new_ports)} | Yangi endpointlar: +{len(new_eps)}")
+        log_fn(f"[SPECTRE Persistent Diff vs {before.get('snapshot_date')}] Yangi subdomenlar: +{len(new_doms)} | Yangi portlar: +{len(new_ports)} | Yangi endpointlar: +{len(new_eps)}")
         for nd in new_doms[:8]:
-            log_fn(f"  [🆕 NEW SUBDOMAIN] {nd}")
+            log_fn(f"  [NEW-SUBDOMAIN] {nd}")
         for nh, np in new_ports[:8]:
-            log_fn(f"  [🆕 NEW PORT] {nh}:{np}")
+            log_fn(f"  [NEW-PORT] {nh}:{np}")
 
     if hasattr(db, "save_scan_snapshot"):
         db.save_scan_snapshot(project_id, sorted(curr_doms), [list(x) for x in sorted(curr_ports)], sorted(curr_eps))
@@ -630,7 +630,7 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn, session:
                     "API endpointning boshqa versiyasi (v0/v2/v3/internal) serverda faol holatda javob qaytarmoqda.",
                     "Eskirgan yoki test API versiyalarini production gateway darajasida o'chiring.",
                 )
-                log_fn(f"  [🧬 SHADOW API] {mut_url} -> HTTP {code}")
+                log_fn(f"  [SHADOW-API] {mut_url} -> HTTP {code}")
         except Exception:
             pass
 
@@ -646,7 +646,7 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn, session:
                 return
             if code in (200, 401, 403, 405):
                 db.upsert_endpoint(project_id, wb_url, method="GET", category="high_value_endpoint", risk_tags=["Zombie_Ghost_Endpoint"], status_code=code, source="wayback_verified")
-                log_fn(f"  [👻 GHOST ENDPOINT] Tarixiy URL hali ham tirik ({code}): {wb_url}")
+                log_fn(f"  [GHOST-ENDPOINT] Tarixiy URL hali ham tirik ({code}): {wb_url}")
         except Exception:
             pass
 
@@ -679,7 +679,7 @@ def classify_auth_portals_and_schema(db, project_id: int, log_fn):
                 "Tashkilotning haqiqiy kirish / boshqaruv portali aniqlandi (2FA, Rate-limit va Default Creds tekshiruvi uchun asosiy nuqta).",
                 "Barcha kirish portallarida MFA/2FA, Rate-Limiting va CAPTCHA himoyasini yoqing.",
             )
-            log_fn(f"  [🚪 AUTH PORTAL] Kirish darvozasi tasniflandi: {u} ('{t}')")
+            log_fn(f"  [AUTH-PORTAL] Kirish darvozasi tasniflandi: {u} ('{t}')")
 
 
     priv_keys = set()
@@ -699,7 +699,7 @@ def classify_auth_portals_and_schema(db, project_id: int, log_fn):
             project_id, "SPECTRE-Intel", "mass_assignment_schema", "COMPLETED", p_targ,
             f"Privileged DTO Keys ({len(sorted_pk)}): {', '.join(sorted_pk[:15])}",
         )
-        log_fn(f"  [🧩 SCHEMA MINER] {len(sorted_pk)} ta imtiyozli DTO kaliti qayd etildi: {', '.join(sorted_pk[:10])}")
+        log_fn(f"  [SCHEMA-MINER] {len(sorted_pk)} ta imtiyozli DTO kaliti qayd etildi: {', '.join(sorted_pk[:10])}")
 
 
 

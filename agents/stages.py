@@ -1,7 +1,7 @@
 """
-SPECTRE v3.0 — Modular Stage Registry & Clean Architecture Index
-================================================================
-Organizes all 1-SuperAgent reconnaissance engines into 6 logical stages
+SPECTRE — Modular Stage Registry & Clean Architecture Index
+===========================================================
+Organizes all Phase 1 reconnaissance engines into 6 logical stages
 so every module is discoverable, typed, and verifiable in <100 lines.
 """
 

@@ -1,5 +1,5 @@
 """
-SPECTRE v3.0 — Protocol, Cache, VCS & Client-State Analysis Modules
+SPECTRE — Protocol, Cache, VCS & Client-State Analysis Modules
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def audit_vcs_metadata_exposure(db, session, project_id: int, base_url: str, log
             remotes = re.findall(r"url\s*=\s*([^\r\n]+)", rc.text)
             branches = re.findall(r'\[branch\s+"([^"]+)"\]', rc.text)
             db.upsert_finding(
-                project_id, "SPECTRE-v10 (VCS-Auditor)",
+                project_id, "SPECTRE-Protocol (VCS-Auditor)",
                 "[CONFIRMED] Exposed Git Configuration File (/.git/config)",
                 "Source Control Metadata Exposure", "Critical", 9.1,
                 "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-538", "A05:2021 - Security Misconfiguration",
@@ -39,7 +39,7 @@ def audit_vcs_metadata_exposure(db, session, project_id: int, base_url: str, log
                 "Veb-serverda /.git/config fayli ochiq qoldirilgan — ichki Git repozitoriy manzillari va tarmoq strukturasi ko'rinmoqda.",
                 "Veb-server konfiguratsiyasida /.git katalogiga kirishni to'liq taqiqlang.",
             )
-            log_fn(f"  [🧱 VCS CONFIG] {cfg_url} ochiq! Remotes: {', '.join(remotes[:3])}")
+            log_fn(f"  [VCS-CONFIG] {cfg_url} ochiq! Remotes: {', '.join(remotes[:3])}")
     except Exception:
         pass
 
@@ -50,7 +50,7 @@ def audit_vcs_metadata_exposure(db, session, project_id: int, base_url: str, log
             commits = re.findall(r"\s([0-9a-f]{40})\s+([^\r\n<]+<[^>]+>)", rl.text)
             sample = ", ".join([f"{c[0][:8]} ({c[1].strip()})" for c in commits[:4]])
             db.upsert_finding(
-                project_id, "SPECTRE-v10 (VCS-Auditor)",
+                project_id, "SPECTRE-Protocol (VCS-Auditor)",
                 "[CONFIRMED] Exposed Git Commit Reflog (/.git/logs/HEAD)",
                 "Source Control History Exposure", "High", 7.5,
                 "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-538", "A05:2021 - Security Misconfiguration",
@@ -59,7 +59,7 @@ def audit_vcs_metadata_exposure(db, session, project_id: int, base_url: str, log
                 "/.git/logs/HEAD ochiq qolgan — dasturchilarning elektron pochtalari va commit SHA-1 xeshlari o'qilmoqda.",
                 "Production muhitidan .git katalogini olib tashlang.",
             )
-            log_fn(f"  [🧱 VCS REFLOG] {logs_url} -> {len(commits)} ta commit va dasturchi ma'lumotlari tiklandi!")
+            log_fn(f"  [VCS-REFLOG] {logs_url} -> {len(commits)} ta commit va dasturchi ma'lumotlari tiklandi!")
     except Exception:
         pass
     return hits
@@ -78,7 +78,7 @@ def audit_static_routing_headers(db, session, project_id: int, base_url: str, lo
                 issues += 1
                 files_listed = re.findall(r'href="([^"?/][^"]*)"', r.text)[:8]
                 db.upsert_finding(
-                    project_id, "SPECTRE-v10 (Static-Auditor)",
+                    project_id, "SPECTRE-Protocol (Static-Auditor)",
                     f"[CONFIRMED] Open Directory Listing Enabled ({pfx})",
                     "Directory Listing Exposure", "Medium", 5.3,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-548", "A05:2021 - Security Misconfiguration",
@@ -86,7 +86,7 @@ def audit_static_routing_headers(db, session, project_id: int, base_url: str, lo
                     "Statik katalogda 'autoindex on' qoldirilgan — barcha ichki fayllar ro'yxatini ko'rish mumkin.",
                     "Nginx/Apache konfiguratsiyasida 'autoindex off;' yoki 'Options -Indexes' o'rnating.",
                 )
-                log_fn(f"  [🔀 DIR LISTING] {u} katalogida fayllar ro'yxati ochiq ({len(files_listed)} ta fayl)!")
+                log_fn(f"  [DIR-LISTING] {u} katalogida fayllar ro'yxati ochiq ({len(files_listed)} ta fayl)!")
         except Exception:
             pass
     return issues
@@ -125,7 +125,7 @@ def extract_grpc_and_protobuf_schemas(db, session, project_id: int, base_url: st
             base_url,
             f"gRPC ({len(m_list)} methods, {len(p_list)} types): {', '.join(m_list[:8])}",
         )
-        log_fn(f"  [📡 gRPC MAPPER] {len(m_list)} ta gRPC metod va {len(p_list)} ta Protobuf tip tiklandi!")
+        log_fn(f"  [gRPC-MAPPER] {len(m_list)} ta gRPC metod va {len(p_list)} ta Protobuf tip tiklandi!")
     return sorted(grpc_methods)
 
 
@@ -169,7 +169,7 @@ def analyze_postmessage_handlers(db, session, project_id: int, base_url: str, js
                     issues += 1
                     sink_name = sink_match.group(1)
                     db.upsert_finding(
-                        project_id, "SPECTRE-v10 (postMessage-AST)",
+                        project_id, "SPECTRE-Protocol (postMessage-AST)",
                         f"[CONFIRMED] Unvalidated DOM postMessage Handler Flowing to '{sink_name}'",
                         "DOM-Based Cross-Site Scripting (CWE-345)", "High", 7.8,
                         "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:H/A:N", "CWE-345", "A03:2021 - Injection",
@@ -177,7 +177,7 @@ def analyze_postmessage_handlers(db, session, project_id: int, base_url: str, js
                         "addEventListener('message') funksiyasi ichida event.origin tekshirilmagan va kelgan ma'lumot xavfli DOM sinkka uzatilgan.",
                         "Xabarni qayta ishlashdan oldin 'if (event.origin !== \"https://trusted.domain\") return;' tekshiruvini qo'shing.",
                     )
-                    log_fn(f"  [🪟 POSTMESSAGE AST] {tu} -> '.origin' tekshiruvisiz '{sink_name}' sink topildi!")
+                    log_fn(f"  [POSTMESSAGE-AST] {tu} -> '.origin' tekshiruvisiz '{sink_name}' sink topildi!")
                     break
         except Exception:
             pass
@@ -209,7 +209,7 @@ def audit_cache_policy_and_headers(db, session, project_id: int, base_url: str, 
                 if r_ext.status_code == 200 and r_ext.text == r_api.text and any(k in ext_cache for k in ("HIT", "MISS", "EXPIRED")):
                     issues += 1
                     db.upsert_finding(
-                        project_id, "SPECTRE-v10 (Cache-Auditor)",
+                        project_id, "SPECTRE-Protocol (Cache-Auditor)",
                         f"[CONFIRMED] Dynamic API Path Ignores Static Suffix ({api_p}/spectre_check.css)",
                         "Web Cache Configuration Weakness", "High", 7.5,
                         "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:N/A:N", "CWE-525", "A05:2021 - Security Misconfiguration",
@@ -217,13 +217,13 @@ def audit_cache_policy_and_headers(db, session, project_id: int, base_url: str, 
                         "Dinamik API yo'li oxiriga .css qo'shilganda ham backend bir xil shaxsiy JSON ma'lumot qaytarmoqda (keshda saqlanib qolish xavfi).",
                         "Dinamik API endpointlarda 'Cache-Control: no-store, private' sarlavhasini majburiy o'rnating va qat'iy URL routing ishlating.",
                     )
-                    log_fn(f"  [🧊 CACHE AUDIT] {u_ext} statik kengaytma bilan ham JSON qaytardi ({ext_cache})!")
+                    log_fn(f"  [CACHE-AUDIT] {u_ext} statik kengaytma bilan ham JSON qaytardi ({ext_cache})!")
                     break
 
         if cache_status and "origin" not in vary.lower() and hdrs.get("access-control-allow-origin"):
             issues += 1
             db.upsert_finding(
-                project_id, "SPECTRE-v10 (Cache-Auditor)",
+                project_id, "SPECTRE-Protocol (Cache-Auditor)",
                 "Cached CORS Response Missing 'Vary: Origin' Header",
                 "Cache Key Configuration", "Low", 3.7,
                 "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-525", "A05:2021 - Security Misconfiguration",
@@ -329,7 +329,7 @@ def validate_spf_dmarc_recursive(db, project_id: int, apex_domain: str, log_fn) 
         sev = "High" if (dangling_includes or "+all" in root_spf.lower()) else "Medium" if (not dmarc_txt or "p=none" in dmarc_txt.lower() or total_lookups > 10) else "Low"
         cvss = 7.5 if sev == "High" else 5.3 if sev == "Medium" else 3.7
         db.upsert_finding(
-            project_id, "SPECTRE-v10 (Mail-DNS-Auditor)",
+            project_id, "SPECTRE-Protocol (Mail-DNS-Auditor)",
             f"Mail Authentication & SPF/DMARC Policy Weaknesses ({apex_domain})",
             "Email Infrastructure Security (RFC-7208)", sev, cvss,
             "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:H/A:N", "CWE-290", "A05:2021 - Security Misconfiguration",
@@ -338,7 +338,7 @@ def validate_spf_dmarc_recursive(db, project_id: int, apex_domain: str, log_fn) 
             "Domenning pochta autentifikatsiya yozuvlarida (SPF/DMARC) RFC-7208 lookup cheklovi, p=none yoki NXDOMAIN xatoliklari aniqlandi.",
             "DMARC siyosatini 'p=quarantine' yoki 'p=reject' ga o'tkazing, SPF include sonini <=10 tagacha qisqartiring va '-all' ishlating.",
         )
-        log_fn(f"  [📬 SPF/DMARC AUDIT] {apex_domain} -> {len(issues)} ta pochta siyosati kamchiligi ({total_lookups} DNS lookups)!")
+        log_fn(f"  [SPF-DMARC-AUDIT] {apex_domain} -> {len(issues)} ta pochta siyosati kamchiligi ({total_lookups} DNS lookups)!")
     return {"spf_lookups": total_lookups, "issues": issues}
 
 
@@ -386,7 +386,7 @@ def parse_service_worker_manifests(db, session, project_id: int, base_url: str, 
             base_url,
             f"PWA Precache Routes ({len(r_list)}): {', '.join(r_list[:10])}",
         )
-        log_fn(f"  [⚙️ SERVICE WORKER] {len(r_list)} ta yashirin PWA/Workbox marshruti tiklandi!")
+        log_fn(f"  [SERVICE-WORKER] {len(r_list)} ta yashirin PWA/Workbox marshruti tiklandi!")
     return sorted(discovered_routes)
 
 
@@ -404,7 +404,7 @@ def inspect_http_protocol_and_proxy_topology(db, session, project_id: int, base_
             summary = " | ".join([f"{k}: {v}" for k, v in topo.items()])
             db.merge_http_tech_stack(project_id, base_url, [f"Topology:{k}" for k in topo.keys()])
             db.log_task(project_id, "SPECTRE-Intel", "topology_headers", "COMPLETED", base_url, f"Topology Headers: {summary[:220]}")
-            log_fn(f"  [🧬 TOPOLOGY MAP] {base_url} -> {summary[:100]}")
+            log_fn(f"  [TOPOLOGY-MAP] {base_url} -> {summary[:100]}")
     except Exception:
         pass
     return topo
@@ -440,7 +440,7 @@ def audit_oauth_oidc_parameters(db, project_id: int, base_url: str, log_fn) -> i
             sev = "High" if ("state" not in qs or "token" in rtype) else "Medium"
             cvss = 7.4 if sev == "High" else 5.3
             db.upsert_finding(
-                project_id, "SPECTRE-v10 (OAuth-Auditor)",
+                project_id, "SPECTRE-Protocol (OAuth-Auditor)",
                 f"[CONFIRMED] OAuth 2.0 / OIDC Parameter Security Weakness ({parsed.path or '/'})",
                 "Authentication & OAuth Security", sev, cvss,
                 "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:L/A:N", "CWE-352", "A07:2021 - Identification and Authentication Failures",
@@ -448,7 +448,7 @@ def audit_oauth_oidc_parameters(db, project_id: int, base_url: str, log_fn) -> i
                 "OAuth 2.0 avtorizatsiya so'rovida CSRF himoyasi (state) yoki PKCE (code_challenge) ko'rsatilmagan.",
                 "Barcha OAuth 2.0 oqimlarida kriptografik tasodifiy 'state' va 'PKCE (S256)' parametrlarini majburiy qiling.",
             )
-            log_fn(f"  [🔑 OAUTH AUDIT] {u[:80]} -> {' | '.join(flaws)}")
+            log_fn(f"  [OAUTH-AUDIT] {u[:80]} -> {' | '.join(flaws)}")
     return issues
 
 
@@ -485,7 +485,7 @@ def correlate_analytics_and_tag_ids(db, session, project_id: int, base_url: str,
             base_url,
             f"Analytics IDs: {flat_str[:220]}",
         )
-        log_fn(f"  [🕸️ ANALYTICS PIVOT] {flat_str}")
+        log_fn(f"  [ANALYTICS-PIVOT] {flat_str}")
     return clean_map
 
 
@@ -534,7 +534,7 @@ def verify_archive_magic_bytes_range(db, session, project_id: int, apex_domain: 
             if head_bytes.startswith(exp_sig) or (exp_sig.startswith(b"--") and exp_sig in head_bytes[:48]):
                 verified += 1
                 db.upsert_finding(
-                    project_id, "SPECTRE-v10 (MagicByte-Verifier)",
+                    project_id, "SPECTRE-Protocol (MagicByte-Verifier)",
                     f"[CONFIRMED] Binary-Verified Exposed Archive / DB ({path} — {fmt_name})",
                     "Sensitive Backup Exposure", "Critical", 9.1,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-530", "A05:2021 - Security Misconfiguration",
@@ -542,7 +542,7 @@ def verify_archive_magic_bytes_range(db, session, project_id: int, apex_domain: 
                     "HTTP Range (0-63 bayt, identity encoding) tekshiruvi orqali veb-serverda haqiqiy arxiv yoki ma'lumotlar bazasi fayli ochiq qolgani matematik tasdiqlandi.",
                     "Zaxira nusxalarini (.zip, .sql, .gz, .sqlite) veb-serverning ommaviy katalogidan darhol o'chiring.",
                 )
-                log_fn(f"  [🗃️ MAGIC-BYTE VERIFIED] {u} -> Haqiqiy {fmt_name} fayli tasdiqlandi!")
+                log_fn(f"  [MAGIC-BYTE-VERIFIED] {u} -> Haqiqiy {fmt_name} fayli tasdiqlandi!")
         except Exception:
             pass
     return verified
@@ -577,7 +577,7 @@ def extract_client_storage_keys_and_checks(db, session, project_id: int, base_ur
         k_list = sorted(keys)
         if role_checks:
             db.upsert_finding(
-                project_id, "SPECTRE-v10 (WebStorage-Mapper)",
+                project_id, "SPECTRE-Protocol (WebStorage-Mapper)",
                 f"Client-Side Storage Keys & State Conditions ({len(k_list)} keys) [Client Role Check!]",
                 "Client-Side State & Storage Security", "Medium", 5.3,
                 "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N", "CWE-922", "A04:2021 - Insecure Design",
@@ -595,7 +595,7 @@ def extract_client_storage_keys_and_checks(db, session, project_id: int, base_ur
                 base_url,
                 f"Client Storage Keys ({len(k_list)}): {', '.join(k_list[:12])}",
             )
-        log_fn(f"  [🧠 WEB STORAGE] {len(k_list)} ta kalit topildi" + (f" | Shartlar: {', '.join(role_checks[:3])}" if role_checks else ""))
+        log_fn(f"  [WEB-STORAGE] {len(k_list)} ta kalit topildi" + (f" | Shartlar: {', '.join(role_checks[:3])}" if role_checks else ""))
     return sorted(keys)
 
 

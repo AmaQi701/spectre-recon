@@ -98,14 +98,14 @@ def compute_project_diff(base_bundle: dict[str, Any], curr_bundle: dict[str, Any
 
 def format_diff_report_text(diff: dict[str, Any]) -> str:
     lines = [
-        f"◈ EASM HUJUM YUZASI DRIFT TAHLILI (Project #{diff.get('baseline_project_id')} -> #{diff.get('current_project_id')})",
-        "═" * 78,
+        f"[EASM SURFACE DRIFT ANALYSIS] (Project #{diff.get('baseline_project_id')} -> #{diff.get('current_project_id')})",
+        "-" * 78,
         f"Nishon: {diff.get('target')}  |  Drift Darajasi: [{diff.get('drift_level')}]",
         f"Yangi Subdomenlar: +{len(diff.get('new_domains', []))}  |  Yopilgan Subdomenlar: -{len(diff.get('removed_domains', []))}",
         f"Yangi Ochiq Portlar: +{len(diff.get('new_ports', []))}  |  Yopilgan Portlar: -{len(diff.get('closed_ports', []))}",
         f"Yangi Endpointlar: +{diff.get('new_endpoints_count', 0)}",
         f"Yangi Zaifliklar: +{len(diff.get('new_findings', []))}  |  Bartaraf Etilgan (Fixed): -{len(diff.get('remediated_findings', []))}",
-        "─" * 78,
+        "-" * 78,
     ]
     if diff.get("new_domains"):
         lines.append("[+] YANGI SUBDOMENLAR: " + ", ".join(diff["new_domains"][:15]))
@@ -114,9 +114,9 @@ def format_diff_report_text(diff: dict[str, Any]) -> str:
     if diff.get("new_findings"):
         lines.append("[CRITICAL/HIGH DRIFT — YANGI TOPILGAN ZAIFLIKLAR]:")
         for nf in diff["new_findings"][:15]:
-            lines.append(f"  • [{nf['severity']} | {nf['cvss']}] {nf['title']} ({nf['asset']})")
+            lines.append(f"  - [{nf['severity']} | {nf['cvss']}] {nf['title']} ({nf['asset']})")
     if diff.get("remediated_findings"):
         lines.append("[REMEDIATED — YOPILGAN ZAIFLIKLAR]:")
         for rf in diff["remediated_findings"][:15]:
-            lines.append(f"  ✓ [{rf['severity']}] {rf['title']}")
+            lines.append(f"  * [{rf['severity']}] {rf['title']}")
     return "\n".join(lines)

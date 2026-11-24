@@ -40,7 +40,7 @@ if urllib3_disable:
 
 class ReconSuperAgent:
     """
-    1-SuperAgent: Autonomous Recon & Attack Surface Mapper.
+    Phase 1 Engine: Autonomous Reconnaissance & Attack Surface Mapper.
     YAML Registry dagi barcha CLI vositalarni va ichki (built-in) razvedka
     modullarini 6 bosqichda boshqaradi va natijalarni SQLite Asset Graph ga yozadi.
     """
@@ -202,7 +202,7 @@ class ReconSuperAgent:
                     pass
         self.active_procs[project_id] = []
         if log_fn:
-            log_fn("[ABORT] 🛑 Barcha faol razvedka jarayonlari foydalanuvchi tomonidan to'xtatildi.")
+            log_fn("[ABORT] Barcha faol razvedka jarayonlari foydalanuvchi tomonidan to'xtatildi.")
 
 
     def _find_binary(self, binary_name: str) -> str | None:
@@ -568,7 +568,7 @@ class ReconSuperAgent:
                         "Subdomen CNAME yozuvi tashqi bulutli servisga yo'naltirilgan, ammo u yerda resurs o'chirilgan.",
                         "DNS zonasidan eskirgan CNAME yozuvini o'chiring yoki tashqi servisda nomni band qiling.",
                     )
-                    log_fn(f"  [🚨 TAKEOVER] Dangling CNAME aniqlandi: {cand} -> {cname_val}")
+                    log_fn(f"  [TAKEOVER] Dangling CNAME aniqlandi: {cand} -> {cname_val}")
             if records:
                 cf_ip_prefs = ("104.16.", "104.17.", "104.18.", "104.19.", "104.20.", "104.21.", "172.64.", "172.67.", "188.114.")
                 cdn = "Cloudflare" if ("cloudflare" in cname_val.lower() or (ip_val and ip_val.startswith(cf_ip_prefs))) else ""
@@ -902,7 +902,7 @@ class ReconSuperAgent:
                             if first_ext:
                                 self._seen_ext_redirects.add(ext_key)
                         if first_ext:
-                            log_fn(f"  [🔄 EXTERNAL REDIRECT] {url} -> {loc_full} (Scope tashqarisidagi domenga yo'naltirilgan)")
+                            log_fn(f"  [EXTERNAL-REDIRECT] {url} -> {loc_full} (Scope tashqarisidagi domenga yo'naltirilgan)")
                             self.db.log_task(
                                 project_id,
                                 "SPECTRE-Intel",
@@ -1375,7 +1375,7 @@ class ReconSuperAgent:
             frontier = next_frontier
 
         if crawled_pages > 0:
-            log_fn(f"  [🕷️ BFS Crawler] {base_url} -> Depth-2 ichki sahifalar o'rganildi: {crawled_pages} sahifa, jami {len(live_js_list)} JS paket.")
+            log_fn(f"  [BFS-Crawler] {base_url} -> Depth-2 ichki sahifalar o'rganildi: {crawled_pages} sahifa, jami {len(live_js_list)} JS paket.")
         return crawled_pages
 
     def _stage4_html_and_wayback(self, project_id: int, base_url: str, html_body: str, domain: str, scope: ScopeGuard, log_fn) -> list[str]:
@@ -1473,7 +1473,7 @@ class ReconSuperAgent:
                         "GraphQL endpointda Introspection ochiq qoldirilgan — barcha sxema va mutatsiyalarni o'qish mumkin.",
                         "Production muhitida GraphQL Introspection so'rovlarini o'chirib qo'ying.",
                     )
-                    log_fn(f"  [🚨 GRAPHQL] Introspection ochiq: {gql_url} ({len(types_list)} types)")
+                    log_fn(f"  [GRAPHQL] Introspection ochiq: {gql_url} ({len(types_list)} types)")
             except Exception:
                 pass
 
@@ -1705,12 +1705,12 @@ class ReconSuperAgent:
                 except Exception:
                     apex_exists = True
             if not apex_exists:
-                log_fn(f"[❌ DNS NXDOMAIN BLOCK] '{apex_domain}' domeni global DNS da mavjud emas (ehtimoliy imlo xatosi / typo). Domen nomini tekshiring!")
+                log_fn(f"[DNS-NXDOMAIN-BLOCK] '{apex_domain}' domeni global DNS da mavjud emas (ehtimoliy imlo xatosi / typo). Domen nomini tekshiring!")
                 self.db.update_project_status(project_id, "ABORTED")
                 _prog(0.0, f"NXDOMAIN: {apex_domain} topilmadi")
                 return
 
-        log_fn(f"═══ 🛰️ 1-SUPERAGENT: DEEP AUTONOMOUS RECON [{recon_mode.upper()}] (Target: {primary_host} | Apex: {apex_domain}) ═══")
+        log_fn(f"--- [PHASE 1] SPECTRE v8.0.0 AUTONOMOUS RECON [{recon_mode.upper()}] (Target: {primary_host} | Apex: {apex_domain}) ---")
         self.db.upsert_domain(project_id, primary_host, source="primary_target")
         if apex_domain != primary_host:
             self.db.upsert_domain(project_id, apex_domain, source="apex_domain")
@@ -1856,10 +1856,10 @@ class ReconSuperAgent:
                     dip = dom_ip_map.get(dom, "")
                     first_lbl = dom.split(".")[0].lower()
                     if dom != primary_host and first_lbl in ("cpcalendars", "cpcontacts", "webdisk", "autodiscover", "ftp", "smtp", "pop", "pop3", "imap", "relay"):
-                        log_fn(f"  [⚡ Infra Stub Skip] {dom} ({url}) -> pochta/fayl servis stabi, og'ir veb-fuzzerlar o'tkazib yuborildi.")
+                        log_fn(f"  [Infra-Stub-Skip] {dom} ({url}) -> pochta/fayl servis stabi, og'ir veb-fuzzerlar o'tkazib yuborildi.")
                         continue
                     if dip and dip in tarpitted_ips:
-                        log_fn(f"  [⚡ Firewall Circuit-Breaker] {dom} ({dip}) IP avvalgi bosqichda tarpit/ban qilingan — ortiqcha kutish o'tkazib yuborildi.")
+                        log_fn(f"  [Firewall-Circuit-Breaker] {dom} ({dip}) IP avvalgi bosqichda tarpit/ban qilingan — ortiqcha kutish o'tkazib yuborildi.")
                         continue
                     try:
                         self._raw_session_get(url, timeout=(2.5, 3.5), verify=False, allow_redirects=False)
@@ -1870,7 +1870,7 @@ class ReconSuperAgent:
                                 self._dead_hosts.add(dip)
                         if dip:
                             tarpitted_ips.add(dip)
-                        log_fn(f"  [⚡ Firewall Circuit-Breaker] {dom} ({url}) ulanishni uzdi yoki javob bermayapti (WAF/CSF IP-ban) — sekin modullar o'tkazib yuborildi.")
+                        log_fn(f"  [Firewall-Circuit-Breaker] {dom} ({url}) ulanishni uzdi yoki javob bermayapti (WAF/CSF IP-ban) — sekin modullar o'tkazib yuborildi.")
                         continue
                     m_title = re.search(r"<title[^>]*>(.*?)</title>", html[:80000], re.I | re.S)
                     t_sig = (m_title.group(1).strip().lower()[:60] if m_title else "")
@@ -1885,7 +1885,7 @@ class ReconSuperAgent:
                                 url,
                                 f"Reality Camouflage Decoy ({dom}): 'Telegram Web' ({len(html)}B)",
                             )
-                        log_fn(f"  [⚡ Decoy Proxy Skip] {dom} ({url}) -> 'Telegram Web' TLS maskirovka tuguni, begona JS skan o'tkazib yuborildi.")
+                        log_fn(f"  [Decoy-Proxy-Skip] {dom} ({url}) -> 'Telegram Web' TLS maskirovka tuguni, begona JS skan o'tkazib yuborildi.")
                         continue
                     raw_scripts = [s.split("/")[-1].split("?")[0] for s in re.findall(r'src=["\']([^"\']+\.js)', html[:80000])]
                     sc_names = tuple(sorted({re.sub(r"[-_.][A-Za-z0-9_-]{6,16}(?=\.js$)", "", fn) for fn in raw_scripts})[:4])
@@ -1893,7 +1893,7 @@ class ReconSuperAgent:
                     body_sig = "" if (t_sig or sc_names) else hashlib.md5(norm_chunk.encode("utf-8", errors="ignore")).hexdigest()[:10]
                     app_sig = (t_sig, sc_names, body_sig)
                     if dom != primary_host and html and app_sig in scanned_app_sigs:
-                        log_fn(f"  [⚡ Smart Clone Skip] {dom} ({url}) -> {scanned_app_sigs[app_sig]} bilan bir xil ilova shabloni, takroriy og'ir skan o'tkazib yuborildi.")
+                        log_fn(f"  [Smart-Clone-Skip] {dom} ({url}) -> {scanned_app_sigs[app_sig]} bilan bir xil ilova shabloni, takroriy og'ir skan o'tkazib yuborildi.")
                         continue
                     scanned_app_sigs[app_sig] = dom
                     deep_scanned_count += 1
@@ -1924,7 +1924,7 @@ class ReconSuperAgent:
                             self, project_id, url, dom, primary_host, is_high_val, scope, active_ids, js_list, log_fn, phase="fuzz_only"
                         )
                     else:
-                        log_fn(f"  [⚡ Time-Budget Guard] {dom} da tahlil 90s dan oshdi — ortiqcha fuzzing o'tkazib yuborildi.")
+                        log_fn(f"  [Time-Budget-Guard] {dom} da tahlil 90s dan oshdi — ortiqcha fuzzing o'tkazib yuborildi.")
 
             _prog(0.90, "Stage 6/6: Adaptive Brain, SPA Manifests, Secrets, OSINT & DOM Clustering...")
             from core.plugin_runner import ScanPhase, run_plugin_safely
@@ -1944,22 +1944,22 @@ class ReconSuperAgent:
             run_plugin_safely(self.db, project_id, "r1_dom_clustering", schema_and_iam.cluster_subdomains_by_dom_structure, self.db, self.session, project_id, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_END)
 
         surface_prober.log_incremental_diff(before_snap, self.db, project_id, log_fn)
-        _prog(1.0, "✅ Recon Completed!")
+        _prog(1.0, "Recon Completed.")
 
         b_final = self.db.get_project_bundle(project_id)
         unique_ips = sorted({d["ip"] for d in b_final["domains"] if d.get("ip")})
         api_eps = [e["url"] for e in b_final["endpoints"] if e.get("category") in ("api_endpoint", "high_value_endpoint")]
-        log_fn("╔══════════════════════════════════════════════════════════════════════════╗")
-        log_fn(f"║ 🧠 SPECTRE TACTICAL BRIEFING ({apex_domain})                             ")
-        log_fn(f"║ • Subdomenlar: {len(b_final['domains'])} ta | Noyob IP/Serverlar: {len(unique_ips)} ta ({', '.join(unique_ips[:4])})")
-        log_fn(f"║ • Ochiq Portlar: {len(b_final['ports'])} ta | Faol Web Servislar: {len(b_final['http_services'])} ta")
-        log_fn(f"║ • Jami Endpointlar: {len(b_final['endpoints'])} ta | Yuqori qiymatli API'lar: {len(api_eps)} ta | JS Fayllar: {len(b_final['js_assets'])} ta")
+        log_fn("-" * 74)
+        log_fn(f"[SPECTRE SURFACE SUMMARY] ({apex_domain})")
+        log_fn(f"  - Subdomenlar: {len(b_final['domains'])} ta | Noyob IP/Serverlar: {len(unique_ips)} ta ({', '.join(unique_ips[:4])})")
+        log_fn(f"  - Ochiq Portlar: {len(b_final['ports'])} ta | Faol Web Servislar: {len(b_final['http_services'])} ta")
+        log_fn(f"  - Jami Endpointlar: {len(b_final['endpoints'])} ta | Yuqori qiymatli API'lar: {len(api_eps)} ta | JS Fayllar: {len(b_final['js_assets'])} ta")
         if api_eps:
-            log_fn(f"║ • Birinchi navbatda tekshiriladigan API'lar: {', '.join(api_eps[:3])}")
-        log_fn("╚══════════════════════════════════════════════════════════════════════════╝")
+            log_fn(f"  - Birinchi navbatda tekshiriladigan API'lar: {', '.join(api_eps[:3])}")
+        log_fn("-" * 74)
 
         self.db.update_project_status(project_id, "RECON_COMPLETED")
-        log_fn("═══ ✅ SPECTRE 1-SUPERAGENT: DEEP RECON YAKUNLANDI ═══")
+        log_fn("--- [PHASE 1] SPECTRE DEEP RECON YAKUNLANDI ---")
 
     def run_single_subdomain_deep_recon(self, project_id: int, target_host: str, log_fn, progress_fn=None):
         def _prog(frac: float, text: str):
@@ -1985,7 +1985,7 @@ class ReconSuperAgent:
             self._dead_hosts.discard(target_host.lower())
         active_ids = {t["id"] for t in self.get_tools_status() if t.get("enabled") and t.get("installed")}
         apex_domain = ScopeGuard.extract_apex_domain(target_host)
-        log_fn(f"═══ 🎯 SINGLE-HOST DEEP SURGICAL RECON: {target_host} ═══")
+        log_fn(f"--- [SINGLE-HOST DEEP RECON] {target_host} ---")
 
         _prog(0.20, f"Single-Host DNS, TLS & Nmap Deep NSE: {target_host}...")
         tls_info = self._stage2_tls_inspect(project_id, target_host, scope, log_fn)
@@ -2021,8 +2021,8 @@ class ReconSuperAgent:
         run_plugin_safely(self.db, project_id, "r1_single_well_known", origin_and_spa.mine_well_known_and_mobile_links, self.db, self.session, project_id, scope, log_fn, self._record_discovered_url, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
         run_plugin_safely(self.db, project_id, "r1_single_oauth_redirects", origin_and_spa.trace_redirect_chains_and_oauth_flows, self.db, self.session, project_id, scope, log_fn, self._record_discovered_url, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
         run_plugin_safely(self.db, project_id, "r1_single_cloud_vuln_cli", cli_orchestrator.run_deep_cloud_osint_and_vuln_tools, self, project_id, apex_domain, target_host, active_ids, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
-        _prog(1.0, f"✅ Deep Scan Completed: {target_host}")
-        log_fn(f"═══ ✅ SINGLE-HOST DEEP RECON YAKUNLANDI: {target_host} ═══")
+        _prog(1.0, f"Deep Scan Completed: {target_host}")
+        log_fn(f"--- [SINGLE-HOST DEEP RECON YAKUNLANDI] {target_host} ---")
 
 
 

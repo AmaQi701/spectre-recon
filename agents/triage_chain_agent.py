@@ -8,7 +8,7 @@ from core.database import DatabaseManager
 
 class TriageAndChainSuperAgent:
     """
-    3-SuperAgent (SPECTRE v3.0): Asset-Bound Attack Graph Correlation, Triage & Report Studio.
+    Phase 3 Engine: Asset-Bound Attack Graph Correlation, Triage & Report Studio.
     Correlates findings, cookies, ports, JS sinks, and API routes per exact host/origin.
     """
 
@@ -49,7 +49,7 @@ class TriageAndChainSuperAgent:
         js_assets = bundle.get("js_assets", [])
         findings = [f for f in bundle.get("findings", []) if f.get("triage_status") != "False-Positive"]
 
-        log_fn(f"═══ 3-SUPERAGENT: ASSET-BOUND GRAPH CORRELATION & CHAINING ({proj.get('name', '')}) ═══")
+        log_fn(f"--- [PHASE 3] ASSET-BOUND GRAPH CORRELATION & CHAINING ({proj.get('name', '')}) ---")
 
         verified_count = 0
         manual_count = 0
@@ -393,7 +393,7 @@ class TriageAndChainSuperAgent:
             )
 
         self.db.update_project_status(project_id, "AUDIT_READY_FOR_REPORT")
-        log_fn("═══ 3-SUPERAGENT: ASSET-BOUND GRAPH CHAINING YAKUNLANDI ═══")
+        log_fn("--- [PHASE 3] ASSET-BOUND GRAPH CHAINING YAKUNLANDI ---")
 
     def generate_reports(self, project_id: int) -> dict:
         bundle = self.db.get_project_bundle(project_id)
@@ -419,7 +419,7 @@ class TriageAndChainSuperAgent:
 
         # Markdown Report
         md_lines = [
-            f"# 👻 SPECTRE Cyber-Recon & Security Audit Report: {proj.get('name', '')}",
+            f"# SPECTRE v8.0.0 Security & Attack Surface Audit Report: {proj.get('name', '')}",
             f"- **Asosiy Nishon (Primary Target):** `{proj.get('primary_target', '')}`",
             f"- **In-Scope:** `{proj.get('in_scope', '')}`",
             f"- **Sana:** `{proj.get('created_at', '')}`",
@@ -433,29 +433,29 @@ class TriageAndChainSuperAgent:
             f"- **Aniqlangan Zaifliklar va Tekshiruv Nuqtalari:** {len(findings)} ta",
             f"- **Zaifliklar Zanjiri (Bug Chains):** {len(chains)} ta",
             "",
-            "### 🌐 Topilgan Asosiy Subdomenlar va IP Serverlar",
+            "### Topilgan Asosiy Subdomenlar va IP Serverlar",
         ]
         for d in domains[:35]:
-            md_lines.append(f"- `{d['domain']}` ➔ IP: `{d.get('ip') or 'N/A'}` (Manba: `{d.get('source')}`)")
+            md_lines.append(f"- `{d['domain']}` -> IP: `{d.get('ip') or 'N/A'}` (Manba: `{d.get('source')}`)")
         md_lines.extend([
             "",
             "---",
-            "## 2. 🔗 Bug Chaining Scenarios (Zaifliklar Zanjiri)",
+            "## 2. Bug Chaining Scenarios (Zaifliklar Zanjiri)",
         ])
         if not chains:
             md_lines.append("_Zanjirlangan ssenariylar aniqlanmadi._")
         for ch in chains:
             nodes = json.loads(ch.get("nodes_json") or "[]")
             md_lines.extend([
-                f"### ⚡ {ch['chain_title']} [{ch['severity']} | CVSS: {ch['cvss_score']}]",
-                f"- **Zanjir Bosqichlari:** `{' ➔ '.join(nodes)}`",
+                f"### {ch['chain_title']} [{ch['severity']} | CVSS: {ch['cvss_score']}]",
+                f"- **Zanjir Bosqichlari:** `{' -> '.join(nodes)}`",
                 f"- **Ssenariy:** {ch['attack_scenario']}",
                 f"- **Ta'siri (Impact):** {ch['impact']}",
                 f"- **Remediation (Yechim):** {ch['remediation']}",
                 "",
             ])
 
-        md_lines.extend(["---", "## 3. 🔍 Batafsil Zaifliklar va Audit Topilmalari (Findings)"])
+        md_lines.extend(["---", "## 3. Batafsil Zaifliklar va Audit Topilmalari (Findings)"])
         for idx, f in enumerate(findings, start=1):
             md_lines.extend([
                 f"### 3.{idx}. [{f['severity']}] {f['title']} (CVSS {f['cvss_score']})",
@@ -469,7 +469,7 @@ class TriageAndChainSuperAgent:
             ])
 
         if intel_entries:
-            md_lines.extend(["---", "## 4. 🧭 Arxitektura va OSINT Razvedka Xulosasi (Consolidated Recon Intel)"])
+            md_lines.extend(["---", "## 4. Arxitektura va OSINT Razvedka Xulosasi (Consolidated Recon Intel)"])
             for ilg in intel_entries[:25]:
                 md_lines.append(f"- **`[{ilg.get('tool')}]`** (`{ilg.get('command')}`): {ilg.get('summary')}")
             md_lines.append("")
@@ -480,13 +480,16 @@ class TriageAndChainSuperAgent:
         fw_map = comp_mat.get("frameworks", {})
         md_lines.extend([
             "---",
-            f"## 5. 🏛️ Xalqaro Standartlar Muvofiqlik Matritsasi (Security Posture Score: {posture_score}/100)",
+            f"## 5. Xalqaro Standartlar Muvofiqlik Matritsasi (Security Posture Score: {posture_score}/100)",
         ])
         for fw_label, fw_key in (
             ("OWASP Top 10:2021", "owasp_2021"),
             ("OWASP API Security Top 10:2023", "owasp_api_2023"),
             ("PCI-DSS v4.0", "pci_dss_v4"),
             ("ISO/IEC 27001:2022", "iso_27001_2022"),
+            ("NIST CSF 2.0", "nist_csf_2"),
+            ("AICPA SOC 2 TSC", "soc2_tsc"),
+            ("MITRE ATT&CK Enterprise v15", "mitre_attack_v15"),
         ):
             ctrls = fw_map.get(fw_key) or {}
             if ctrls:
@@ -545,7 +548,7 @@ class TriageAndChainSuperAgent:
         )
         chains_html = "".join(
             f"<tr><td><b>{_html.escape(str(ch['severity']))}</b> ({_html.escape(str(ch['cvss_score']))})</td>"
-            f"<td><b>{_html.escape(str(ch['chain_title']))}</b><br><small><code>{_html.escape(' ➔ '.join(json.loads(ch.get('nodes_json') or '[]')))}</code></small></td>"
+            f"<td><b>{_html.escape(str(ch['chain_title']))}</b><br><small><code>{_html.escape(' -> '.join(json.loads(ch.get('nodes_json') or '[]')))}</code></small></td>"
             f"<td>{_html.escape(str(ch['attack_scenario']))}</td>"
             f"<td>{_html.escape(str(ch['remediation']))}</td></tr>"
             for ch in chains
@@ -600,11 +603,11 @@ code {{ color: #86efac; background: #080b09; padding: 2px 6px; border-radius: 4p
 <h1>SPECTRE v8.0.0 — Enterprise Security &amp; Attack Surface Report: {_html.escape(str(proj.get('name', '')))}</h1>
 <p><b>Primary Target:</b> <code>{_html.escape(str(proj.get('primary_target', '')))}</code> | <b>In-Scope:</b> <code>{_html.escape(str(proj.get('in_scope', '')))}</code></p>
 {kpi_bar}
-<h2>🔗 Zaifliklar Zanjiri va Kill-Chain Grafikasi (Bug Chaining Scenarios — {len(chains)})</h2>
+<h2>Zaifliklar Zanjiri va Kill-Chain Grafikasi (Bug Chaining Scenarios — {len(chains)})</h2>
 {attack_svg_html}
 <table><thead><tr><th>Severity / CVSS</th><th>Zanjir Nomi va Bosqichlari</th><th>Hujum Ssenariysi</th><th>Remediation</th></tr></thead>
 <tbody>{chains_html or '<tr><td colspan="4">Zanjirlangan ssenariylar aniqlanmadi.</td></tr>'}</tbody></table>
-<h2>🔍 Aniqlangan Zaifliklar va Tekshiruv Nuqtalari ({len(findings)})</h2>
+<h2>Aniqlangan Zaifliklar va Tekshiruv Nuqtalari ({len(findings)})</h2>
 <div class="flt-bar">
   <button class="flt-btn active" onclick="spSetSev('ALL', this)">All ({len(findings)})</button>
   <button class="flt-btn" onclick="spSetSev('Critical', this)">Critical ({crit_c})</button>
@@ -616,7 +619,7 @@ code {{ color: #86efac; background: #080b09; padding: 2px 6px; border-radius: 4p
 </div>
 <table id="sp-ftbl"><thead><tr><th>Severity / CVSS</th><th>Zaiflik Nomi</th><th>Asset</th><th>Dalil (Evidence)</th><th>Remediation</th></tr></thead>
 <tbody>{rows_html}</tbody></table>
-<h2>🏛️ Xalqaro Standartlar Muvofiqlik Matritsasi (OWASP / API:2023 / PCI-DSS v4.0 / ISO 27001 / NIST CSF 2.0 / SOC 2)</h2>
+<h2>Xalqaro Standartlar Muvofiqlik Matritsasi (OWASP / API:2023 / PCI-DSS v4.0 / ISO 27001 / NIST CSF 2.0 / SOC 2 / MITRE ATT&amp;CK v15)</h2>
 <table><thead><tr><th>Standart (Framework)</th><th>Nazorat Bandi (Control)</th><th>Ta'sirlangan Topilmalar</th></tr></thead>
 <tbody>{comp_rows_html or '<tr><td colspan="3">Nazorat buzilishlari aniqlanmadi (100% Muvofiq).</td></tr>'}</tbody></table>
 <script>

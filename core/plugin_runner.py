@@ -1,6 +1,6 @@
 """
-SPECTRE v3.0 — KB-Driven Phased Orchestrator, QoD Standard & Fault-Isolated Plugin Runner
-=========================================================================================
+SPECTRE — KB-Driven Phased Orchestrator, QoD Standard & Fault-Isolated Plugin Runner
+====================================================================================
 """
 
 from __future__ import annotations
@@ -217,7 +217,7 @@ def run_plugin_safely(
         except Exception:
             pass
         if log_fn:
-            log_fn(f"  [⚠️ PLUGIN ISOLATED ERROR] {plugin_name}: {ex}")
+            log_fn(f"  [PLUGIN-ISOLATED-ERROR] {plugin_name}: {ex}")
         return None
 
 
@@ -277,7 +277,7 @@ class PhaseOrchestrator:
         for idx, (_, _, p_name, phase, fn, args, kwargs, gate_cfg) in enumerate(ordered, start=1):
             if progress_fn:
                 frac = start_frac + (end_frac - start_frac) * ((idx - 1) / total)
-                progress_fn(frac, f"2-SuperAgent ({idx}/{total}): {p_name}...")
+                progress_fn(frac, f"Phase 2 ({idx}/{total}): {p_name}...")
             results[p_name] = run_plugin_safely(
                 self.db,
                 self.project_id,

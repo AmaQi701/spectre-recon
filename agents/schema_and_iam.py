@@ -1,5 +1,5 @@
 """
-SPECTRE v3.0 — IAM/OIDC Discovery, OpenAPI Schema Synthesis & DOM Clustering
+SPECTRE — IAM/OIDC Discovery, OpenAPI Schema Synthesis & DOM Clustering
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def map_iam_and_keycloak_realms(db, session, project_id: int, base_url: str, log
                 missing_pkce = ("authorization_code" in grants) and ("S256" not in pkce_methods)
                 if has_reg or has_direct_grant or missing_pkce:
                     db.upsert_finding(
-                        project_id, "SPECTRE-v11 (IAM-Mapper)",
+                        project_id, "SPECTRE-Schema (IAM-Mapper)",
                         f"Keycloak / OIDC Realm Configuration Weakness ({realm_name})",
                         "IAM & SSO Architecture", "Medium", 5.3,
                         "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A07:2021 - Identification and Authentication Failures",
@@ -68,7 +68,7 @@ def map_iam_and_keycloak_realms(db, session, project_id: int, base_url: str, log
                         project_id, "SPECTRE-Intel", "keycloak_realm", "COMPLETED", oidc_url,
                         f"Realm '{realm_name}' | Grants: {', '.join(grants[:5])}",
                     )
-                log_fn(f"  [🔐 IAM MAPPER] Realm '{realm_name}' ({oidc_url}) -> Grants: {', '.join(grants[:5])}")
+                log_fn(f"  [IAM-MAPPER] Realm '{realm_name}' ({oidc_url}) -> Grants: {', '.join(grants[:5])}")
         except Exception:
             pass
     return mapped
@@ -172,7 +172,7 @@ def resolve_openapi_schema_refs(db, session, project_id: int, base_url: str, log
                     if v_up in ("POST", "PUT", "DELETE", "PATCH") and not op_sec and not any(ak in p_str.lower() for ak in auth_skip_paths):
                         unauth_mutations.append(f"{v_up} {p_str}")
                         r_tags.append("Unauthenticated_Mutation_Schema")
-                    db.upsert_endpoint(project_id, full_ep, method=v_up, params=clean_params, category="api_endpoint", risk_tags=r_tags, source="openapi_v11")
+                    db.upsert_endpoint(project_id, full_ep, method=v_up, params=clean_params, category="api_endpoint", risk_tags=r_tags, source="openapi_schema")
                     synthesized += 1
             if unauth_mutations:
                 db.upsert_finding(
@@ -193,7 +193,7 @@ def resolve_openapi_schema_refs(db, session, project_id: int, base_url: str, log
                     u,
                     f"OpenAPI Synthesized: {synthesized} ops | DTO fields ({len(all_dto_fields)}): {', '.join(sorted(all_dto_fields)[:15])}",
                 )
-                log_fn(f"  [🧬 OPENAPI SYNTH] {u} -> {synthesized} ta operatsiya va {len(all_dto_fields)} ta DTO maydoni tiklandi!")
+                log_fn(f"  [OPENAPI-SYNTH] {u} -> {synthesized} ta operatsiya va {len(all_dto_fields)} ta DTO maydoni tiklandi!")
                 break
         except Exception:
             pass
@@ -248,7 +248,7 @@ def cluster_subdomains_by_dom_structure(db, session, project_id: int, log_fn) ->
             f"project:{project_id}",
             summary[:240],
         )
-        log_fn(f"  [🛰️ DOM CLUSTER] {len(services[:25])} ta servis {len(clusters)} ta noyob klasterga ajratildi!")
+        log_fn(f"  [DOM-CLUSTER] {len(services[:25])} ta servis {len(clusters)} ta noyob klasterga ajratildi!")
     return clusters
 
 
@@ -299,7 +299,7 @@ def predict_and_fetch_webpack_chunks(db, session, project_id: int, base_url: str
 
     if found_chunks:
         db.upsert_finding(
-            project_id, "SPECTRE-v11 (Webpack-Predictor)",
+            project_id, "SPECTRE-Schema (Webpack-Predictor)",
             f"Unlinked Lazy-Loaded Webpack Chunks Reconstructed ({len(found_chunks)} chunks)",
             "Hidden Frontend Attack Surface", "Low", 3.7,
             "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
@@ -307,7 +307,7 @@ def predict_and_fetch_webpack_chunks(db, session, project_id: int, base_url: str
             "Webpack runtime xesh jadvalidan foydalanib, oddiy foydalanuvchiga yuklanmaydigan yashirin JS chunk fayllari topildi.",
             "Admin va ichki modullarni ommaviy chunk xesh jadvalida ochiq qoldirmang.",
         )
-        log_fn(f"  [📦 WEBPACK PREDICTOR] {len(found_chunks)} ta yashirin lazy-chunk topildi!")
+        log_fn(f"  [WEBPACK-PREDICTOR] {len(found_chunks)} ta yashirin lazy-chunk topildi!")
     return found_chunks
 
 
@@ -340,7 +340,7 @@ def mine_i18n_translation_dictionaries(db, session, project_id: int, base_url: s
                 if discovered_keys:
                     k_list = sorted(discovered_keys)
                     db.log_task(project_id, "SPECTRE-Intel", "i18n_capabilities", "COMPLETED", u, f"Privileged i18n Keys ({len(k_list)}): {', '.join(k_list[:15])}")
-                    log_fn(f"  [🌍 i18n MINER] {u} -> {len(k_list)} ta ichki funksiya/rol kaliti topildi!")
+                    log_fn(f"  [i18n-MINER] {u} -> {len(k_list)} ta ichki funksiya/rol kaliti topildi!")
                     break
         except Exception:
             pass
@@ -369,7 +369,7 @@ def fingerprint_load_balancer_and_etag(db, session, project_id: int, base_url: s
                 inode_val = int(parts[0], 16)
                 size_val = int(parts[1], 16)
                 db.upsert_finding(
-                    project_id, "SPECTRE-v11 (ETag-Auditor)",
+                    project_id, "SPECTRE-Schema (ETag-Auditor)",
                     f"Filesystem Inode Disclosed in HTTP ETag Header (Inode: {inode_val})",
                     "Information Disclosure", "Low", 3.1,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
@@ -377,7 +377,7 @@ def fingerprint_load_balancer_and_etag(db, session, project_id: int, base_url: s
                     "Veb-server ETag sarlavhasida fayl tizimi Inode raqamini oshkor qilmoqda (CVE-2003-1418).",
                     "Apache 'FileETag MTime Size' direktivasini o'rnating (Inode'ni olib tashlang).",
                 )
-                log_fn(f"  [🕒 ETAG INODE] {base_url} -> ETag ichidan Inode={inode_val} aniqlandi!")
+                log_fn(f"  [ETAG-INODE] {base_url} -> ETag ichidan Inode={inode_val} aniqlandi!")
     except Exception:
         pass
     return {"etags": etags, "upstreams": sorted(upstreams)}
@@ -427,7 +427,7 @@ def harvest_cors_preflight_capabilities(db, session, project_id: int, base_url: 
             base_url,
             f"Custom Allowed Headers ({len(ch_list)}): {', '.join(ch_list[:12])} | Methods: {', '.join(m_list)}",
         )
-        log_fn(f"  [🔗 PREFLIGHT HEADERS] {base_url} -> Custom Headers: {', '.join(ch_list[:8])}")
+        log_fn(f"  [PREFLIGHT-HEADERS] {base_url} -> Custom Headers: {', '.join(ch_list[:8])}")
     return {"custom_headers": sorted(custom_headers), "methods": sorted(allowed_methods)}
 
 
@@ -463,7 +463,7 @@ def discover_related_sister_domains(db, project_id: int, apex_domain: str, log_f
             apex_domain,
             f"Related Apex Domains ({len(s_list)}): {', '.join(s_list[:12])}",
         )
-        log_fn(f"  [🧭 SISTER DOMAINS] Bog'liq tashkilot domenlari: {', '.join(s_list[:8])}")
+        log_fn(f"  [SISTER-DOMAINS] Bog'liq tashkilot domenlari: {', '.join(s_list[:8])}")
     return sorted(sister_apexes)
 
 

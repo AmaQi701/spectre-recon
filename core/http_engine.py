@@ -1,6 +1,6 @@
 """
-SPECTRE v3.0 — Rate-Limited & Circuit-Protected Concurrent HTTP Engine
-======================================================================
+SPECTRE — Rate-Limited & Circuit-Protected Concurrent HTTP Engine
+=================================================================
 Provides per-host token-bucket pacing, fast circuit-breaking on unreachable
 or firewall-tarpitted origins, and non-blocking parallel batch fetching.
 """

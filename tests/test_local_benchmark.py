@@ -1,5 +1,5 @@
 """
-SPECTRE v3.0 — Local End-to-End Integration Benchmark
+SPECTRE — Local End-to-End Integration Benchmark
 """
 
 from __future__ import annotations

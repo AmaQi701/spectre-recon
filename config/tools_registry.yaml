@@ -60,7 +60,7 @@ tools:
     command_template: "chaos -d {domain} -silent"
 
   - id: findomain
-    name: "1.8 Findomain Ultra-Fast Rust Subdomain Enumerator"
+    name: "1.8 Findomain Rust Subdomain Enumerator"
     stage: "1_subdomain_enum"
     binary: "findomain"
     enabled: true

@@ -2,7 +2,7 @@
 """
 SPECTRE Autonomous Headless CLI & CI/CD Security Runner (`spectre_cli.py`)
 ==========================================================================
-Executes the full 3-SuperAgent reconnaissance, NVT/SCA/SAST verification,
+Executes the full 3-phase reconnaissance, NVT/AI/SCA/SAST verification,
 attack-graph chaining, and SARIF 2.1.0 / CycloneDX 1.5 SBOM reporting pipeline
 on headless Linux servers, SSH sessions, Docker containers, and CI/CD runners.
 """

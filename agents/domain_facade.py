@@ -1,6 +1,6 @@
 """
-SPECTRE v3.0 — Domain-Driven Capability Facade
-==============================================
+SPECTRE — Domain-Driven Capability Facade
+=========================================
 Organizes reconnaissance and audit capabilities into 6 clean domain namespaces.
 """
 
