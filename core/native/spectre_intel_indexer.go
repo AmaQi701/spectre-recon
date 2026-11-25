@@ -101,13 +101,35 @@ func streamFileLines(path string, fn func(string)) bool {
 }
 
 func main() {
-	showVer := flag.Bool("version", false, "Print Go indexer ABI version")
+	showVer := flag.Bool("version", false, "Print Go engine ABI version and .rodata stats")
 	outDir := flag.String("out-dir", "", "Output directory for deduplicated wordlists")
 	secRoot := flag.String("seclists", "/usr/share/seclists/Discovery", "SecLists Discovery root")
+	lookupOui := flag.String("lookup-oui", "", "Lookup MAC OUI vendor via Go binary search")
+	lookupPsl := flag.String("lookup-psl", "", "Check Mozilla Public Suffix via Go binary search")
+	probeHost := flag.String("probe-host", "", "Optional target host for Go concurrent socket verifier")
+	probePort := flag.Int("probe-port", 0, "Optional port for Go socket verifier")
 	flag.Parse()
 
 	if *showVer {
-		fmt.Println("SPECTRE-Go-Intel-Indexer v8.5.0 ABI=850")
+		fmt.Printf("SPECTRE-Go-Security-Engine v9.0.0 ABI=900 PSL=%d OUI=%d SCA=%d SocketPorts=%d\n",
+			len(CompiledPslTable), len(CompiledOuiTable), len(CompiledScaTable), len(SupportedSocketPorts))
+		return
+	}
+	if *lookupOui != "" {
+		if r := LookupOuiBinaryGo(*lookupOui); r != nil {
+			b, _ := json.Marshal(r)
+			fmt.Println(string(b))
+		}
+		return
+	}
+	if *lookupPsl != "" {
+		fmt.Println(LookupPslBinaryGo(*lookupPsl))
+		return
+	}
+	if *probeHost != "" && *probePort > 0 {
+		res := ProbePortsConcurrentGo(*probeHost, []int{*probePort}, 900)
+		b, _ := json.Marshal(res)
+		fmt.Println(string(b))
 		return
 	}
 	if *outDir == "" {

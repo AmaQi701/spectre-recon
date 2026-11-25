@@ -1,0 +1,814 @@
+{
+  "offline_sca_rules": [
+    {
+      "eco": "npm",
+      "pkg": "lodash",
+      "min": "0.1.0",
+      "max": "4.17.21",
+      "cve": "CVE-2021-23337",
+      "sev": "High",
+      "cvss": 7.2
+    },
+    {
+      "eco": "npm",
+      "pkg": "axios",
+      "min": "0.8.1",
+      "max": "1.6.0",
+      "cve": "CVE-2023-45857",
+      "sev": "Medium",
+      "cvss": 6.5
+    },
+    {
+      "eco": "npm",
+      "pkg": "express",
+      "min": "4.0.0",
+      "max": "4.19.2",
+      "cve": "CVE-2024-29041",
+      "sev": "Medium",
+      "cvss": 6.1
+    },
+    {
+      "eco": "npm",
+      "pkg": "jsonwebtoken",
+      "min": "0.1.0",
+      "max": "9.0.0",
+      "cve": "CVE-2022-23529",
+      "sev": "High",
+      "cvss": 7.6
+    },
+    {
+      "eco": "npm",
+      "pkg": "jquery",
+      "min": "1.0.0",
+      "max": "3.5.0",
+      "cve": "CVE-2020-11022",
+      "sev": "Medium",
+      "cvss": 6.1
+    },
+    {
+      "eco": "npm",
+      "pkg": "bootstrap",
+      "min": "2.0.0",
+      "max": "4.3.1",
+      "cve": "CVE-2019-8331",
+      "sev": "Medium",
+      "cvss": 6.1
+    },
+    {
+      "eco": "npm",
+      "pkg": "underscore",
+      "min": "1.3.0",
+      "max": "1.13.6",
+      "cve": "CVE-2021-23358",
+      "sev": "High",
+      "cvss": 7.2
+    },
+    {
+      "eco": "npm",
+      "pkg": "handlebars",
+      "min": "1.0.0",
+      "max": "4.7.7",
+      "cve": "CVE-2021-23369",
+      "sev": "Critical",
+      "cvss": 9.8
+    },
+    {
+      "eco": "npm",
+      "pkg": "dompurify",
+      "min": "0.5.0",
+      "max": "2.4.2",
+      "cve": "CVE-2023-47122",
+      "sev": "Medium",
+      "cvss": 6.1
+    },
+    {
+      "eco": "npm",
+      "pkg": "moment",
+      "min": "2.0.0",
+      "max": "2.29.4",
+      "cve": "CVE-2022-31129",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "npm",
+      "pkg": "angular",
+      "min": "1.0.0",
+      "max": "1.8.0",
+      "cve": "CVE-2022-25869",
+      "sev": "Medium",
+      "cvss": 6.1
+    },
+    {
+      "eco": "npm",
+      "pkg": "minimist",
+      "min": "0.0.1",
+      "max": "1.2.6",
+      "cve": "CVE-2021-44906",
+      "sev": "Critical",
+      "cvss": 9.8
+    },
+    {
+      "eco": "npm",
+      "pkg": "semver",
+      "min": "6.0.0",
+      "max": "7.5.2",
+      "cve": "CVE-2022-25883",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "npm",
+      "pkg": "ws",
+      "min": "7.0.0",
+      "max": "8.17.1",
+      "cve": "CVE-2024-37890",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "npm",
+      "pkg": "socket.io-parser",
+      "min": "3.0.0",
+      "max": "4.2.3",
+      "cve": "CVE-2023-32695",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "npm",
+      "pkg": "xml2js",
+      "min": "0.1.0",
+      "max": "0.5.0",
+      "cve": "CVE-2023-0842",
+      "sev": "Medium",
+      "cvss": 5.3
+    },
+    {
+      "eco": "npm",
+      "pkg": "tough-cookie",
+      "min": "2.0.0",
+      "max": "4.1.3",
+      "cve": "CVE-2023-26136",
+      "sev": "Medium",
+      "cvss": 6.5
+    },
+    {
+      "eco": "npm",
+      "pkg": "postcss",
+      "min": "7.0.0",
+      "max": "8.4.31",
+      "cve": "CVE-2023-44270",
+      "sev": "Medium",
+      "cvss": 5.3
+    },
+    {
+      "eco": "npm",
+      "pkg": "ejs",
+      "min": "2.0.0",
+      "max": "3.1.10",
+      "cve": "CVE-2022-29078",
+      "sev": "Critical",
+      "cvss": 9.8
+    },
+    {
+      "eco": "npm",
+      "pkg": "serialize-javascript",
+      "min": "1.0.0",
+      "max": "3.1.0",
+      "cve": "CVE-2020-7660",
+      "sev": "High",
+      "cvss": 8.1
+    },
+    {
+      "eco": "npm",
+      "pkg": "vm2",
+      "min": "3.0.0",
+      "max": "3.9.20",
+      "cve": "CVE-2023-37466",
+      "sev": "Critical",
+      "cvss": 9.8
+    },
+    {
+      "eco": "npm",
+      "pkg": "next",
+      "min": "13.4.0",
+      "max": "14.1.1",
+      "cve": "CVE-2024-34351",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "requests",
+      "min": "2.3.0",
+      "max": "2.31.0",
+      "cve": "CVE-2023-32681",
+      "sev": "Medium",
+      "cvss": 6.1
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "urllib3",
+      "min": "1.20.0",
+      "max": "2.0.7",
+      "cve": "CVE-2023-45803",
+      "sev": "Medium",
+      "cvss": 4.2
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "jinja2",
+      "min": "2.0.0",
+      "max": "3.1.3",
+      "cve": "CVE-2024-22195",
+      "sev": "Medium",
+      "cvss": 6.1
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "pyyaml",
+      "min": "3.0.0",
+      "max": "5.4.0",
+      "cve": "CVE-2020-14343",
+      "sev": "Critical",
+      "cvss": 9.8
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "cryptography",
+      "min": "3.0.0",
+      "max": "42.0.0",
+      "cve": "CVE-2023-50782",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Packagist",
+      "pkg": "guzzlehttp/guzzle",
+      "min": "6.0.0",
+      "max": "7.4.5",
+      "cve": "CVE-2022-31090",
+      "sev": "High",
+      "cvss": 8.1
+    },
+    {
+      "eco": "Packagist",
+      "pkg": "firebase/php-jwt",
+      "min": "1.0.0",
+      "max": "6.0.0",
+      "cve": "CVE-2021-46743",
+      "sev": "High",
+      "cvss": 8.1
+    },
+    {
+      "eco": "Go",
+      "pkg": "golang.org/x/net",
+      "min": "0.1.0",
+      "max": "0.23.0",
+      "cve": "CVE-2023-45288",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Go",
+      "pkg": "golang.org/x/crypto",
+      "min": "0.1.0",
+      "max": "0.17.0",
+      "cve": "CVE-2023-48795",
+      "sev": "Medium",
+      "cvss": 5.9
+    },
+    {
+      "eco": "Go",
+      "pkg": "github.com/gin-gonic/gin",
+      "min": "1.0.0",
+      "max": "1.9.0",
+      "cve": "CVE-2023-26125",
+      "sev": "Medium",
+      "cvss": 5.3
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "django",
+      "min": "3.2.0",
+      "max": "4.2.11",
+      "cve": "CVE-2024-27351",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "werkzeug",
+      "min": "2.0.0",
+      "max": "3.0.3",
+      "cve": "CVE-2024-34069",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "pillow",
+      "min": "8.0.0",
+      "max": "10.2.0",
+      "cve": "CVE-2023-50447",
+      "sev": "High",
+      "cvss": 8.1
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "aiohttp",
+      "min": "3.0.0",
+      "max": "3.9.2",
+      "cve": "CVE-2024-23334",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "tornado",
+      "min": "5.0.0",
+      "max": "6.3.3",
+      "cve": "CVE-2023-28370",
+      "sev": "Medium",
+      "cvss": 5.3
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "paramiko",
+      "min": "2.0.0",
+      "max": "3.4.0",
+      "cve": "CVE-2023-48795",
+      "sev": "Medium",
+      "cvss": 5.9
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "lxml",
+      "min": "4.0.0",
+      "max": "4.9.1",
+      "cve": "CVE-2022-2309",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "gunicorn",
+      "min": "19.0.0",
+      "max": "22.0.0",
+      "cve": "CVE-2024-1135",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Packagist",
+      "pkg": "symfony/http-kernel",
+      "min": "4.4.0",
+      "max": "6.4.3",
+      "cve": "CVE-2024-24598",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Packagist",
+      "pkg": "laravel/framework",
+      "min": "8.0.0",
+      "max": "9.52.16",
+      "cve": "CVE-2024-29291",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Packagist",
+      "pkg": "monolog/monolog",
+      "min": "1.0.0",
+      "max": "2.8.0",
+      "cve": "CVE-2022-41267",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Packagist",
+      "pkg": "phpmailer/phpmailer",
+      "min": "5.0.0",
+      "max": "6.5.0",
+      "cve": "CVE-2021-3603",
+      "sev": "High",
+      "cvss": 7.0
+    },
+    {
+      "eco": "Maven",
+      "pkg": "org.apache.logging.log4j:log4j-core",
+      "min": "2.0.0",
+      "max": "2.17.1",
+      "cve": "CVE-2021-44228",
+      "sev": "Critical",
+      "cvss": 10.0
+    },
+    {
+      "eco": "Maven",
+      "pkg": "org.springframework:spring-beans",
+      "min": "5.0.0",
+      "max": "5.3.18",
+      "cve": "CVE-2022-22965",
+      "sev": "Critical",
+      "cvss": 9.8
+    },
+    {
+      "eco": "Maven",
+      "pkg": "com.alibaba:fastjson",
+      "min": "1.1.0",
+      "max": "1.2.83",
+      "cve": "CVE-2022-25845",
+      "sev": "Critical",
+      "cvss": 9.8
+    },
+    {
+      "eco": "Maven",
+      "pkg": "org.apache.commons:commons-text",
+      "min": "1.5.0",
+      "max": "1.10.0",
+      "cve": "CVE-2022-42889",
+      "sev": "Critical",
+      "cvss": 9.8
+    },
+    {
+      "eco": "Maven",
+      "pkg": "com.fasterxml.jackson.core:jackson-databind",
+      "min": "2.0.0",
+      "max": "2.13.4",
+      "cve": "CVE-2022-42003",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Maven",
+      "pkg": "org.apache.shiro:shiro-core",
+      "min": "1.0.0",
+      "max": "1.6.0",
+      "cve": "CVE-2020-1957",
+      "sev": "Critical",
+      "cvss": 9.8
+    },
+    {
+      "eco": "Maven",
+      "pkg": "org.yaml:snakeyaml",
+      "min": "1.0.0",
+      "max": "2.0.0",
+      "cve": "CVE-2022-1471",
+      "sev": "High",
+      "cvss": 8.3
+    },
+    {
+      "eco": "RubyGems",
+      "pkg": "rails",
+      "min": "6.0.0",
+      "max": "7.0.4",
+      "cve": "CVE-2023-22795",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "RubyGems",
+      "pkg": "nokogiri",
+      "min": "1.8.0",
+      "max": "1.13.9",
+      "cve": "CVE-2022-29181",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "RubyGems",
+      "pkg": "rack",
+      "min": "2.0.0",
+      "max": "2.2.6",
+      "cve": "CVE-2023-27530",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "crates.io",
+      "pkg": "hyper",
+      "min": "0.12.0",
+      "max": "0.14.25",
+      "cve": "CVE-2023-26964",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "crates.io",
+      "pkg": "h2",
+      "min": "0.1.0",
+      "max": "0.3.26",
+      "cve": "CVE-2024-32650",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "NuGet",
+      "pkg": "newtonsoft.json",
+      "min": "1.0.0",
+      "max": "13.0.1",
+      "cve": "CVE-2024-21907",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "NuGet",
+      "pkg": "system.text.json",
+      "min": "4.6.0",
+      "max": "8.0.5",
+      "cve": "CVE-2024-43485",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "NuGet",
+      "pkg": "bouncycastle.cryptography",
+      "min": "1.0.0",
+      "max": "2.3.1",
+      "cve": "CVE-2024-29857",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "NuGet",
+      "pkg": "microsoft.data.sqlclient",
+      "min": "1.0.0",
+      "max": "5.1.4",
+      "cve": "CVE-2024-0056",
+      "sev": "High",
+      "cvss": 8.7
+    },
+    {
+      "eco": "NuGet",
+      "pkg": "restsharp",
+      "min": "100.0.0",
+      "max": "112.0.0",
+      "cve": "CVE-2024-45302",
+      "sev": "Medium",
+      "cvss": 5.3
+    },
+    {
+      "eco": "Maven",
+      "pkg": "io.netty:netty-codec-http2",
+      "min": "4.1.0",
+      "max": "4.1.100",
+      "cve": "CVE-2023-44487",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Maven",
+      "pkg": "org.springframework.security:spring-security-web",
+      "min": "5.6.0",
+      "max": "6.2.3",
+      "cve": "CVE-2024-22257",
+      "sev": "High",
+      "cvss": 8.2
+    },
+    {
+      "eco": "Maven",
+      "pkg": "org.postgresql:postgresql",
+      "min": "42.0.0",
+      "max": "42.7.2",
+      "cve": "CVE-2024-1597",
+      "sev": "Critical",
+      "cvss": 9.8
+    },
+    {
+      "eco": "Maven",
+      "pkg": "org.apache.tomcat.embed:tomcat-embed-core",
+      "min": "9.0.0",
+      "max": "10.1.19",
+      "cve": "CVE-2024-24549",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Go",
+      "pkg": "google.golang.org/grpc",
+      "min": "1.20.0",
+      "max": "1.58.3",
+      "cve": "CVE-2023-44487",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Go",
+      "pkg": "github.com/golang-jwt/jwt",
+      "min": "3.0.0",
+      "max": "3.2.2",
+      "cve": "CVE-2020-26160",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "npm",
+      "pkg": "tar",
+      "min": "4.0.0",
+      "max": "6.2.1",
+      "cve": "CVE-2024-28863",
+      "sev": "Medium",
+      "cvss": 6.5
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "fastapi",
+      "min": "0.60.0",
+      "max": "0.109.1",
+      "cve": "CVE-2024-24762",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "crates.io",
+      "pkg": "rustls",
+      "min": "0.20.0",
+      "max": "0.22.4",
+      "cve": "CVE-2024-32650",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Pub",
+      "pkg": "dio",
+      "min": "4.0.0",
+      "max": "5.3.2",
+      "cve": "CVE-2021-31402",
+      "sev": "High",
+      "cvss": 7.4
+    },
+    {
+      "eco": "Pub",
+      "pkg": "http",
+      "min": "0.12.0",
+      "max": "0.13.6",
+      "cve": "CVE-2023-32681",
+      "sev": "Medium",
+      "cvss": 5.9
+    },
+    {
+      "eco": "Pub",
+      "pkg": "archive",
+      "min": "2.0.0",
+      "max": "3.3.8",
+      "cve": "CVE-2023-37265",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Hex",
+      "pkg": "plug",
+      "min": "1.0.0",
+      "max": "1.14.1",
+      "cve": "CVE-2022-42969",
+      "sev": "Medium",
+      "cvss": 6.1
+    },
+    {
+      "eco": "Hex",
+      "pkg": "phoenix",
+      "min": "1.5.0",
+      "max": "1.7.11",
+      "cve": "CVE-2024-25120",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Hex",
+      "pkg": "jose",
+      "min": "1.8.0",
+      "max": "1.11.7",
+      "cve": "CVE-2024-28868",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "langchain",
+      "min": "0.0.100",
+      "max": "0.1.17",
+      "cve": "CVE-2024-36480",
+      "sev": "High",
+      "cvss": 8.6
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "langchain-core",
+      "min": "0.1.0",
+      "max": "0.1.53",
+      "cve": "CVE-2024-5565",
+      "sev": "Critical",
+      "cvss": 9.1
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "llama-index",
+      "min": "0.9.0",
+      "max": "0.10.38",
+      "cve": "CVE-2024-34359",
+      "sev": "Critical",
+      "cvss": 9.3
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "gradio",
+      "min": "3.0.0",
+      "max": "4.31.3",
+      "cve": "CVE-2024-4325",
+      "sev": "High",
+      "cvss": 8.1
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "mlflow",
+      "min": "2.0.0",
+      "max": "2.12.2",
+      "cve": "CVE-2024-37059",
+      "sev": "Critical",
+      "cvss": 9.6
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "ray",
+      "min": "2.0.0",
+      "max": "2.10.0",
+      "cve": "CVE-2023-48022",
+      "sev": "Critical",
+      "cvss": 9.8
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "sqlparse",
+      "min": "0.3.0",
+      "max": "0.5.0",
+      "cve": "CVE-2024-4340",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "PyPI",
+      "pkg": "certifi",
+      "min": "2020.1.0",
+      "max": "2024.7.4",
+      "cve": "CVE-2024-39689",
+      "sev": "Medium",
+      "cvss": 6.5
+    },
+    {
+      "eco": "npm",
+      "pkg": "vite",
+      "min": "4.0.0",
+      "max": "5.2.6",
+      "cve": "CVE-2024-31207",
+      "sev": "Medium",
+      "cvss": 6.5
+    },
+    {
+      "eco": "npm",
+      "pkg": "braces",
+      "min": "2.0.0",
+      "max": "3.0.3",
+      "cve": "CVE-2024-4068",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "npm",
+      "pkg": "micromatch",
+      "min": "4.0.0",
+      "max": "4.0.8",
+      "cve": "CVE-2024-4067",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "npm",
+      "pkg": "path-to-regexp",
+      "min": "4.0.0",
+      "max": "6.3.0",
+      "cve": "CVE-2024-45296",
+      "sev": "High",
+      "cvss": 7.5
+    },
+    {
+      "eco": "Go",
+      "pkg": "github.com/docker/docker",
+      "min": "20.0.0",
+      "max": "25.0.6",
+      "cve": "CVE-2024-41110",
+      "sev": "Critical",
+      "cvss": 9.9
+    },
+    {
+      "eco": "Maven",
+      "pkg": "ch.qos.logback:logback-core",
+      "min": "1.2.0",
+      "max": "1.4.14",
+      "cve": "CVE-2023-6378",
+      "sev": "High",
+      "cvss": 7.5
+    }
+  ]
+}

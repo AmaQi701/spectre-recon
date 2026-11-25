@@ -14,7 +14,7 @@ mkdir -p "${DIST_DIR}"
 
 cat << 'EOF' > "${PKG_DIR}/DEBIAN/control"
 Package: spectre-recon
-Version: 8.5.0
+Version: 9.0.0
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -28,7 +28,7 @@ Description: SPECTRE Polyglot C++17/Rust/Go/Python ASM & Offline Threat Intellig
 EOF
 
 if command -v g++ >/dev/null 2>&1; then
-    g++ -O3 -std=c++17 -shared -fPIC "${ROOT_DIR}/core/native/spectre_accel.cpp" -o "${ROOT_DIR}/core/native/libspectre_accel.so" -lssl -lcrypto
+    g++ -O3 -std=c++17 -shared -fPIC "${ROOT_DIR}"/core/native/*.cpp -o "${ROOT_DIR}/core/native/libspectre_accel.so" -lssl -lcrypto
 fi
 
 RUSTC_BIN="$(command -v rustc || true)"
@@ -41,7 +41,7 @@ fi
 
 GO_BIN="$(command -v go || true)"
 if [ -n "${GO_BIN}" ]; then
-    (cd "${ROOT_DIR}/core/native" && "${GO_BIN}" build -ldflags="-s -w" -o "${ROOT_DIR}/core/native/spectre-intel-indexer" "${ROOT_DIR}/core/native/spectre_intel_indexer.go")
+    (cd "${ROOT_DIR}/core/native" && "${GO_BIN}" build -ldflags="-s -w" -o "${ROOT_DIR}/core/native/spectre-intel-indexer" *.go)
 fi
 
 python3 "${ROOT_DIR}/spectre_cli.py" --rebuild-intel >/dev/null
@@ -60,7 +60,7 @@ Version=1.0
 Type=Application
 Name=SPECTRE Recon Studio
 GenericName=Cyber-Recon & Attack Surface Studio
-Comment=SPECTRE v8.5.0 Polyglot C++17/Rust/Go/Python ASM, Offline Threat Intel Pack, 1500-NVT, 50-Port Socket NVT & 7-Framework Studio
+Comment=SPECTRE v9.0.0 Polyglot Rust/Go/C++17/Python ASM, Offline Threat Intel Pack, 1500-NVT, 50-Port Socket NVT & 7-Framework Studio
 Exec=/bin/bash /opt/apex-asm-studio/launch_apex.sh
 Path=/opt/apex-asm-studio
 Icon=/opt/apex-asm-studio/ui/apex-icon.svg
@@ -70,5 +70,5 @@ Keywords=pentest;recon;security;audit;spectre;scanner;
 StartupNotify=true
 EOF
 
-dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_8.5.0_amd64.deb"
-echo "[+] Built package: ${DIST_DIR}/spectre-recon_8.5.0_amd64.deb"
+dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_9.0.0_amd64.deb"
+echo "[+] Built package: ${DIST_DIR}/spectre-recon_9.0.0_amd64.deb"

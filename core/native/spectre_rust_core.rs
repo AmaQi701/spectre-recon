@@ -7,12 +7,15 @@
 //   4. Official FIRST.org CVSS v3.1 Vector Base Score Engine
 //   5. HTTP/Cookie/DOM Clean-Room Technology Fingerprint Automaton & RFC-1123 DNS Validator
 
+pub mod rust_cpe_advisory_engine;
+pub mod rust_kev_cve_rodata;
+
 use std::collections::{HashMap, HashSet};
 use std::slice;
 
 #[no_mangle]
 pub extern "C" fn spectre_rust_abi_version() -> u32 {
-    850
+    900
 }
 
 #[inline]
@@ -479,6 +482,47 @@ pub extern "C" fn spectre_rust_tech_fingerprint_mask(data_ptr: *const u8, data_l
             break;
         }
     }
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_kev_cve_count() -> u32 {
+    rust_kev_cve_rodata::KEV_CVE_TABLE.len() as u32
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_cpe_count() -> u32 {
+    (rust_cpe_advisory_engine::CPE_PRODUCTS.len()
+        + (rust_cpe_advisory_engine::SEMVER_ADVISORIES.len() * 0)) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_lookup_cve_json(
+    cve_ptr: *const u8,
+    cve_len: usize,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> i32 {
+    if out_ptr.is_null() || out_cap < 2 {
+        return -2;
+    }
+    unsafe { *out_ptr = 0; }
+    if cve_ptr.is_null() || cve_len == 0 {
+        return 0;
+    }
+    let raw = unsafe { slice::from_raw_parts(cve_ptr, cve_len) };
+    let cve_str = match std::str::from_utf8(raw) {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    let _ = rust_cpe_advisory_engine::lookup_cpe_vendor_slug("nginx");
+    if let Some(json_s) = rust_kev_cve_rodata::lookup_cve_json(cve_str) {
+        if write_c_buf(json_s.as_bytes(), out_ptr, out_cap) {
+            return 1;
+        }
+        return -2;
+    }
+    0
+}
+
     mask
 }
 

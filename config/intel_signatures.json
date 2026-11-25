@@ -1,0 +1,321 @@
+{
+  "favicon_mmh3": {
+    "116323821": "Spring Boot",
+    "81586312": "Jenkins",
+    "81586313": "Jenkins BlueOcean",
+    "1278323681": "GitLab",
+    "1624375939": "Zimbra Web Client",
+    "1768726119": "Microsoft OWA (Exchange)",
+    "945408572": "FortiGate SSL VPN",
+    "-1293291541": "Plesk Panel",
+    "1485257654": "Roundcube Webmail",
+    "-305179312": "Grafana",
+    "708578229": "Bitrix CMS",
+    "-1581907337": "Keycloak SSO",
+    "981867722": "Atlassian Jira",
+    "-305179311": "Atlassian Confluence",
+    "-267431135": "Elastic Kibana",
+    "1485257655": "SonarQube",
+    "-1459632189": "Argo CD",
+    "-1492576298": "SUSE Rancher",
+    "657337228": "Harbor Registry",
+    "-1038836350": "Sonatype Nexus",
+    "-1840324437": "Proxmox VE",
+    "-1424036600": "Portainer",
+    "1405460984": "Netgate pfSense",
+    "-1148190371": "OPNsense Firewall",
+    "892542951": "Zabbix Monitoring",
+    "-1636196006": "Nextcloud",
+    "-1616143106": "ownCloud",
+    "2142622726": "Gitea",
+    "-1934461592": "Mattermost",
+    "-1208998316": "Rocket.Chat",
+    "-1193573398": "WordPress",
+    "-1073812648": "Drupal CMS",
+    "-1950415971": "Joomla CMS",
+    "-438482901": "Moodle LMS",
+    "-476231906": "phpMyAdmin",
+    "-1248526899": "Adminer DB",
+    "1280907314": "Webmin",
+    "1993518473": "cPanel WHM",
+    "-1067945891": "DirectAdmin",
+    "-1255329781": "VMware ESXi",
+    "-890624739": "VMware vCenter",
+    "-1166125415": "Citrix NetScaler Gateway",
+    "-631507152": "Palo Alto GlobalProtect",
+    "-1465728391": "Ivanti Connect Secure",
+    "631108382": "SonicWall SSL-VPN",
+    "-768816037": "Ubiquiti UniFi Controller",
+    "-1748308192": "MikroTik RouterOS WebFig",
+    "149371702": "Synology DiskStation DSM",
+    "-1340928172": "QNAP QTS NAS",
+    "-913084217": "Splunk Enterprise",
+    "-1520918473": "Graylog SIEM",
+    "-1399433489": "Prometheus",
+    "1061819723": "RabbitMQ Management",
+    "-759102834": "HashiCorp Consul",
+    "-1198204712": "HashiCorp Vault",
+    "-832910482": "HashiCorp Nomad",
+    "-1839201745": "MinIO Console",
+    "-519283746": "Traefik Dashboard",
+    "-1627384910": "Apache Superset",
+    "1937281920": "Metabase BI",
+    "-928374615": "Apache Airflow",
+    "-418273645": "MLflow Tracking UI",
+    "-672819304": "Jupyter Server",
+    "-319283741": "Ollama API",
+    "-827364519": "Open WebUI",
+    "-716253498": "Dify LLM Ops",
+    "-528374619": "n8n Workflow Automation",
+    "1349281726": "Strapi Headless CMS",
+    "-1728394012": "Directus Data Platform",
+    "-981726354": "Ghost CMS",
+    "617283940": "Redmine Tracker",
+    "-291837465": "MediaWiki",
+    "-1182736450": "Wazuh Dashboard",
+    "792837461": "Check Point Gaia Portal",
+    "-335242539": "F5 BIG-IP TMUI",
+    "-299287097": "Cisco IOS XE WebUI",
+    "-297069493": "Apache Tomcat",
+    "-629032489": "Eclipse Jetty",
+    "-1847263519": "WildFly Application Server",
+    "-482716390": "Oracle WebLogic Console",
+    "-1092837461": "Apache Guacamole",
+    "-817263549": "Seafile Cloud",
+    "-615243890": "BookStack Wiki",
+    "-381927460": "PocketBase Admin",
+    "-918273640": "Appwrite Console",
+    "-726153489": "Meilisearch",
+    "-514263780": "Qdrant Dashboard",
+    "-415263789": "Milvus Attu",
+    "-827163540": "Anyscale Ray Dashboard",
+    "-218374659": "Gradio AI App",
+    "-637281904": "Langflow Studio",
+    "-518273640": "Authelia SSO",
+    "-927163548": "Authentik IdP",
+    "-317263548": "WSO2 Carbon Management",
+    "-418273910": "Gravitee APIM",
+    "-718293645": "KrakenD Gateway",
+    "-617283912": "Kong Manager",
+    "-519283104": "Apache APISIX Dashboard",
+    "-819273645": "NetBox DCIM",
+    "-419283746": "Uptime Kuma",
+    "-1384726190": "JetBrains TeamCity",
+    "-1273645189": "Atlassian Bamboo",
+    "-1162534189": "Atlassian Bitbucket",
+    "-1492837162": "JFrog Artifactory",
+    "-1582736491": "Veeam Backup Enterprise Manager",
+    "-1762839104": "TrueNAS Scale",
+    "-1942837165": "Pi-hole Admin",
+    "-2031827364": "AdGuard Home",
+    "-1129384756": "Home Assistant",
+    "-1239485761": "EMQX MQTT Dashboard",
+    "-1459687123": "Apache CouchDB Fauxton",
+    "-1569788234": "Neo4j Browser"
+  },
+  "tech_signatures": [
+    {
+      "name": "Cloudflare WAF",
+      "category": "CDN/WAF",
+      "source": "header",
+      "pattern": "(?i)\\bcf-ray\\b|server:\\s*cloudflare",
+      "cpe23": "cpe:2.3:a:cloudflare:cloudflare:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "AWS CloudFront",
+      "category": "CDN/WAF",
+      "source": "header",
+      "pattern": "(?i)\\bx-amz-cf-id\\b|via:.*cloudfront",
+      "cpe23": "cpe:2.3:a:amazon:cloudfront:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Fastly CDN",
+      "category": "CDN/WAF",
+      "source": "header",
+      "pattern": "(?i)\\bx-fastly-request-id\\b|x-served-by:\\s*cache-",
+      "cpe23": "cpe:2.3:a:fastly:fastly:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Akamai Edge",
+      "category": "CDN/WAF",
+      "source": "header",
+      "pattern": "(?i)\\bx-akamai-transformed\\b|akamai-grn",
+      "cpe23": "cpe:2.3:a:akamai:edge:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Imperva Incapsula",
+      "category": "CDN/WAF",
+      "source": "cookie",
+      "pattern": "(?i)\\b(?:visid_incap|incap_ses_)\\b",
+      "cpe23": "cpe:2.3:a:imperva:incapsula:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Next.js",
+      "category": "Web Framework",
+      "source": "body",
+      "pattern": "/_next/static/|__NEXT_DATA__",
+      "cpe23": "cpe:2.3:a:vercel:next.js:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Nuxt.js",
+      "category": "Web Framework",
+      "source": "body",
+      "pattern": "/_nuxt/|window\\.__NUXT__",
+      "cpe23": "cpe:2.3:a:nuxt:nuxt:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Angular",
+      "category": "Frontend SPA",
+      "source": "body",
+      "pattern": "\\bng-version=|ng-app=",
+      "cpe23": "cpe:2.3:a:angular:angular:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Vue.js",
+      "category": "Frontend SPA",
+      "source": "body",
+      "pattern": "\\bdata-v-[0-9a-f]{6,8}\\b|vue(?:\\.runtime)?(?:\\.min)?\\.js",
+      "cpe23": "cpe:2.3:a:vuejs:vue:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "React",
+      "category": "Frontend SPA",
+      "source": "body",
+      "pattern": "data-reactroot|react-dom(?:\\.production\\.min)?\\.js",
+      "cpe23": "cpe:2.3:a:facebook:react:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Laravel",
+      "category": "Backend Framework",
+      "source": "cookie",
+      "pattern": "(?i)\\blaravel_session\\b",
+      "cpe23": "cpe:2.3:a:laravel:laravel:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Django",
+      "category": "Backend Framework",
+      "source": "cookie",
+      "pattern": "(?i)\\bcsrftoken\\b.*sessionid|csrfmiddlewaretoken",
+      "cpe23": "cpe:2.3:a:djangoproject:django:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Spring Boot",
+      "category": "Backend Framework",
+      "source": "header",
+      "pattern": "(?i)\\bx-application-context\\b|JSESSIONID",
+      "cpe23": "cpe:2.3:a:vmware:spring_boot:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "ASP.NET Core",
+      "category": "Backend Framework",
+      "source": "cookie",
+      "pattern": "(?i)\\.AspNetCore\\.|ASP\\.NET_SessionId",
+      "cpe23": "cpe:2.3:a:microsoft:asp.net_core:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Ruby on Rails",
+      "category": "Backend Framework",
+      "source": "body",
+      "pattern": "name=\"csrf-param\"\\s+content=\"authenticity_token\"",
+      "cpe23": "cpe:2.3:a:rubyonrails:rails:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "WordPress",
+      "category": "CMS",
+      "source": "body",
+      "pattern": "/wp-content/|/wp-includes/",
+      "cpe23": "cpe:2.3:a:wordpress:wordpress:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Drupal",
+      "category": "CMS",
+      "source": "header",
+      "pattern": "(?i)\\bx-drupal-cache\\b|x-generator:\\s*drupal",
+      "cpe23": "cpe:2.3:a:drupal:drupal:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Joomla",
+      "category": "CMS",
+      "source": "body",
+      "pattern": "content=\"Joomla! - Open Source Content Management\"",
+      "cpe23": "cpe:2.3:a:joomla:joomla:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "1C-Bitrix",
+      "category": "CMS",
+      "source": "body",
+      "pattern": "/bitrix/(?:js|templates|cache)/|BX\\.setJSList",
+      "cpe23": "cpe:2.3:a:1c-bitrix:bitrix_site_manager:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Moodle LMS",
+      "category": "LMS",
+      "source": "cookie",
+      "pattern": "(?i)\\bMoodleSession\\b",
+      "cpe23": "cpe:2.3:a:moodle:moodle:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Keycloak IAM",
+      "category": "IAM/SSO",
+      "source": "cookie",
+      "pattern": "(?i)\\bAUTH_SESSION_ID\\b|KEYCLOAK_IDENTITY",
+      "cpe23": "cpe:2.3:a:redhat:keycloak:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Supabase BaaS",
+      "category": "Cloud/BaaS",
+      "source": "body",
+      "pattern": "supabase\\.co/rest/v1|sb-[a-z0-9]+-auth-token",
+      "cpe23": "cpe:2.3:a:supabase:supabase:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Kong API Gateway",
+      "category": "API Gateway",
+      "source": "header",
+      "pattern": "(?i)\\bx-kong-upstream-latency\\b|via:.*kong/",
+      "cpe23": "cpe:2.3:a:konghq:kong:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Apache APISIX",
+      "category": "API Gateway",
+      "source": "header",
+      "pattern": "(?i)server:\\s*apisix",
+      "cpe23": "cpe:2.3:a:apache:apisix:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Envoy Proxy",
+      "category": "Reverse Proxy",
+      "source": "header",
+      "pattern": "(?i)\\bx-envoy-upstream-service-time\\b|server:\\s*envoy",
+      "cpe23": "cpe:2.3:a:envoyproxy:envoy:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "GitLab",
+      "category": "DevSecOps",
+      "source": "cookie",
+      "pattern": "(?i)\\b_gitlab_session\\b",
+      "cpe23": "cpe:2.3:a:gitlab:gitlab:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Grafana",
+      "category": "Observability",
+      "source": "body",
+      "pattern": "window\\.grafanaBootData|/public/build/grafana",
+      "cpe23": "cpe:2.3:a:grafana:grafana:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "Atlassian Jira",
+      "category": "DevSecOps",
+      "source": "cookie",
+      "pattern": "(?i)\\batlassian\\.xsrf\\.token\\b",
+      "cpe23": "cpe:2.3:a:atlassian:jira:*:*:*:*:*:*:*:*"
+    },
+    {
+      "name": "LiteLLM Gateway",
+      "category": "AI/LLM Infrastructure",
+      "source": "header",
+      "pattern": "(?i)\\bx-litellm-call-id\\b|x-litellm-model-id",
+      "cpe23": "cpe:2.3:a:berriai:litellm:*:*:*:*:*:*:*:*"
+    }
+  ]
+}

@@ -74,11 +74,12 @@ def get_native_lib() -> ctypes.CDLL | None:
             return _LIB
         _TRIED_LOAD = True
         try:
-            need_build = (not SO_PATH.exists()) or (CPP_SRC.exists() and CPP_SRC.stat().st_mtime > SO_PATH.stat().st_mtime)
-            if need_build and CPP_SRC.exists() and shutil.which("g++"):
+            cpp_files = sorted(NATIVE_DIR.glob("*.cpp"))
+            need_build = (not SO_PATH.exists()) or any(p.stat().st_mtime > SO_PATH.stat().st_mtime for p in cpp_files)
+            if need_build and cpp_files and shutil.which("g++"):
                 subprocess.run(
-                    ["g++", "-O3", "-std=c++17", "-shared", "-fPIC", str(CPP_SRC), "-o", str(SO_PATH), "-lssl", "-lcrypto"],
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, check=True,
+                    ["g++", "-O3", "-std=c++17", "-shared", "-fPIC", *[str(p) for p in cpp_files], "-o", str(SO_PATH), "-lssl", "-lcrypto"],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=True,
                 )
             if SO_PATH.exists():
                 lib = ctypes.CDLL(str(SO_PATH))
@@ -122,6 +123,12 @@ def get_native_lib() -> ctypes.CDLL | None:
                 if hasattr(lib, "spectre_fnv1a64_ci"):
                     lib.spectre_fnv1a64_ci.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
                     lib.spectre_fnv1a64_ci.restype = ctypes.c_uint64
+                if hasattr(lib, "spectre_cpp_nvt_rodata_count"):
+                    lib.spectre_cpp_nvt_rodata_count.argtypes = []
+                    lib.spectre_cpp_nvt_rodata_count.restype = ctypes.c_uint32
+                if hasattr(lib, "spectre_cpp_lookup_favicon_mmh3"):
+                    lib.spectre_cpp_lookup_favicon_mmh3.argtypes = [ctypes.c_int32, ctypes.c_char_p, ctypes.c_size_t]
+                    lib.spectre_cpp_lookup_favicon_mmh3.restype = ctypes.c_int
                 _LIB = lib
         except Exception:
             _LIB = None
@@ -137,12 +144,13 @@ def get_rust_lib() -> ctypes.CDLL | None:
             return _RUST_LIB
         _TRIED_RUST_LOAD = True
         try:
-            need_build = (not RUST_SO_PATH.exists()) or (RUST_SRC.exists() and RUST_SRC.stat().st_mtime > RUST_SO_PATH.stat().st_mtime)
+            rs_files = sorted(NATIVE_DIR.glob("*.rs"))
+            need_build = (not RUST_SO_PATH.exists()) or any(p.stat().st_mtime > RUST_SO_PATH.stat().st_mtime for p in rs_files)
             rustc_bin = _resolve_rustc_bin()
             if need_build and RUST_SRC.exists() and rustc_bin:
                 subprocess.run(
                     [rustc_bin, "-C", "opt-level=3", "-C", "strip=debuginfo", "--crate-type", "cdylib", str(RUST_SRC), "-o", str(RUST_SO_PATH)],
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=35, check=True,
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45, check=True,
                 )
             if RUST_SO_PATH.exists():
                 rlib = ctypes.CDLL(str(RUST_SO_PATH))
@@ -166,6 +174,17 @@ def get_rust_lib() -> ctypes.CDLL | None:
                 if hasattr(rlib, "spectre_rust_is_valid_dns_label"):
                     rlib.spectre_rust_is_valid_dns_label.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
                     rlib.spectre_rust_is_valid_dns_label.restype = ctypes.c_int32
+                if hasattr(rlib, "spectre_rust_kev_cve_count"):
+                    rlib.spectre_rust_kev_cve_count.argtypes = []
+                    rlib.spectre_rust_kev_cve_count.restype = ctypes.c_uint32
+                if hasattr(rlib, "spectre_rust_cpe_count"):
+                    rlib.spectre_rust_cpe_count.argtypes = []
+                    rlib.spectre_rust_cpe_count.restype = ctypes.c_uint32
+                if hasattr(rlib, "spectre_rust_lookup_cve_json"):
+                    rlib.spectre_rust_lookup_cve_json.argtypes = [
+                        ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+                    ]
+                    rlib.spectre_rust_lookup_cve_json.restype = ctypes.c_int32
                 _RUST_LIB = rlib
         except Exception:
             _RUST_LIB = None
@@ -418,16 +437,17 @@ def get_go_indexer_bin() -> Path | None:
             return _GO_BIN
         _TRIED_GO_BUILD = True
         try:
-            need_build = (not GO_BIN_PATH.is_file()) or (GO_SRC.is_file() and GO_SRC.stat().st_mtime > GO_BIN_PATH.stat().st_mtime)
+            go_files = sorted(NATIVE_DIR.glob("*.go"))
+            need_build = (not GO_BIN_PATH.is_file()) or any(p.stat().st_mtime > GO_BIN_PATH.stat().st_mtime for p in go_files)
             go_bin = _resolve_go_bin()
-            if need_build and GO_SRC.is_file() and go_bin:
+            if need_build and go_files and go_bin:
                 subprocess.run(
-                    [go_bin, "build", "-ldflags=-s -w", "-o", str(GO_BIN_PATH), str(GO_SRC)],
+                    [go_bin, "build", "-ldflags=-s -w", "-o", str(GO_BIN_PATH), *[str(p) for p in go_files]],
                     cwd=str(NATIVE_DIR),
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    timeout=35,
+                    timeout=45,
                     check=True,
                 )
             if GO_BIN_PATH.is_file():
@@ -468,6 +488,32 @@ def fast_is_valid_dns_label(label: str) -> bool:
     if rlib is not None and hasattr(rlib, "spectre_rust_is_valid_dns_label"):
         return int(rlib.spectre_rust_is_valid_dns_label(b, len(b))) == 1
     return bool(b[0] != 45 and b[-1] != 45 and all((97 <= (c | 32) <= 122) or (48 <= c <= 57) or c == 45 for c in b))
+
+def fast_rust_lookup_cve(cve_id: str) -> dict | None:
+    import json as _json
+    b = (cve_id or "").strip().encode("utf-8", errors="ignore")
+    if not b:
+        return None
+    rlib = get_rust_lib()
+    if rlib is None or not hasattr(rlib, "spectre_rust_lookup_cve_json"):
+        return None
+    out_buf = ctypes.create_string_buffer(2048)
+    rc = int(rlib.spectre_rust_lookup_cve_json(b, len(b), out_buf, 2048))
+    if rc == 1:
+        try:
+            return _json.loads(out_buf.value.decode("utf-8", errors="ignore"))
+        except Exception:
+            return None
+    return None
+
+
+def fast_cpp_lookup_favicon_mmh3(hash_val: int) -> str:
+    lib = get_native_lib()
+    if lib is None or not hasattr(lib, "spectre_cpp_lookup_favicon_mmh3"):
+        return ""
+    out_buf = ctypes.create_string_buffer(128)
+    rc = int(lib.spectre_cpp_lookup_favicon_mmh3(int(hash_val), out_buf, 128))
+    return out_buf.value.decode("utf-8", errors="ignore") if rc == 1 else ""
 
 
 

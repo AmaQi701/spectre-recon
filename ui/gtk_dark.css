@@ -1,0 +1,41 @@
+window, .background { background-color: #090c0a; color: #e2e8f0; font-family: "Inter", "Ubuntu", system-ui, sans-serif; }
+headerbar { background-image: none; background-color: #0d120f; color: #f8fafc; border-bottom: 1px solid #1a2820; padding: 4px 12px; }
+headerbar .title { font-weight: 800; font-size: 13.5px; color: #f8fafc; }
+headerbar .subtitle { font-size: 11px; color: #4ade80; }
+headerbar button.titlebutton { background-image: none; background-color: transparent; color: #94a3b8; border: none; box-shadow: none; }
+headerbar button.titlebutton:hover { background-color: #16241b; color: #ffffff; }
+
+.sidebar { background-color: #0c100e; border-right: 1px solid #1a2820; padding: 14px 11px; }
+.nav-btn { background-image: none; background-color: transparent; color: #9ca3af; border: 1px solid transparent; border-radius: 8px; padding: 9px 12px; font-weight: 600; font-size: 12.5px; box-shadow: none; }
+.nav-btn:hover { background-color: #121b16; color: #f1f5f9; }
+.nav-btn-active { background-image: none; background-color: #11261a; color: #4ade80; border: 1px solid #1f4d33; border-radius: 8px; padding: 9px 12px; font-weight: 700; font-size: 12.5px; }
+
+.toolbar-bar { background-color: #0f1512; border: 1px solid #1b2a21; border-radius: 10px; padding: 7px 12px; }
+.stat-card { background-color: #0f1512; border: 1px solid #1b2a21; border-radius: 10px; padding: 9px 15px; }
+.stat-title { font-size: 10px; color: #6ee7b7; font-weight: 700; letter-spacing: 0.6px; }
+.stat-val { font-size: 15px; font-weight: 800; color: #f8fafc; }
+
+treeview { background-color: #0b0f0d; color: #e2e8f0; font-size: 12.5px; border: none; }
+treeview:selected { background-color: #143321; color: #4ade80; }
+treeview header button { background-image: none; background-color: #101613; color: #94a3b8; font-weight: 700; font-size: 10.5px; border: none; border-bottom: 1px solid #1b2a21; padding: 8px 10px; box-shadow: none; }
+treeview header button:hover { background-color: #15221a; color: #4ade80; }
+
+entry, combobox button { background-image: none; background-color: #090c0a; color: #f1f5f9; border: 1px solid #223328; border-radius: 8px; padding: 6px 10px; font-size: 12px; box-shadow: none; }
+entry:focus { border-color: #22c55e; }
+textview, textview text { background-color: #080b09; color: #d8e2dc; font-family: "JetBrains Mono", "Ubuntu Mono", monospace; font-size: 12px; }
+.panel-box { background-color: #0f1512; border: 1px solid #1b2a21; border-radius: 10px; padding: 6px; }
+.section-hdr { font-size: 11.5px; font-weight: 700; color: #4ade80; }
+progressbar text { color: #86efac; font-weight: 600; font-size: 11.5px; }
+progressbar trough { min-height: 22px; background-color: #0c1911; border: 1px solid #1b3b28; border-radius: 8px; }
+progressbar progress { min-height: 22px; background-image: none; background-color: #16a34a; border-radius: 7px; }
+
+.act-btn { background-image: none; background-color: #121915; color: #e2e8f0; font-weight: 600; font-size: 12px; border-radius: 8px; padding: 6px 13px; border: 1px solid #24362b; box-shadow: none; }
+.act-btn:hover { background-color: #18251e; border-color: #22c55e; color: #4ade80; }
+.btn-green { background-image: none; background-color: #11281c; color: #4ade80; font-weight: 700; font-size: 12px; border-radius: 8px; padding: 6px 13px; border: 1px solid #22c55e; box-shadow: none; }
+.btn-green:hover { background-color: #173826; }
+.btn-amber { background-image: none; background-color: #231d12; color: #fbbf24; font-weight: 600; font-size: 12px; border-radius: 8px; padding: 6px 13px; border: 1px solid #92400e; box-shadow: none; }
+.btn-amber:hover { background-color: #302717; }
+.btn-red { background-image: none; background-color: #241417; color: #f87171; font-weight: 600; font-size: 12px; border-radius: 8px; padding: 6px 13px; border: 1px solid #991b1b; box-shadow: none; }
+.btn-red:hover { background-color: #331b1f; border-color: #ef4444; }
+.btn-purple { background-image: none; background-color: #22c55e; color: #052e16; font-weight: 800; font-size: 12px; border-radius: 8px; padding: 6px 15px; border: 1px solid #4ade80; box-shadow: none; }
+.btn-purple:hover { background-color: #4ade80; color: #022c22; }

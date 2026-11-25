@@ -1,0 +1,4735 @@
+{
+  "product_patterns": [
+    [
+      "apache",
+      "(?i)\\bapache(?:[:/\\s\\-_]+(?:httpd|http[_\\s\\-]+server))?[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "tomcat",
+      "(?i)\\b(?:apache[:/\\s\\-_]+)?tomcat[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "nginx",
+      "(?i)\\bnginx[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "openssh",
+      "(?i)\\bopenssh(?:_for_windows)?[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?(?:p\\d+)?)(?![.\\d])"
+    ],
+    [
+      "php",
+      "(?i)\\bphp(?:[:/\\s=\\-_(]+v?|(?=[578]\\.\\d))(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "openssl",
+      "(?i)\\bopenssl[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?(?:[a-z](?![a-z]))?)(?![.\\d])"
+    ],
+    [
+      "redis",
+      "(?i)\\bredis(?:\\s+server)?[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "exim",
+      "(?i)\\bexim[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "iis",
+      "(?i)\\b(?:microsoft[:/\\s\\-_]+)?(?:iis|internet_information_services)[:/\\s=\\-_(]+v?(\\d+\\.\\d+)(?![.\\d])"
+    ],
+    [
+      "postgresql",
+      "(?i)\\bpostgres(?:ql)?[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "mariadb",
+      "(?i)(?:\\b\\d+\\.\\d+\\.\\d+-)?\\b(1\\d\\.\\d+(?:\\.\\d+)?)-mariadb(?![a-z])"
+    ],
+    [
+      "mariadb",
+      "(?i)\\bmariadb[:/\\s=\\-_(]+v?(1\\d\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "mysql",
+      "(?i)\\b([58]\\.\\d+\\.\\d+)-mysql(?![a-z])"
+    ],
+    [
+      "mysql",
+      "(?i)\\bmysql[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "postfix",
+      "(?i)\\bpostfix(?:\\s+\\([a-z0-9/._\\-]+\\))?[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "spring_boot",
+      "(?i)\\bspring[\\s\\-_]+boot[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "spring_framework",
+      "(?i)\\bspring[\\s\\-_]+framework[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "nextjs",
+      "(?i)\\bnext(?:\\.js|js)[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "jquery",
+      "(?i)\\bjquery[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "memcached",
+      "(?i)\\bmemcached[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "mongodb",
+      "(?i)\\bmongodb[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "elasticsearch",
+      "(?i)\\belasticsearch[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "proftpd",
+      "(?i)\\bproftpd[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?(?:[a-z](?![a-z]))?)(?![.\\d])"
+    ],
+    [
+      "vsftpd",
+      "(?i)\\bvsftpd[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "dovecot",
+      "(?i)\\bdovecot[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "jetty",
+      "(?i)\\b(?:eclipse[:/\\s\\-_]+)?jetty[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "nodejs",
+      "(?i)\\bnode(?:\\.js|js)[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "wordpress",
+      "(?i)\\bwordpress[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "drupal",
+      "(?i)\\bdrupal[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "joomla",
+      "(?i)\\bjoomla!?[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "moodle",
+      "(?i)\\bmoodle[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "bitrix",
+      "(?i)\\b(?:1c[\\-\\s_]+)?bitrix[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "datalife_engine",
+      "(?i)\\b(?:datalife[\\s\\-_]+engine|dle)[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "ojs",
+      "(?i)\\b(?:open[\\s\\-_]+journal[\\s\\-_]+systems|ojs)[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "grafana",
+      "(?i)\\bgrafana[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "zabbix",
+      "(?i)\\bzabbix[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "gitlab",
+      "(?i)\\bgitlab(?:[\\s\\-_]+(?:ce|ee))?[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "jenkins",
+      "(?i)\\bjenkins[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "keycloak",
+      "(?i)\\bkeycloak[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "harbor",
+      "(?i)\\bharbor[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "nexus",
+      "(?i)\\b(?:sonatype[\\s\\-_]+)?nexus[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "rabbitmq",
+      "(?i)\\brabbitmq[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "haproxy",
+      "(?i)\\bhaproxy[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "traefik",
+      "(?i)\\btraefik[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "envoy",
+      "(?i)\\benvoy[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "laravel",
+      "(?i)\\blaravel[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "django",
+      "(?i)\\bdjango[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "symfony",
+      "(?i)\\bsymfony[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "struts",
+      "(?i)\\b(?:apache[\\s\\-_]+)?struts[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "confluence",
+      "(?i)\\bconfluence[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "jira",
+      "(?i)\\bjira[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "sonarqube",
+      "(?i)\\bsonarqube[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "argocd",
+      "(?i)\\bargo[\\s\\-_]*cd[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "vault",
+      "(?i)\\b(?:hashicorp[\\s\\-_]+)?vault[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "consul",
+      "(?i)\\b(?:hashicorp[\\s\\-_]+)?consul[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "minio",
+      "(?i)\\bminio[:/\\s=\\-_(]+v?(\\d{4}|\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "caddy",
+      "(?i)\\bcaddy[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "lighttpd",
+      "(?i)\\blighttpd[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "openresty",
+      "(?i)\\bopenresty[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "gunicorn",
+      "(?i)\\bgunicorn[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "uwsgi",
+      "(?i)\\buwsgi[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "fortios",
+      "(?i)\\bfortios[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "routeros",
+      "(?i)\\b(?:mikrotik[\\s\\-_]+)?routeros[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "vmware_esxi",
+      "(?i)\\b(?:vmware[\\s\\-_]+)?esxi[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "vcenter",
+      "(?i)\\bvcenter[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "citrix_adc",
+      "(?i)\\b(?:citrix[\\s\\-_]+(?:adc|netscaler))[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "litespeed",
+      "(?i)\\b(?:open)?litespeed[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "squid",
+      "(?i)\\bsquid[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "varnish",
+      "(?i)\\bvarnish[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "bind",
+      "(?i)\\b(?:isc[\\s\\-_]+)?bind[:/\\s=\\-_(]+v?(9\\.\\d+\\.\\d+)(?![.\\d])"
+    ],
+    [
+      "dnsmasq",
+      "(?i)\\bdnsmasq[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "powerdns",
+      "(?i)\\bpowerdns[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "asterisk",
+      "(?i)\\basterisk[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "freeswitch",
+      "(?i)\\bfreeswitch[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "zimbra",
+      "(?i)\\bzimbra[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "roundcube",
+      "(?i)\\broundcube[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "plesk",
+      "(?i)\\bplesk(?:\\s+obsidian)?[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "cpanel",
+      "(?i)\\bcpanel[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "directadmin",
+      "(?i)\\bdirectadmin[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "proxmox",
+      "(?i)\\b(?:proxmox[\\s\\-_]+ve|pve[\\s\\-_]+manager)[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "portainer",
+      "(?i)\\bportainer[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "kibana",
+      "(?i)\\bkibana[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "logstash",
+      "(?i)\\blogstash[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "prometheus",
+      "(?i)\\bprometheus[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "solr",
+      "(?i)\\b(?:apache[\\s\\-_]+)?solr[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "couchdb",
+      "(?i)\\bcouchdb[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "clickhouse",
+      "(?i)\\bclickhouse[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "cassandra",
+      "(?i)\\bcassandra[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "neo4j",
+      "(?i)\\bneo4j[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "influxdb",
+      "(?i)\\binfluxdb[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "nextcloud",
+      "(?i)\\bnextcloud[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "owncloud",
+      "(?i)\\bowncloud[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "gitea",
+      "(?i)\\bgitea[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "gogs",
+      "(?i)\\bgogs[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "mattermost",
+      "(?i)\\bmattermost[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "rocketchat",
+      "(?i)\\brocket\\.?chat[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "redmine",
+      "(?i)\\bredmine[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "mediawiki",
+      "(?i)\\bmediawiki[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "strapi",
+      "(?i)\\bstrapi[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "directus",
+      "(?i)\\bdirectus[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "etcd",
+      "(?i)\\betcd(?:server)?[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "kafka",
+      "(?i)\\b(?:apache[\\s\\-_]+)?kafka[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "activemq",
+      "(?i)\\bactivemq[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "kong",
+      "(?i)\\bkong[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "apisix",
+      "(?i)\\bapisix[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "superset",
+      "(?i)\\bsuperset[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "airflow",
+      "(?i)\\bairflow[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "metabase",
+      "(?i)\\bmetabase[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "ollama",
+      "(?i)\\bollama[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "mlflow",
+      "(?i)\\bmlflow[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "qdrant",
+      "(?i)\\bqdrant[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "weaviate",
+      "(?i)\\bweaviate[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "flink",
+      "(?i)\\b(?:apache[\\s\\-_]+)?flink[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "spark",
+      "(?i)\\b(?:apache[\\s\\-_]+)?spark[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "nomad",
+      "(?i)\\b(?:hashicorp[\\s\\-_]+)?nomad[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "nats",
+      "(?i)\\bnats(?:-server)?[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "artifactory",
+      "(?i)\\bartifactory[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "loki",
+      "(?i)\\bloki[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "airbyte",
+      "(?i)\\bairbyte[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "n8n",
+      "(?i)\\bn8n[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "rancher",
+      "(?i)\\brancher[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "webmin",
+      "(?i)\\b(?:webmin|miniserv)[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "paloalto_panos",
+      "(?i)\\bpan-?os[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "ivanti_connect_secure",
+      "(?i)\\bivanti[\\s\\-_]+connect[\\s\\-_]+secure[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "f5_bigip",
+      "(?i)\\bbig-?ip[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "cisco_ios_xe",
+      "(?i)\\bios[\\s\\-_]+xe[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "juniper_junos",
+      "(?i)\\bjunos[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "sonicwall_sonicos",
+      "(?i)\\bsonicos[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "check_point_gaia",
+      "(?i)\\bcheckpoint[\\s\\-_]+gaia[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "openvpn",
+      "(?i)\\bopenvpn[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "strongswan",
+      "(?i)\\bstrongswan[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "unbound",
+      "(?i)\\bunbound[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "zookeeper",
+      "(?i)\\bzookeeper[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "druid",
+      "(?i)\\b(?:apache[\\s\\-_]+)?druid[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "nifi",
+      "(?i)\\b(?:apache[\\s\\-_]+)?nifi[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "guacamole",
+      "(?i)\\bguacamole[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "ofbiz",
+      "(?i)\\bofbiz[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "hugegraph",
+      "(?i)\\bhugegraph[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "teamcity",
+      "(?i)\\bteamcity[:/\\s=\\-_(]+v?(\\d{4}\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "bamboo",
+      "(?i)\\bbamboo[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "bitbucket",
+      "(?i)\\bbitbucket[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "crucible",
+      "(?i)\\b(?:fisheye|crucible)[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "splunk",
+      "(?i)\\bsplunk[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "wazuh",
+      "(?i)\\bwazuh[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "graylog",
+      "(?i)\\bgraylog[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "victoriametrics",
+      "(?i)\\bvictoriametrics[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "meilisearch",
+      "(?i)\\bmeilisearch[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "chromadb",
+      "(?i)\\bchromadb[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "ray",
+      "(?i)\\bray[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "gradio",
+      "(?i)\\bgradio[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "langflow",
+      "(?i)\\blangflow[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "cockroachdb",
+      "(?i)\\bcockroach(?:db)?[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "vernemq",
+      "(?i)\\bvernemq[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "emqx",
+      "(?i)\\bemqx[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "mosquitto",
+      "(?i)\\bmosquitto[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "coredns",
+      "(?i)\\bcoredns[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "knot_resolver",
+      "(?i)\\bknot[-_\\s]?resolver[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "nginx_unit",
+      "(?i)\\bunit/(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "undertow",
+      "(?i)\\bundertow[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "wildfly",
+      "(?i)\\bwildfly[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "glassfish",
+      "(?i)\\bglassfish[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "weblogic",
+      "(?i)\\bweblogic(?:\\s+server)?[:/\\s=\\-_(]+v?(\\d+\\.\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "coldfusion",
+      "(?i)\\bcoldfusion[:/\\s=\\-_(]+v?(\\d{4}\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "ghost",
+      "(?i)\\bghost[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "discourse",
+      "(?i)\\bdiscourse[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "mastodon",
+      "(?i)\\bmastodon[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "seafile",
+      "(?i)\\bseafile[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "openproject",
+      "(?i)\\bopenproject[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "bookstack",
+      "(?i)\\bbookstack[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "pocketbase",
+      "(?i)\\bpocketbase[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "appwrite",
+      "(?i)\\bappwrite[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "typesense",
+      "(?i)\\btypesense[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "milvus",
+      "(?i)\\bmilvus[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "triton_server",
+      "(?i)\\btriton[-_\\s]?inference[-_\\s]?server[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "vllm",
+      "(?i)\\bvllm[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "litellm",
+      "(?i)\\blitellm[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "dify",
+      "(?i)\\bdify[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "authelia",
+      "(?i)\\bauthelia[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "authentik",
+      "(?i)\\bauthentik[:/\\s=\\-_(]+v?(\\d{4}\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "dex",
+      "(?i)\\bdex[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "cas",
+      "(?i)\\bapereo[-_\\s]?cas[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "gluu",
+      "(?i)\\bgluu[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "wso2_is",
+      "(?i)\\bwso2[-_\\s]?is[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "wso2_apim",
+      "(?i)\\bwso2[-_\\s]?am[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "gravitee",
+      "(?i)\\bgravitee[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "tyk",
+      "(?i)\\btyk[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "krakend",
+      "(?i)\\bkrakend[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "pfsense",
+      "(?i)\\bpfsense[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "opnsense",
+      "(?i)\\bopnsense[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "vyos",
+      "(?i)\\bvyos[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "frrouting",
+      "(?i)\\bfrr(?:outing)?[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "bird",
+      "(?i)\\bbird[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "keepalived",
+      "(?i)\\bkeepalived[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "corosync",
+      "(?i)\\bcorosync[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "ceph",
+      "(?i)\\bceph[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "glusterfs",
+      "(?i)\\bglusterfs[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "longhorn",
+      "(?i)\\blonghorn[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "velero",
+      "(?i)\\bvelero[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "k3s",
+      "(?i)\\bk3s[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "containerd",
+      "(?i)\\bcontainerd[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "cri_o",
+      "(?i)\\bcri-o[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "fluent_bit",
+      "(?i)\\bfluent[-_\\s]?bit[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "comfyui",
+      "(?i)\\bcomfyui[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "flowise",
+      "(?i)\\bflowise[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "open_webui",
+      "(?i)\\bopen[-_\\s]?webui[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "localai",
+      "(?i)\\blocalai[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "bentoml",
+      "(?i)\\bbentoml[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "streamlit",
+      "(?i)\\bstreamlit[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "jupyterhub",
+      "(?i)\\bjupyterhub[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "anythingllm",
+      "(?i)\\banythingllm[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "librechat",
+      "(?i)\\blibrechat[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "jaeger",
+      "(?i)\\bjaeger[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "zipkin",
+      "(?i)\\bzipkin[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "netdata",
+      "(?i)\\bnetdata[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "ory_hydra",
+      "(?i)\\b(?:ory[-_\\s]+)?hydra[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "ory_kratos",
+      "(?i)\\b(?:ory[-_\\s]+)?kratos[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "casdoor",
+      "(?i)\\bcasdoor[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "argo_workflows",
+      "(?i)\\bargo[-_\\s]+workflows[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "tekton",
+      "(?i)\\btekton[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "spinnaker",
+      "(?i)\\bspinnaker[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "gocd",
+      "(?i)\\bgocd[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "doris",
+      "(?i)\\b(?:apache[-_\\s]+)?doris[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "tidb",
+      "(?i)\\btidb[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "scylladb",
+      "(?i)\\bscylladb[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "redpanda",
+      "(?i)\\bredpanda[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "pulsar",
+      "(?i)\\b(?:apache[-_\\s]+)?pulsar[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "temporal",
+      "(?i)\\btemporal[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "forgejo",
+      "(?i)\\bforgejo[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "defectdojo",
+      "(?i)\\bdefectdojo[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "thanos",
+      "(?i)\\bthanos[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "cortex",
+      "(?i)\\bcortex[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "alertmanager",
+      "(?i)\\balertmanager[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "seaweedfs",
+      "(?i)\\bseaweedfs[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "pinot",
+      "(?i)\\b(?:apache[-_\\s]+)?pinot[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "questdb",
+      "(?i)\\bquestdb[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "camunda",
+      "(?i)\\bcamunda[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "postgrest",
+      "(?i)\\bpostgrest[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "pyroscope",
+      "(?i)\\bpyroscope[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "vector_obs",
+      "(?i)\\bvector[:/\\s=\\-_(]+v?(0\\.\\d+\\.\\d+)(?![.\\d])"
+    ],
+    [
+      "kamailio",
+      "(?i)\\bkamailio[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "opensips",
+      "(?i)\\bopensips[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "haproxy_dataplane",
+      "(?i)\\bdataplaneapi[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "opensearch",
+      "(?i)\\bopensearch[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "hasura",
+      "(?i)\\bhasura[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "teleport",
+      "(?i)\\bteleport[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "boundary",
+      "(?i)\\b(?:hashicorp[-_\\s]+)?boundary[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "headscale",
+      "(?i)\\bheadscale[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "dagster",
+      "(?i)\\bdagster[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "prefect",
+      "(?i)\\bprefect[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "cubejs",
+      "(?i)\\bcube(?:\\.js|js)[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "rundeck",
+      "(?i)\\brundeck[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ],
+    [
+      "openziti",
+      "(?i)\\bopenziti[:/\\s=\\-_(]+v?(\\d+\\.\\d+(?:\\.\\d+)?)(?![.\\d])"
+    ]
+  ],
+  "cpe_vendor_product": {
+    "apache": [
+      "apache",
+      "http_server"
+    ],
+    "tomcat": [
+      "apache",
+      "tomcat"
+    ],
+    "nginx": [
+      "f5",
+      "nginx"
+    ],
+    "openssh": [
+      "openbsd",
+      "openssh"
+    ],
+    "php": [
+      "php",
+      "php"
+    ],
+    "openssl": [
+      "openssl",
+      "openssl"
+    ],
+    "redis": [
+      "redis",
+      "redis"
+    ],
+    "exim": [
+      "exim",
+      "exim"
+    ],
+    "iis": [
+      "microsoft",
+      "internet_information_services"
+    ],
+    "postgresql": [
+      "postgresql",
+      "postgresql"
+    ],
+    "mariadb": [
+      "mariadb",
+      "mariadb"
+    ],
+    "mysql": [
+      "oracle",
+      "mysql"
+    ],
+    "postfix": [
+      "postfix",
+      "postfix"
+    ],
+    "spring_boot": [
+      "vmware",
+      "spring_boot"
+    ],
+    "spring_framework": [
+      "vmware",
+      "spring_framework"
+    ],
+    "nextjs": [
+      "vercel",
+      "next.js"
+    ],
+    "jquery": [
+      "jquery",
+      "jquery"
+    ],
+    "memcached": [
+      "memcached",
+      "memcached"
+    ],
+    "mongodb": [
+      "mongodb",
+      "mongodb"
+    ],
+    "elasticsearch": [
+      "elastic",
+      "elasticsearch"
+    ],
+    "proftpd": [
+      "proftpd",
+      "proftpd"
+    ],
+    "vsftpd": [
+      "vsftpd_project",
+      "vsftpd"
+    ],
+    "dovecot": [
+      "dovecot",
+      "dovecot"
+    ],
+    "jetty": [
+      "eclipse",
+      "jetty"
+    ],
+    "nodejs": [
+      "nodejs",
+      "node.js"
+    ],
+    "wordpress": [
+      "wordpress",
+      "wordpress"
+    ],
+    "drupal": [
+      "drupal",
+      "drupal"
+    ],
+    "joomla": [
+      "joomla",
+      "joomla"
+    ],
+    "moodle": [
+      "moodle",
+      "moodle"
+    ],
+    "bitrix": [
+      "1c-bitrix",
+      "site_manager"
+    ],
+    "datalife_engine": [
+      "dle-news",
+      "datalife_engine"
+    ],
+    "ojs": [
+      "pkp",
+      "open_journal_systems"
+    ],
+    "grafana": [
+      "grafana",
+      "grafana"
+    ],
+    "zabbix": [
+      "zabbix",
+      "zabbix"
+    ],
+    "gitlab": [
+      "gitlab",
+      "gitlab"
+    ],
+    "jenkins": [
+      "jenkins",
+      "jenkins"
+    ],
+    "keycloak": [
+      "redhat",
+      "keycloak"
+    ],
+    "harbor": [
+      "linuxfoundation",
+      "harbor"
+    ],
+    "nexus": [
+      "sonatype",
+      "nexus_repository_manager"
+    ],
+    "rabbitmq": [
+      "vmware",
+      "rabbitmq"
+    ],
+    "haproxy": [
+      "haproxy",
+      "haproxy"
+    ],
+    "traefik": [
+      "traefik",
+      "traefik"
+    ],
+    "envoy": [
+      "envoyproxy",
+      "envoy"
+    ],
+    "laravel": [
+      "laravel",
+      "laravel"
+    ],
+    "django": [
+      "djangoproject",
+      "django"
+    ],
+    "symfony": [
+      "sensiolabs",
+      "symfony"
+    ],
+    "struts": [
+      "apache",
+      "struts"
+    ],
+    "confluence": [
+      "atlassian",
+      "confluence_server"
+    ],
+    "jira": [
+      "atlassian",
+      "jira_server"
+    ],
+    "sonarqube": [
+      "sonarsource",
+      "sonarqube"
+    ],
+    "argocd": [
+      "argoproj",
+      "argo_cd"
+    ],
+    "vault": [
+      "hashicorp",
+      "vault"
+    ],
+    "consul": [
+      "hashicorp",
+      "consul"
+    ],
+    "minio": [
+      "minio",
+      "minio"
+    ],
+    "caddy": [
+      "caddyserver",
+      "caddy"
+    ],
+    "lighttpd": [
+      "lighttpd",
+      "lighttpd"
+    ],
+    "openresty": [
+      "openresty",
+      "openresty"
+    ],
+    "gunicorn": [
+      "gunicorn",
+      "gunicorn"
+    ],
+    "uwsgi": [
+      "unbit",
+      "uwsgi"
+    ],
+    "fortios": [
+      "fortinet",
+      "fortios"
+    ],
+    "routeros": [
+      "mikrotik",
+      "routeros"
+    ],
+    "vmware_esxi": [
+      "vmware",
+      "esxi"
+    ],
+    "vcenter": [
+      "vmware",
+      "vcenter_server"
+    ],
+    "citrix_adc": [
+      "citrix",
+      "application_delivery_controller"
+    ],
+    "litespeed": [
+      "litespeedtech",
+      "litespeed_web_server"
+    ],
+    "squid": [
+      "squid-cache",
+      "squid"
+    ],
+    "varnish": [
+      "varnish_cache_project",
+      "varnish_cache"
+    ],
+    "bind": [
+      "isc",
+      "bind"
+    ],
+    "dnsmasq": [
+      "thekelleys",
+      "dnsmasq"
+    ],
+    "powerdns": [
+      "powerdns",
+      "authoritative"
+    ],
+    "asterisk": [
+      "sangoma",
+      "asterisk"
+    ],
+    "freeswitch": [
+      "signalwire",
+      "freeswitch"
+    ],
+    "zimbra": [
+      "synacor",
+      "zimbra_collaboration_suite"
+    ],
+    "roundcube": [
+      "roundcube",
+      "webmail"
+    ],
+    "plesk": [
+      "plesk",
+      "obsidian"
+    ],
+    "cpanel": [
+      "cpanel",
+      "whm"
+    ],
+    "directadmin": [
+      "jbmc-software",
+      "directadmin"
+    ],
+    "proxmox": [
+      "proxmox",
+      "virtual_environment"
+    ],
+    "portainer": [
+      "portainer",
+      "portainer"
+    ],
+    "kibana": [
+      "elastic",
+      "kibana"
+    ],
+    "logstash": [
+      "elastic",
+      "logstash"
+    ],
+    "prometheus": [
+      "prometheus",
+      "prometheus"
+    ],
+    "solr": [
+      "apache",
+      "solr"
+    ],
+    "couchdb": [
+      "apache",
+      "couchdb"
+    ],
+    "clickhouse": [
+      "clickhouse",
+      "clickhouse"
+    ],
+    "cassandra": [
+      "apache",
+      "cassandra"
+    ],
+    "neo4j": [
+      "neo4j",
+      "neo4j"
+    ],
+    "influxdb": [
+      "influxdata",
+      "influxdb"
+    ],
+    "nextcloud": [
+      "nextcloud",
+      "nextcloud_server"
+    ],
+    "owncloud": [
+      "owncloud",
+      "owncloud"
+    ],
+    "gitea": [
+      "gitea",
+      "gitea"
+    ],
+    "gogs": [
+      "gogs",
+      "gogs"
+    ],
+    "mattermost": [
+      "mattermost",
+      "mattermost_server"
+    ],
+    "rocketchat": [
+      "rocket.chat",
+      "rocket.chat"
+    ],
+    "redmine": [
+      "redmine",
+      "redmine"
+    ],
+    "mediawiki": [
+      "mediawiki",
+      "mediawiki"
+    ],
+    "strapi": [
+      "strapi",
+      "strapi"
+    ],
+    "directus": [
+      "monospace",
+      "directus"
+    ],
+    "etcd": [
+      "etcd-io",
+      "etcd"
+    ],
+    "kafka": [
+      "apache",
+      "kafka"
+    ],
+    "activemq": [
+      "apache",
+      "activemq"
+    ],
+    "kong": [
+      "konghq",
+      "kong"
+    ],
+    "apisix": [
+      "apache",
+      "apisix"
+    ],
+    "superset": [
+      "apache",
+      "superset"
+    ],
+    "airflow": [
+      "apache",
+      "airflow"
+    ],
+    "metabase": [
+      "metabase",
+      "metabase"
+    ],
+    "ollama": [
+      "ollama",
+      "ollama"
+    ],
+    "mlflow": [
+      "lfprojects",
+      "mlflow"
+    ],
+    "qdrant": [
+      "qdrant",
+      "qdrant"
+    ],
+    "weaviate": [
+      "weaviate",
+      "weaviate"
+    ],
+    "flink": [
+      "apache",
+      "flink"
+    ],
+    "spark": [
+      "apache",
+      "spark"
+    ],
+    "nomad": [
+      "hashicorp",
+      "nomad"
+    ],
+    "nats": [
+      "nats",
+      "nats_server"
+    ],
+    "artifactory": [
+      "jfrog",
+      "artifactory"
+    ],
+    "loki": [
+      "grafana",
+      "loki"
+    ],
+    "airbyte": [
+      "airbyte",
+      "airbyte"
+    ],
+    "n8n": [
+      "n8n",
+      "n8n"
+    ],
+    "rancher": [
+      "suse",
+      "rancher"
+    ],
+    "webmin": [
+      "webmin",
+      "webmin"
+    ],
+    "paloalto_panos": [
+      "paloaltonetworks",
+      "pan-os"
+    ],
+    "ivanti_connect_secure": [
+      "ivanti",
+      "connect_secure"
+    ],
+    "f5_bigip": [
+      "f5",
+      "big-ip_access_policy_manager"
+    ],
+    "cisco_ios_xe": [
+      "cisco",
+      "ios_xe"
+    ],
+    "juniper_junos": [
+      "juniper",
+      "junos"
+    ],
+    "sonicwall_sonicos": [
+      "sonicwall",
+      "sonicos"
+    ],
+    "check_point_gaia": [
+      "checkpoint",
+      "gaia_os"
+    ],
+    "openvpn": [
+      "openvpn",
+      "openvpn"
+    ],
+    "strongswan": [
+      "strongswan",
+      "strongswan"
+    ],
+    "unbound": [
+      "nlnetlabs",
+      "unbound"
+    ],
+    "zookeeper": [
+      "apache",
+      "zookeeper"
+    ],
+    "druid": [
+      "apache",
+      "druid"
+    ],
+    "nifi": [
+      "apache",
+      "nifi"
+    ],
+    "guacamole": [
+      "apache",
+      "guacamole"
+    ],
+    "ofbiz": [
+      "apache",
+      "ofbiz"
+    ],
+    "hugegraph": [
+      "apache",
+      "hugegraph"
+    ],
+    "teamcity": [
+      "jetbrains",
+      "teamcity"
+    ],
+    "bamboo": [
+      "atlassian",
+      "bamboo"
+    ],
+    "bitbucket": [
+      "atlassian",
+      "bitbucket"
+    ],
+    "crucible": [
+      "atlassian",
+      "fisheye"
+    ],
+    "splunk": [
+      "splunk",
+      "splunk"
+    ],
+    "wazuh": [
+      "wazuh",
+      "wazuh"
+    ],
+    "graylog": [
+      "graylog",
+      "graylog"
+    ],
+    "victoriametrics": [
+      "victoriametrics",
+      "victoriametrics"
+    ],
+    "meilisearch": [
+      "meilisearch",
+      "meilisearch"
+    ],
+    "chromadb": [
+      "trychroma",
+      "chroma"
+    ],
+    "ray": [
+      "anyscale",
+      "ray"
+    ],
+    "gradio": [
+      "gradio_project",
+      "gradio"
+    ],
+    "langflow": [
+      "langflow",
+      "langflow"
+    ],
+    "cockroachdb": [
+      "cockroachlabs",
+      "cockroachdb"
+    ],
+    "vernemq": [
+      "vernemq",
+      "vernemq"
+    ],
+    "emqx": [
+      "emqx",
+      "emqx"
+    ],
+    "mosquitto": [
+      "eclipse",
+      "mosquitto"
+    ],
+    "coredns": [
+      "coredns",
+      "coredns"
+    ],
+    "knot_resolver": [
+      "nic",
+      "knot_resolver"
+    ],
+    "nginx_unit": [
+      "nginx",
+      "unit"
+    ],
+    "undertow": [
+      "redhat",
+      "undertow"
+    ],
+    "wildfly": [
+      "redhat",
+      "wildfly"
+    ],
+    "glassfish": [
+      "eclipse",
+      "glassfish"
+    ],
+    "weblogic": [
+      "oracle",
+      "weblogic_server"
+    ],
+    "coldfusion": [
+      "adobe",
+      "coldfusion"
+    ],
+    "ghost": [
+      "ghost",
+      "ghost"
+    ],
+    "discourse": [
+      "discourse",
+      "discourse"
+    ],
+    "mastodon": [
+      "joinmastodon",
+      "mastodon"
+    ],
+    "seafile": [
+      "seafile",
+      "seafile"
+    ],
+    "openproject": [
+      "openproject",
+      "openproject"
+    ],
+    "bookstack": [
+      "bookstackapp",
+      "bookstack"
+    ],
+    "pocketbase": [
+      "pocketbase",
+      "pocketbase"
+    ],
+    "appwrite": [
+      "appwrite",
+      "appwrite"
+    ],
+    "typesense": [
+      "typesense",
+      "typesense"
+    ],
+    "milvus": [
+      "milvus",
+      "milvus"
+    ],
+    "triton_server": [
+      "nvidia",
+      "triton_inference_server"
+    ],
+    "vllm": [
+      "vllm_project",
+      "vllm"
+    ],
+    "litellm": [
+      "berriai",
+      "litellm"
+    ],
+    "dify": [
+      "langgenius",
+      "dify"
+    ],
+    "authelia": [
+      "authelia",
+      "authelia"
+    ],
+    "authentik": [
+      "goauthentik",
+      "authentik"
+    ],
+    "dex": [
+      "dexidp",
+      "dex"
+    ],
+    "cas": [
+      "apereo",
+      "central_authentication_service"
+    ],
+    "gluu": [
+      "gluu",
+      "gluu_server"
+    ],
+    "wso2_is": [
+      "wso2",
+      "identity_server"
+    ],
+    "wso2_apim": [
+      "wso2",
+      "api_manager"
+    ],
+    "gravitee": [
+      "gravitee",
+      "api_management"
+    ],
+    "tyk": [
+      "tyk",
+      "tyk_gateway"
+    ],
+    "krakend": [
+      "krakend",
+      "krakend"
+    ],
+    "pfsense": [
+      "netgate",
+      "pfsense"
+    ],
+    "opnsense": [
+      "opnsense",
+      "opnsense"
+    ],
+    "vyos": [
+      "vyos",
+      "vyos"
+    ],
+    "frrouting": [
+      "frrouting",
+      "frrouting"
+    ],
+    "bird": [
+      "nic",
+      "bird"
+    ],
+    "keepalived": [
+      "keepalived",
+      "keepalived"
+    ],
+    "corosync": [
+      "corosync",
+      "corosync"
+    ],
+    "ceph": [
+      "ceph",
+      "ceph"
+    ],
+    "glusterfs": [
+      "gluster",
+      "glusterfs"
+    ],
+    "longhorn": [
+      "rancher",
+      "longhorn"
+    ],
+    "velero": [
+      "vmware",
+      "velero"
+    ],
+    "k3s": [
+      "rancher",
+      "k3s"
+    ],
+    "containerd": [
+      "linuxfoundation",
+      "containerd"
+    ],
+    "cri_o": [
+      "kubernetes",
+      "cri-o"
+    ],
+    "fluent_bit": [
+      "treasuredata",
+      "fluent_bit"
+    ],
+    "comfyui": [
+      "comfyanonymous",
+      "comfyui"
+    ],
+    "flowise": [
+      "flowiseai",
+      "flowise"
+    ],
+    "open_webui": [
+      "openwebui",
+      "open-webui"
+    ],
+    "localai": [
+      "mudler",
+      "localai"
+    ],
+    "bentoml": [
+      "bentoml",
+      "bentoml"
+    ],
+    "streamlit": [
+      "snowflake",
+      "streamlit"
+    ],
+    "jupyterhub": [
+      "jupyter",
+      "jupyterhub"
+    ],
+    "anythingllm": [
+      "mintplexlabs",
+      "anythingllm"
+    ],
+    "librechat": [
+      "danny-avila",
+      "librechat"
+    ],
+    "jaeger": [
+      "jaegertracing",
+      "jaeger"
+    ],
+    "zipkin": [
+      "openzipkin",
+      "zipkin"
+    ],
+    "netdata": [
+      "netdata",
+      "netdata"
+    ],
+    "ory_hydra": [
+      "ory",
+      "hydra"
+    ],
+    "ory_kratos": [
+      "ory",
+      "kratos"
+    ],
+    "casdoor": [
+      "casdoor",
+      "casdoor"
+    ],
+    "argo_workflows": [
+      "argoproj",
+      "argo_workflows"
+    ],
+    "tekton": [
+      "tekton",
+      "pipelines"
+    ],
+    "spinnaker": [
+      "spinnaker",
+      "spinnaker"
+    ],
+    "gocd": [
+      "gocd",
+      "gocd"
+    ],
+    "doris": [
+      "apache",
+      "doris"
+    ],
+    "tidb": [
+      "pingcap",
+      "tidb"
+    ],
+    "scylladb": [
+      "scylladb",
+      "scylladb"
+    ],
+    "redpanda": [
+      "redpanda",
+      "redpanda"
+    ],
+    "pulsar": [
+      "apache",
+      "pulsar"
+    ],
+    "temporal": [
+      "temporal",
+      "server"
+    ],
+    "forgejo": [
+      "forgejo",
+      "forgejo"
+    ],
+    "defectdojo": [
+      "owasp",
+      "defectdojo"
+    ],
+    "thanos": [
+      "thanos",
+      "thanos"
+    ],
+    "cortex": [
+      "cortexmetrics",
+      "cortex"
+    ],
+    "alertmanager": [
+      "prometheus",
+      "alertmanager"
+    ],
+    "seaweedfs": [
+      "seaweedfs",
+      "seaweedfs"
+    ],
+    "pinot": [
+      "apache",
+      "pinot"
+    ],
+    "questdb": [
+      "questdb",
+      "questdb"
+    ],
+    "camunda": [
+      "camunda",
+      "camunda_bpm"
+    ],
+    "postgrest": [
+      "postgrest",
+      "postgrest"
+    ],
+    "pyroscope": [
+      "grafana",
+      "pyroscope"
+    ],
+    "vector_obs": [
+      "timberio",
+      "vector"
+    ],
+    "kamailio": [
+      "kamailio",
+      "kamailio"
+    ],
+    "opensips": [
+      "opensips",
+      "opensips"
+    ],
+    "haproxy_dataplane": [
+      "haproxy",
+      "dataplaneapi"
+    ],
+    "opensearch": [
+      "opensearch",
+      "opensearch"
+    ],
+    "hasura": [
+      "hasura",
+      "graphql_engine"
+    ],
+    "teleport": [
+      "goteleport",
+      "teleport"
+    ],
+    "boundary": [
+      "hashicorp",
+      "boundary"
+    ],
+    "headscale": [
+      "juanfont",
+      "headscale"
+    ],
+    "dagster": [
+      "elementl",
+      "dagster"
+    ],
+    "prefect": [
+      "prefect",
+      "prefect"
+    ],
+    "cubejs": [
+      "cube",
+      "cubejs"
+    ],
+    "rundeck": [
+      "pagerduty",
+      "rundeck"
+    ],
+    "openziti": [
+      "netfoundry",
+      "openziti"
+    ]
+  },
+  "curated_cve_advisories": [
+    {
+      "product": "apache",
+      "min": "2.4.49",
+      "max": "2.4.51",
+      "cve": "CVE-2021-41773 / CVE-2021-42013",
+      "title": "Apache HTTP Server 2.4.49–2.4.50 Path Normalization Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-22",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache HTTP Server paketini 2.4.62+ versiyasiga yangilang va katalog ruxsatlarini tekshiring."
+    },
+    {
+      "product": "apache",
+      "min": "2.4.0",
+      "max": "2.4.59",
+      "cve": "CVE-2024-27316",
+      "title": "Outdated Apache HTTP Server (< 2.4.59) Security Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache HTTP Server ni 2.4.62+ reliziga yoki distribyutor security-backport paketiga yangilang."
+    },
+    {
+      "product": "apache",
+      "min": "2.0.0",
+      "max": "2.3.0",
+      "cve": "EOL-APACHE-2.2",
+      "title": "End-of-Life Apache HTTP Server 2.2.x Unsupported Branch",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Qo'llab-quvvatlash to'xtatilgan Apache 2.2 tarmog'idan zamonaviy Apache 2.4 LTS reliziga o'ting."
+    },
+    {
+      "product": "nginx",
+      "min": "0.6.18",
+      "max": "1.20.1",
+      "cve": "CVE-2021-23017",
+      "title": "Outdated nginx (< 1.20.1) DNS Resolver Memory Advisory",
+      "severity": "High",
+      "cvss": 7.7,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-193",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "nginx serverini 1.24+ / 1.26+ barqaror versiyasiga yangilang."
+    },
+    {
+      "product": "nginx",
+      "min": "1.20.1",
+      "max": "1.25.3",
+      "cve": "CVE-2023-44487",
+      "title": "nginx (< 1.25.3) HTTP/2 Stream Reset Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "nginx ni 1.25.3+ / 1.26+ versiyasiga yangilang."
+    },
+    {
+      "product": "openssh",
+      "min": "8.5",
+      "max": "9.8",
+      "cve": "CVE-2024-6387",
+      "title": "OpenSSH (8.5–9.7p1) Signal Handler Race Condition Advisory (regreSSHion)",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-362",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "OpenSSH paketini 9.8p1+ (yoki OS security-patch versiyasiga) yangilang."
+    },
+    {
+      "product": "openssh",
+      "min": "1.0",
+      "max": "8.5",
+      "cve": "CVE-2020-14145 / CVE-2021-41617",
+      "title": "Legacy OpenSSH (< 8.5) Cryptographic & Privilege Escalation Advisory",
+      "severity": "Medium",
+      "cvss": 6.4,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N",
+      "cwe": "CWE-203",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "OpenSSH xizmatini zamonaviy LTS versiyasiga yangilang."
+    },
+    {
+      "product": "php",
+      "min": "8.1.0",
+      "max": "8.1.29",
+      "cve": "CVE-2024-4577",
+      "title": "Outdated PHP 8.1 (< 8.1.29) Runtime Security Advisory",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "PHP tarmog'ini kamida 8.1.29+ (yoki PHP 8.3+) versiyasiga yangilang va `expose_php = Off` o'rnating."
+    },
+    {
+      "product": "php",
+      "min": "8.2.0",
+      "max": "8.2.20",
+      "cve": "CVE-2024-4577",
+      "title": "Outdated PHP 8.2 (< 8.2.20) Runtime Security Advisory",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "PHP 8.2 tarmog'ini 8.2.20+ versiyasiga yangilang va `expose_php = Off` o'rnating."
+    },
+    {
+      "product": "php",
+      "min": "8.3.0",
+      "max": "8.3.8",
+      "cve": "CVE-2024-4577",
+      "title": "Outdated PHP 8.3 (< 8.3.8) Runtime Security Advisory",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "PHP 8.3 tarmog'ini 8.3.8+ versiyasiga yangilang va `expose_php = Off` o'rnating."
+    },
+    {
+      "product": "php",
+      "min": "5.0.0",
+      "max": "8.1.0",
+      "cve": "EOL-PHP-LEGACY",
+      "title": "End-of-Life PHP Runtime (5.x / 7.x / 8.0 Unsupported Branch)",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Xavfsizlik yangilanishlari to'xtatilgan PHP versiyasini PHP 8.2 / 8.3 LTS reliziga yangilang."
+    },
+    {
+      "product": "openssl",
+      "min": "1.0.0",
+      "max": "1.1.1",
+      "cve": "EOL-OPENSSL-1.0",
+      "title": "End-of-Life OpenSSL 1.0.x Cryptographic Library",
+      "severity": "High",
+      "cvss": 7.4,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-1104",
+      "owasp": "A02:2021 - Cryptographic Failures",
+      "remediation": "OpenSSL kutubxonasini OpenSSL 3.x LTS versiyasiga yangilang."
+    },
+    {
+      "product": "openssl",
+      "min": "1.1.1",
+      "max": "1.1.1l",
+      "cve": "CVE-2021-3711",
+      "title": "OpenSSL 1.1.1 (< 1.1.1l) SM2 Decryption Buffer Overflow Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-120",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "OpenSSL 1.1.1 tarmog'ini OpenSSL 3.x LTS versiyasiga yangilang."
+    },
+    {
+      "product": "openssl",
+      "min": "1.1.1",
+      "max": "1.1.2",
+      "cve": "EOL-OPENSSL-1.1.1",
+      "title": "End-of-Life OpenSSL 1.1.1 Cryptographic Library Branch",
+      "severity": "Medium",
+      "cvss": 5.9,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Qo'llab-quvvatlash muddati tugagan OpenSSL 1.1.1 o'rniga OpenSSL 3.x LTS ga o'ting."
+    },
+    {
+      "product": "openssl",
+      "min": "3.0.0",
+      "max": "3.0.7",
+      "cve": "CVE-2022-3602 / CVE-2022-3786",
+      "title": "OpenSSL 3.0.0–3.0.6 X.509 Buffer Overflow Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-120",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "OpenSSL 3.0 kutubxonasini kamida 3.0.7+ (yoki 3.0.14+) versiyasiga yangilang."
+    },
+    {
+      "product": "redis",
+      "min": "2.0.0",
+      "max": "6.2.7",
+      "cve": "CVE-2022-0543",
+      "title": "Outdated Redis Server (< 6.2.7) Security Advisory",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Redis serverini 7.2+ versiyasiga yangilang, ACL/parol yoqing va tashqi tarmoqdan yoping."
+    },
+    {
+      "product": "exim",
+      "min": "4.0.0",
+      "max": "4.96.2",
+      "cve": "CVE-2023-42115",
+      "title": "Outdated Exim MTA (< 4.96.2) Memory Safety Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-787",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Exim pochta serverini 4.97+ versiyasiga yangilang."
+    },
+    {
+      "product": "iis",
+      "min": "6.0",
+      "max": "8.6",
+      "cve": "EOL-IIS-LEGACY",
+      "title": "Legacy Microsoft-IIS (6.0–8.5) End-of-Support Server Branch",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "IIS platformasini qo'llab-quvvatlanadigan IIS 10.0+ versiyasiga migratsiya qiling."
+    },
+    {
+      "product": "postgresql",
+      "min": "9.0",
+      "max": "12.18",
+      "cve": "CVE-2024-0985",
+      "title": "Outdated PostgreSQL (< 12.18 / Legacy Branch) Security Advisory",
+      "severity": "High",
+      "cvss": 8.0,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-269",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "PostgreSQL serverini qo'llab-quvvatlanadigan LTS minor reliziga yangilang."
+    },
+    {
+      "product": "postgresql",
+      "min": "13.0",
+      "max": "13.14",
+      "cve": "CVE-2024-0985",
+      "title": "Outdated PostgreSQL 13 (< 13.14) Security Advisory",
+      "severity": "High",
+      "cvss": 8.0,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-269",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "PostgreSQL 13 tarmog'ini 13.14+ reliziga yangilang."
+    },
+    {
+      "product": "postgresql",
+      "min": "14.0",
+      "max": "14.11",
+      "cve": "CVE-2024-0985",
+      "title": "Outdated PostgreSQL 14 (< 14.11) Security Advisory",
+      "severity": "High",
+      "cvss": 8.0,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-269",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "PostgreSQL 14 tarmog'ini 14.11+ reliziga yangilang."
+    },
+    {
+      "product": "postgresql",
+      "min": "15.0",
+      "max": "15.6",
+      "cve": "CVE-2024-0985",
+      "title": "Outdated PostgreSQL 15 (< 15.6) Security Advisory",
+      "severity": "High",
+      "cvss": 8.0,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-269",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "PostgreSQL 15 tarmog'ini 15.6+ reliziga yangilang."
+    },
+    {
+      "product": "postgresql",
+      "min": "16.0",
+      "max": "16.2",
+      "cve": "CVE-2024-0985",
+      "title": "Outdated PostgreSQL 16 (< 16.2) Security Advisory",
+      "severity": "High",
+      "cvss": 8.0,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-269",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "PostgreSQL 16 tarmog'ini 16.2+ reliziga yangilang."
+    },
+    {
+      "product": "mysql",
+      "min": "5.0.0",
+      "max": "5.8.0",
+      "cve": "EOL-MYSQL-5.X",
+      "title": "End-of-Life MySQL 5.x Unsupported Database Branch",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Qo'llab-quvvatlash to'xtatilgan MySQL 5.x tarmog'ini MySQL 8.0.36+ yoki 8.4 LTS ga yangilang."
+    },
+    {
+      "product": "mysql",
+      "min": "8.0.0",
+      "max": "8.0.36",
+      "cve": "CVE-2024-20960",
+      "title": "Outdated MySQL 8.0 (< 8.0.36) Critical Patch Update Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "MySQL 8.0 serverini 8.0.36+ yoki 8.4 LTS reliziga yangilang."
+    },
+    {
+      "product": "mariadb",
+      "min": "10.0.0",
+      "max": "10.5.24",
+      "cve": "CVE-2023-5157",
+      "title": "Outdated MariaDB (< 10.5.24 / Legacy 10.x) Security Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "MariaDB serverini 10.6.18+ yoki 10.11 LTS versiyasiga yangilang."
+    },
+    {
+      "product": "mariadb",
+      "min": "10.6.0",
+      "max": "10.6.17",
+      "cve": "CVE-2023-5157",
+      "title": "Outdated MariaDB 10.6 (< 10.6.17) Security Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "MariaDB 10.6 LTS tarmog'ini 10.6.18+ reliziga yangilang."
+    },
+    {
+      "product": "postfix",
+      "min": "2.0.0",
+      "max": "3.5.24",
+      "cve": "CVE-2023-51764",
+      "title": "Outdated Postfix MTA (< 3.5.24) SMTP Smuggling Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+      "cwe": "CWE-444",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Postfix paketini 3.5.24+ reliziga yangilang yoki `smtpd_forbid_bare_newline = yes` sozlamasini yoqing."
+    },
+    {
+      "product": "postfix",
+      "min": "3.6.0",
+      "max": "3.6.13",
+      "cve": "CVE-2023-51764",
+      "title": "Outdated Postfix 3.6 (< 3.6.13) SMTP Smuggling Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+      "cwe": "CWE-444",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Postfix 3.6 tarmog'ini 3.6.13+ reliziga yangilang."
+    },
+    {
+      "product": "postfix",
+      "min": "3.7.0",
+      "max": "3.7.9",
+      "cve": "CVE-2023-51764",
+      "title": "Outdated Postfix 3.7 (< 3.7.9) SMTP Smuggling Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+      "cwe": "CWE-444",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Postfix 3.7 tarmog'ini 3.7.9+ reliziga yangilang."
+    },
+    {
+      "product": "postfix",
+      "min": "3.8.0",
+      "max": "3.8.4",
+      "cve": "CVE-2023-51764",
+      "title": "Outdated Postfix 3.8 (< 3.8.4) SMTP Smuggling Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+      "cwe": "CWE-444",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Postfix 3.8 tarmog'ini 3.8.4+ reliziga yangilang."
+    },
+    {
+      "product": "spring_boot",
+      "min": "2.0.0",
+      "max": "2.6.6",
+      "cve": "CVE-2022-22965",
+      "title": "Spring Boot (< 2.6.6) Data Binding Security Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-94",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Spring Boot tarmog'ini 2.7.18+ yoki 3.2+ LTS versiyasiga yangilang."
+    },
+    {
+      "product": "spring_boot",
+      "min": "2.6.6",
+      "max": "2.7.18",
+      "cve": "CVE-2023-34055",
+      "title": "Outdated Spring Boot 2.x (< 2.7.18) End-of-OSS-Support Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Spring Boot 2.x OSS qo'llab-quvvatlashi yakunlangan — Spring Boot 3.2+ / 3.3+ ga o'ting."
+    },
+    {
+      "product": "spring_boot",
+      "min": "3.0.0",
+      "max": "3.1.6",
+      "cve": "CVE-2023-34055",
+      "title": "Outdated Spring Boot 3.0/3.1 (< 3.1.6) Security Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Spring Boot 3.x tarmog'ini 3.2.5+ / 3.3+ versiyasiga yangilang."
+    },
+    {
+      "product": "spring_framework",
+      "min": "5.0.0",
+      "max": "5.3.18",
+      "cve": "CVE-2022-22965",
+      "title": "Spring Framework (< 5.3.18) Data Binding Security Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-94",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Spring Framework kutubxonasini 5.3.34+ yoki 6.1+ versiyasiga yangilang."
+    },
+    {
+      "product": "nextjs",
+      "min": "10.0.0",
+      "max": "13.5.7",
+      "cve": "CVE-2024-34351",
+      "title": "Outdated Next.js (< 13.5.7 / Legacy 10–13) Server-Side Handling Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-918",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Next.js freymvorkini 14.1.1+ yoki 14.2+ barqaror versiyasiga yangilang."
+    },
+    {
+      "product": "nextjs",
+      "min": "14.0.0",
+      "max": "14.1.1",
+      "cve": "CVE-2024-34351",
+      "title": "Next.js 14 (< 14.1.1) Server-Side Redirect Handling Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-918",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Next.js 14 tarmog'ini 14.1.1+ yoki 14.2+ reliziga yangilang."
+    },
+    {
+      "product": "tomcat",
+      "min": "7.0.0",
+      "max": "9.0.86",
+      "cve": "CVE-2024-24549 / CVE-2024-23672",
+      "title": "Outdated Apache Tomcat (< 9.0.86 / Legacy 7.x–8.5.x) Security Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache Tomcat serverini 9.0.86+, 10.1.19+ yoki 11.x barqaror versiyasiga yangilang."
+    },
+    {
+      "product": "tomcat",
+      "min": "10.0.0",
+      "max": "10.1.19",
+      "cve": "CVE-2024-24549",
+      "title": "Outdated Apache Tomcat 10 (< 10.1.19) HTTP/2 Header Handling Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache Tomcat 10 tarmog'ini 10.1.19+ versiyasiga yangilang."
+    },
+    {
+      "product": "jquery",
+      "min": "1.0.0",
+      "max": "3.5.0",
+      "cve": "CVE-2020-11022 / CVE-2020-11023",
+      "title": "Outdated jQuery (< 3.5.0) DOM HTML Prefilter Advisory",
+      "severity": "Medium",
+      "cvss": 6.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+      "cwe": "CWE-79",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Frontend jQuery kutubxonasini 3.7.1+ versiyasiga yangilang."
+    },
+    {
+      "product": "memcached",
+      "min": "1.0.0",
+      "max": "1.6.22",
+      "cve": "CVE-2023-46852",
+      "title": "Outdated Memcached (< 1.6.22) Buffer Handling Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-120",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Memcached xizmatini 1.6.22+ versiyasiga yangilang va lokal interfeysga bog'lang."
+    },
+    {
+      "product": "mongodb",
+      "min": "2.0.0",
+      "max": "5.0.0",
+      "cve": "EOL-MONGODB-LEGACY",
+      "title": "End-of-Life MongoDB (2.x–4.x) Unsupported Database Branch",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "MongoDB serverini qo'llab-quvvatlanadigan 6.0.14+ yoki 7.0.6+ LTS versiyasiga yangilang."
+    },
+    {
+      "product": "mongodb",
+      "min": "5.0.0",
+      "max": "5.0.25",
+      "cve": "CVE-2024-1351",
+      "title": "Outdated MongoDB 5.0 (< 5.0.25) Certificate Validation Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:N",
+      "cwe": "CWE-295",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "MongoDB 5.0 tarmog'ini 5.0.25+ yoki 7.0+ LTS ga yangilang."
+    },
+    {
+      "product": "mongodb",
+      "min": "6.0.0",
+      "max": "6.0.14",
+      "cve": "CVE-2024-1351",
+      "title": "Outdated MongoDB 6.0 (< 6.0.14) Certificate Validation Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:N",
+      "cwe": "CWE-295",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "MongoDB 6.0 tarmog'ini 6.0.14+ versiyasiga yangilang."
+    },
+    {
+      "product": "elasticsearch",
+      "min": "1.0.0",
+      "max": "7.17.18",
+      "cve": "CVE-2024-23446",
+      "title": "Outdated Elasticsearch (< 7.17.18) Security Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Elasticsearch klasterini 7.17.18+ yoki 8.12.2+ versiyasiga yangilang."
+    },
+    {
+      "product": "elasticsearch",
+      "min": "8.0.0",
+      "max": "8.12.1",
+      "cve": "CVE-2024-23446",
+      "title": "Outdated Elasticsearch 8 (< 8.12.1) Security Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Elasticsearch 8 tarmog'ini 8.12.2+ versiyasiga yangilang."
+    },
+    {
+      "product": "proftpd",
+      "min": "1.0.0",
+      "max": "1.3.8b",
+      "cve": "CVE-2023-48795",
+      "title": "Outdated ProFTPD (< 1.3.8b) Prefix Truncation Advisory",
+      "severity": "Medium",
+      "cvss": 5.9,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:N",
+      "cwe": "CWE-354",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "ProFTPD xizmatini 1.3.8b+ versiyasiga yangilang."
+    },
+    {
+      "product": "vsftpd",
+      "min": "1.0.0",
+      "max": "3.0.4",
+      "cve": "CVE-2021-3618",
+      "title": "Outdated vsFTPd (< 3.0.4) ALPACA TLS Enforcement Advisory",
+      "severity": "Medium",
+      "cvss": 5.3,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:L/A:N",
+      "cwe": "CWE-295",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "vsFTPd xizmatini 3.0.5+ versiyasiga yangilang yoki SFTP/SSH ga o'ting."
+    },
+    {
+      "product": "dovecot",
+      "min": "1.0.0",
+      "max": "2.3.21",
+      "cve": "CVE-2022-30550",
+      "title": "Outdated Dovecot (< 2.3.21) Privilege Separation Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-269",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Dovecot IMAP/POP3 serverini 2.3.21+ versiyasiga yangilang."
+    },
+    {
+      "product": "vsftpd",
+      "min": "2.3.4",
+      "max": "2.3.5",
+      "cve": "CVE-2011-2523",
+      "title": "Legacy vsFTPd 2.3.4 Compromised Release Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-506",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "vsFTPd 2.3.4 paketini darhol rasmiy 3.0.5+ versiyasiga yoki OpenSSH SFTP ga almashtiring."
+    },
+    {
+      "product": "mongodb",
+      "min": "7.0.0",
+      "max": "7.0.6",
+      "cve": "CVE-2024-1351",
+      "title": "Outdated MongoDB 7.0 (< 7.0.6) Certificate Validation Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:N",
+      "cwe": "CWE-295",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "MongoDB 7.0 tarmog'ini 7.0.6+ versiyasiga yangilang."
+    },
+    {
+      "product": "jetty",
+      "min": "7.0.0",
+      "max": "9.4.54",
+      "cve": "CVE-2024-22201",
+      "title": "Outdated Eclipse Jetty (< 9.4.54 / Legacy 7–9) HTTP/2 Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Eclipse Jetty serverini 9.4.54+, 10.0.20+, 11.0.20+ yoki 12.x versiyasiga yangilang."
+    },
+    {
+      "product": "jetty",
+      "min": "10.0.0",
+      "max": "10.0.20",
+      "cve": "CVE-2024-22201",
+      "title": "Outdated Eclipse Jetty 10 (< 10.0.20) HTTP/2 Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Eclipse Jetty 10 tarmog'ini 10.0.20+ yoki 12.x versiyasiga yangilang."
+    },
+    {
+      "product": "jetty",
+      "min": "11.0.0",
+      "max": "11.0.20",
+      "cve": "CVE-2024-22201",
+      "title": "Outdated Eclipse Jetty 11 (< 11.0.20) HTTP/2 Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Eclipse Jetty 11 tarmog'ini 11.0.20+ yoki 12.x versiyasiga yangilang."
+    },
+    {
+      "product": "nodejs",
+      "min": "8.0.0",
+      "max": "18.0.0",
+      "cve": "EOL-NODEJS-LEGACY",
+      "title": "End-of-Life Node.js (< 18.0.0) Unsupported Runtime Branch",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Node.js muhitini qo'llab-quvvatlanadigan Node.js 20 LTS yoki 22 LTS ga yangilang."
+    },
+    {
+      "product": "nodejs",
+      "min": "18.0.0",
+      "max": "18.20.1",
+      "cve": "CVE-2024-27983",
+      "title": "Outdated Node.js 18 (< 18.20.1) HTTP/2 Frame Handling Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Node.js 18 tarmog'ini 18.20.2+ yoki 20/22 LTS versiyasiga yangilang."
+    },
+    {
+      "product": "nodejs",
+      "min": "20.0.0",
+      "max": "20.12.1",
+      "cve": "CVE-2024-27983",
+      "title": "Outdated Node.js 20 (< 20.12.1) HTTP/2 Frame Handling Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Node.js 20 LTS tarmog'ini 20.12.2+ versiyasiga yangilang."
+    },
+    {
+      "product": "wordpress",
+      "min": "3.0.0",
+      "max": "6.4.3",
+      "cve": "CVE-2024-31210",
+      "title": "Outdated WordPress Core (< 6.4.3) Security Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "WordPress yadrosini eng so'nggi 6.5+ / 6.6+ xavfsizlik reliziga yangilang."
+    },
+    {
+      "product": "drupal",
+      "min": "6.0.0",
+      "max": "10.0.0",
+      "cve": "EOL-DRUPAL-LEGACY",
+      "title": "End-of-Life Drupal (6.x–9.x) Unsupported CMS Branch",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Qo'llab-quvvatlash tugagan Drupal versiyasini Drupal 10.2.2+ yoki 11.x ga yangilang."
+    },
+    {
+      "product": "drupal",
+      "min": "10.0.0",
+      "max": "10.2.2",
+      "cve": "CVE-2024-22650",
+      "title": "Outdated Drupal 10 (< 10.2.2) Security Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Drupal 10 tarmog'ini 10.2.2+ versiyasiga yangilang."
+    },
+    {
+      "product": "joomla",
+      "min": "1.5.0",
+      "max": "4.2.8",
+      "cve": "CVE-2023-23752",
+      "title": "Joomla (< 4.2.8) Unauthenticated REST API Information Disclosure",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "Joomla CMS tizimini 4.2.8+ yoki 5.x xavfsizlik reliziga yangilang."
+    },
+    {
+      "product": "moodle",
+      "min": "3.0.0",
+      "max": "4.1.12",
+      "cve": "CVE-2024-43425",
+      "title": "Outdated Moodle LMS (< 4.1.12 LTS) Security Advisory",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-94",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Moodle LMS platformasini 4.1.12+ LTS yoki 4.4+ versiyasiga yangilang."
+    },
+    {
+      "product": "bitrix",
+      "min": "14.0.0",
+      "max": "23.300.100",
+      "cve": "CVE-2023-1718",
+      "title": "Outdated 1C-Bitrix Site Manager (< 23.300.100) Security Advisory",
+      "severity": "Critical",
+      "cvss": 9.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-287",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "1C-Bitrix yadrosini eng oxirgi versiyaga yangilang."
+    },
+    {
+      "product": "datalife_engine",
+      "min": "9.0.0",
+      "max": "16.1.0",
+      "cve": "CVE-2023-34843",
+      "title": "Outdated DataLife Engine (< 16.1) CMS Security Advisory",
+      "severity": "High",
+      "cvss": 7.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-89",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "DataLife Engine (DLE) tizimini 17.x+ xavfsizlik reliziga yangilang."
+    },
+    {
+      "product": "ojs",
+      "min": "2.4.0",
+      "max": "3.3.0",
+      "cve": "CVE-2022-39059",
+      "title": "Outdated Open Journal Systems (< 3.3.0) Security Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-22",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "PKP Open Journal Systems (OJS) ni 3.3.0-16+ yoki 3.4+ versiyasiga yangilang."
+    },
+    {
+      "product": "grafana",
+      "min": "8.0.0",
+      "max": "8.3.1",
+      "cve": "CVE-2021-43798",
+      "title": "Grafana (8.0.0–8.3.0) Plugin Asset Path Traversal Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-22",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "Grafana xizmatini 10.4+ yoki 11.x LTS versiyasiga yangilang."
+    },
+    {
+      "product": "grafana",
+      "min": "8.3.1",
+      "max": "10.4.2",
+      "cve": "CVE-2024-9264",
+      "title": "Outdated Grafana (< 10.4.2) Expression & Auth Advisory",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-94",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Grafana xizmatini 10.4.10+ yoki 11.2+ xavfsizlik reliziga yangilang."
+    },
+    {
+      "product": "zabbix",
+      "min": "4.0.0",
+      "max": "6.0.31",
+      "cve": "CVE-2024-22120",
+      "title": "Outdated Zabbix (< 6.0.31 LTS) Server/Frontend Advisory",
+      "severity": "Critical",
+      "cvss": 9.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+      "cwe": "CWE-89",
+      "owasp": "A03:2021 - Injection",
+      "remediation": "Zabbix monitoring tizimini 6.0.32+ LTS yoki 7.0+ LTS ga yangilang."
+    },
+    {
+      "product": "gitlab",
+      "min": "11.0.0",
+      "max": "16.7.2",
+      "cve": "CVE-2023-7028",
+      "title": "GitLab (< 16.7.2) Password Reset Account Takeover Advisory",
+      "severity": "Critical",
+      "cvss": 10.0,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+      "cwe": "CWE-640",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "remediation": "GitLab CE/EE instansiyasini 16.11+ yoki 17.x versiyasiga yangilang."
+    },
+    {
+      "product": "jenkins",
+      "min": "2.0.0",
+      "max": "2.442.0",
+      "cve": "CVE-2024-23897",
+      "title": "Jenkins (< 2.442) CLI Argument File Read Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-22",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Jenkins LTS versiyasini 2.452.4+ reliziga yangilang va CLI kirishni cheklang."
+    },
+    {
+      "product": "keycloak",
+      "min": "15.0.0",
+      "max": "24.0.3",
+      "cve": "CVE-2024-3656",
+      "title": "Outdated Keycloak (< 24.0.3) OIDC/Redirect Validation Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:L/A:N",
+      "cwe": "CWE-601",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "remediation": "Keycloak IAM serverini 24.0.5+ yoki 25.x+ versiyasiga yangilang."
+    },
+    {
+      "product": "harbor",
+      "min": "2.0.0",
+      "max": "2.10.2",
+      "cve": "CVE-2024-22278",
+      "title": "Outdated Harbor Registry (< 2.10.2) Access Control Advisory",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "Harbor Container Registry ni 2.10.3+ yoki 2.11+ ga yangilang."
+    },
+    {
+      "product": "nexus",
+      "min": "3.0.0",
+      "max": "3.68.1",
+      "cve": "CVE-2024-4956",
+      "title": "Sonatype Nexus Repository 3 (< 3.68.1) Path Traversal Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-22",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "Sonatype Nexus Repository Manager ni 3.68.1+ versiyasiga yangilang."
+    },
+    {
+      "product": "rabbitmq",
+      "min": "3.8.0",
+      "max": "3.12.6",
+      "cve": "CVE-2023-46118",
+      "title": "Outdated RabbitMQ (< 3.12.6) Management API Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "RabbitMQ brokerini 3.12.14+ yoki 3.13+ versiyasiga yangilang."
+    },
+    {
+      "product": "haproxy",
+      "min": "2.0.0",
+      "max": "2.8.2",
+      "cve": "CVE-2023-40225",
+      "title": "HAProxy (< 2.8.2) HTTP Request Parsing Advisory",
+      "severity": "High",
+      "cvss": 8.2,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:N",
+      "cwe": "CWE-444",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "HAProxy balanslovchisini 2.8.10+ LTS yoki 3.0+ versiyasiga yangilang."
+    },
+    {
+      "product": "traefik",
+      "min": "2.0.0",
+      "max": "2.11.2",
+      "cve": "CVE-2024-28869",
+      "title": "Traefik Proxy (< 2.11.2) HTTP/2 Resource Handling Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Traefik reverse-proxy ni 2.11.6+ yoki 3.1+ versiyasiga yangilang."
+    },
+    {
+      "product": "envoy",
+      "min": "1.18.0",
+      "max": "1.29.3",
+      "cve": "CVE-2024-30255",
+      "title": "Envoy Proxy (< 1.29.3) HTTP/2 CONTINUATION Flood Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Envoy Proxy ni 1.29.7+ yoki 1.31+ versiyasiga yangilang."
+    },
+    {
+      "product": "laravel",
+      "min": "6.0.0",
+      "max": "10.0.0",
+      "cve": "EOL-LARAVEL-LEGACY",
+      "title": "End-of-Life Laravel Framework (< 10.x) Unsupported Release",
+      "severity": "Medium",
+      "cvss": 5.9,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Laravel freymvorkini qo'llab-quvvatlanadigan 10.x LTS yoki 11.x versiyasiga ko'taring."
+    },
+    {
+      "product": "django",
+      "min": "1.0.0",
+      "max": "4.2.15",
+      "cve": "CVE-2024-42005",
+      "title": "Outdated Django (< 4.2.15 LTS) QuerySet Advisory",
+      "severity": "Critical",
+      "cvss": 9.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-89",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Django freymvorkini 4.2.16+ LTS yoki 5.1+ xavfsizlik reliziga yangilang."
+    },
+    {
+      "product": "symfony",
+      "min": "2.0.0",
+      "max": "6.4.4",
+      "cve": "CVE-2024-25119",
+      "title": "Outdated Symfony (< 6.4.4 LTS) Security Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-200",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Symfony freymvorkini 6.4.12+ LTS yoki 7.1+ versiyasiga yangilang."
+    },
+    {
+      "product": "struts",
+      "min": "2.0.0",
+      "max": "6.3.1",
+      "cve": "CVE-2023-50164",
+      "title": "Apache Struts (< 6.3.0.2) File Upload Path Traversal Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-22",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache Struts ni 6.3.0.2+ yoki 6.4+ versiyasiga zudlik bilan yangilang."
+    },
+    {
+      "product": "confluence",
+      "min": "6.0.0",
+      "max": "8.5.4",
+      "cve": "CVE-2023-22527",
+      "title": "Atlassian Confluence (< 8.5.4) Template Advisory",
+      "severity": "Critical",
+      "cvss": 10.0,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+      "cwe": "CWE-94",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Atlassian Confluence Data Center ni 8.5.5+ LTS yoki 8.9+ versiyasiga yangilang."
+    },
+    {
+      "product": "jira",
+      "min": "7.0.0",
+      "max": "9.12.2",
+      "cve": "CVE-2024-1597",
+      "title": "Outdated Atlassian Jira (< 9.12.2 LTS) Security Advisory",
+      "severity": "High",
+      "cvss": 7.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Atlassian Jira Server/DC ni 9.12.10+ LTS versiyasiga yangilang."
+    },
+    {
+      "product": "sonarqube",
+      "min": "8.0.0",
+      "max": "9.9.5",
+      "cve": "CVE-2024-43208",
+      "title": "Outdated SonarQube (< 9.9.5 LTA) Security Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-200",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "SonarQube platformasini 9.9.6+ LTA yoki 10.6+ versiyasiga yangilang."
+    },
+    {
+      "product": "argocd",
+      "min": "2.0.0",
+      "max": "2.10.10",
+      "cve": "CVE-2024-31989",
+      "title": "Argo CD (< 2.10.10) Redis Cache Advisory",
+      "severity": "Critical",
+      "cvss": 9.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N",
+      "cwe": "CWE-287",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Argo CD ni 2.10.12+ yoki 2.12+ versiyasiga yangilang."
+    },
+    {
+      "product": "fortios",
+      "min": "6.0.0",
+      "max": "7.4.3",
+      "cve": "CVE-2024-21762",
+      "title": "Fortinet FortiOS (< 7.4.3) SSL-VPN Out-of-Bounds Write Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-787",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "FortiOS tizimini 7.4.4+ versiyasiga zudlik bilan yangilang va SSL-VPN ni cheklang."
+    },
+    {
+      "product": "routeros",
+      "min": "6.0.0",
+      "max": "7.12.1",
+      "cve": "CVE-2023-30799",
+      "title": "MikroTik RouterOS (< 7.12.1) Management Interface Advisory",
+      "severity": "High",
+      "cvss": 8.2,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-1104",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "MikroTik RouterOS ni 7.15+ Stable versiyasiga yangilang va Winbox/WebFig ni ichki tarmoqqa cheklang."
+    },
+    {
+      "product": "citrix_adc",
+      "min": "12.0.0",
+      "max": "14.1.12",
+      "cve": "CVE-2023-4966",
+      "title": "Citrix NetScaler ADC (< 14.1) Session Memory Disclosure Advisory",
+      "severity": "Critical",
+      "cvss": 9.4,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+      "cwe": "CWE-119",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Citrix NetScaler ADC qurilmasini eng so'nggi xavfsizlik buildiga yangilang."
+    },
+    {
+      "product": "vmware_esxi",
+      "min": "6.5.0",
+      "max": "8.0.2",
+      "cve": "CVE-2024-37085",
+      "title": "VMware ESXi (< 8.0 U2) AD Integration & Hypervisor Advisory",
+      "severity": "High",
+      "cvss": 8.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-287",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "VMware ESXi gipervizorini 8.0 U3+ xavfsizlik yamoqlari bilan yangilang va boshqaruv interfeysini izolyatsiya qiling."
+    },
+    {
+      "product": "litespeed",
+      "min": "1.0.0",
+      "max": "1.7.19",
+      "cve": "CVE-2024-23952",
+      "title": "Outdated OpenLiteSpeed / LiteSpeed (< 1.7.19) HTTP Handling Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "LiteSpeed veb-serverini 1.8.1+ barqaror reliziga yangilang."
+    },
+    {
+      "product": "squid",
+      "min": "2.0.0",
+      "max": "6.6.0",
+      "cve": "CVE-2023-46846",
+      "title": "Outdated Squid Proxy (< 6.6) Chunked Request Parsing Advisory",
+      "severity": "High",
+      "cvss": 8.6,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:N/I:H/A:N",
+      "cwe": "CWE-444",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Squid kesh-proksi serverini 6.6+ xavfsizlik versiyasiga yangilang."
+    },
+    {
+      "product": "varnish",
+      "min": "4.0.0",
+      "max": "7.4.3",
+      "cve": "CVE-2024-30156",
+      "title": "Outdated Varnish Cache (< 7.4.3) HTTP/2 Continuation Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Varnish Cache serverini 7.4.3+ / 7.5+ versiyasiga yangilang."
+    },
+    {
+      "product": "bind",
+      "min": "9.0.0",
+      "max": "9.18.28",
+      "cve": "CVE-2024-1737",
+      "title": "ISC BIND 9 (< 9.18.28) DNS Database Resolver Resource Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "ISC BIND DNS paketini 9.18.28+ yoki 9.20+ reliziga yangilang."
+    },
+    {
+      "product": "zimbra",
+      "min": "8.0.0",
+      "max": "10.0.8",
+      "cve": "CVE-2024-27443",
+      "title": "Outdated Zimbra Collaboration Suite (< 10.0.8) Webmail Advisory",
+      "severity": "High",
+      "cvss": 7.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:L/A:N",
+      "cwe": "CWE-79",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Zimbra Collaboration yamoqlarini eng oxirgi Patch darajasiga yangilang."
+    },
+    {
+      "product": "roundcube",
+      "min": "1.0.0",
+      "max": "1.6.8",
+      "cve": "CVE-2024-42009",
+      "title": "Roundcube Webmail (< 1.6.8) Message Sanitization Advisory",
+      "severity": "High",
+      "cvss": 8.2,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:L/A:N",
+      "cwe": "CWE-79",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Roundcube Webmail tizimini 1.6.8+ yoki 1.5.8+ LTS reliziga yangilang."
+    },
+    {
+      "product": "kibana",
+      "min": "7.0.0",
+      "max": "8.15.1",
+      "cve": "CVE-2024-37287",
+      "title": "Elastic Kibana (< 8.15.1) Prototype Configuration Advisory",
+      "severity": "Critical",
+      "cvss": 9.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-1321",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Elastic Kibana platformasini 8.15.1+ xavfsizlik reliziga yangilang."
+    },
+    {
+      "product": "solr",
+      "min": "5.0.0",
+      "max": "9.4.1",
+      "cve": "CVE-2023-50298",
+      "title": "Apache Solr (< 9.4.1) ConfigSet Environment Disclosure Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-200",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache Solr tizimini 9.4.1+ / 9.6+ versiyasiga yangilang."
+    },
+    {
+      "product": "couchdb",
+      "min": "2.0.0",
+      "max": "3.3.2",
+      "cve": "CVE-2023-26268",
+      "title": "Apache CouchDB (< 3.3.2) Document Design Isolation Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-200",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache CouchDB serverini 3.3.3+ reliziga yangilang."
+    },
+    {
+      "product": "owncloud",
+      "min": "10.0.0",
+      "max": "10.13.4",
+      "cve": "CVE-2023-49103",
+      "title": "ownCloud (< 10.13.4) GraphAPI Environment Configuration Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-200",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "ownCloud tizimini 10.13.4+ / 10.14+ reliziga yangilang va graphapi test fayllarini o'chiring."
+    },
+    {
+      "product": "nextcloud",
+      "min": "20.0.0",
+      "max": "28.0.4",
+      "cve": "CVE-2024-32658",
+      "title": "Outdated Nextcloud Server (< 28.0.4) Access Control Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "Nextcloud Server platformasini 28.0.6+ yoki 29.x+ versiyasiga yangilang."
+    },
+    {
+      "product": "gitea",
+      "min": "1.0.0",
+      "max": "1.21.11",
+      "cve": "CVE-2024-6886",
+      "title": "Outdated Gitea (< 1.21.11) Repository Permission Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:L/A:N",
+      "cwe": "CWE-79",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Gitea Git xizmatini 1.22.1+ barqaror versiyasiga yangilang."
+    },
+    {
+      "product": "mattermost",
+      "min": "7.0.0",
+      "max": "9.5.6",
+      "cve": "CVE-2024-5146",
+      "title": "Outdated Mattermost Server (< 9.5.6) Channel Authorization Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "Mattermost Server ni 9.5.6+ ESR yoki 9.9+ versiyasiga yangilang."
+    },
+    {
+      "product": "rocketchat",
+      "min": "3.0.0",
+      "max": "6.6.6",
+      "cve": "CVE-2024-22205",
+      "title": "Outdated Rocket.Chat (< 6.6.6) Collaboration Server Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Rocket.Chat serverini 6.7+ LTS xavfsizlik reliziga yangilang."
+    },
+    {
+      "product": "mediawiki",
+      "min": "1.30.0",
+      "max": "1.41.1",
+      "cve": "CVE-2024-34502",
+      "title": "Outdated MediaWiki (< 1.41.1) SpecialPage Rendering Advisory",
+      "severity": "Medium",
+      "cvss": 6.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+      "cwe": "CWE-79",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "MediaWiki tizimini 1.41.2+ yoki 1.39.8+ LTS versiyasiga yangilang."
+    },
+    {
+      "product": "strapi",
+      "min": "3.0.0",
+      "max": "4.20.2",
+      "cve": "CVE-2024-34065",
+      "title": "Outdated Strapi Headless CMS (< 4.20.2) Session Handling Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-287",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "remediation": "Strapi paketlarini 4.24+ versiyasiga yangilang."
+    },
+    {
+      "product": "directus",
+      "min": "9.0.0",
+      "max": "10.10.5",
+      "cve": "CVE-2024-32872",
+      "title": "Outdated Directus (< 10.10.5) Access Token Policy Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-287",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "remediation": "Directus platformasini 10.11+ versiyasiga yangilang."
+    },
+    {
+      "product": "dnsmasq",
+      "min": "2.0.0",
+      "max": "2.90.0",
+      "cve": "CVE-2023-50387",
+      "title": "Outdated Dnsmasq (< 2.90) DNSSEC KeyTrap Resource Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Dnsmasq xizmatini 2.90+ yamoqli reliziga yangilang."
+    },
+    {
+      "product": "powerdns",
+      "min": "4.0.0",
+      "max": "4.8.6",
+      "cve": "CVE-2023-50868",
+      "title": "Outdated PowerDNS (< 4.8.6) NSEC3 Validation Resource Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "PowerDNS paketini 4.8.6+ yoki 4.9.1+ versiyasiga yangilang."
+    },
+    {
+      "product": "activemq",
+      "min": "5.0.0",
+      "max": "5.18.3",
+      "cve": "CVE-2023-46604",
+      "title": "Apache ActiveMQ (< 5.18.3) OpenWire Class Instantiation Advisory",
+      "severity": "Critical",
+      "cvss": 10.0,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-502",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache ActiveMQ brokerini 5.18.3+ yoki 6.0+ versiyasiga zudlik bilan yangilang."
+    },
+    {
+      "product": "superset",
+      "min": "1.0.0",
+      "max": "2.1.2",
+      "cve": "CVE-2023-27524",
+      "title": "Apache Superset (< 2.1.2) Default SECRET_KEY Session Validation Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-798",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "remediation": "Apache Superset ni 3.1+ versiyasiga yangilang va tasodifiy SECRET_KEY belgilang."
+    },
+    {
+      "product": "metabase",
+      "min": "0.30.0",
+      "max": "0.46.6",
+      "cve": "CVE-2023-38646",
+      "title": "Metabase BI (< 0.46.6.1) Pre-Auth Setup Token Validation Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-306",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Metabase BI tizimini 0.46.6.1+ yoki 0.49+ versiyasiga yangilang."
+    },
+    {
+      "product": "airflow",
+      "min": "2.0.0",
+      "max": "2.8.2",
+      "cve": "CVE-2024-27905",
+      "title": "Outdated Apache Airflow (< 2.8.2) DAG Configuration Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-200",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache Airflow orkestratorini 2.8.4+ / 2.9+ versiyasiga yangilang."
+    },
+    {
+      "product": "apisix",
+      "min": "2.0.0",
+      "max": "3.8.0",
+      "cve": "CVE-2023-49070",
+      "title": "Outdated Apache APISIX (< 3.8.0) Gateway Policy Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache APISIX shlyuzini 3.9+ LTS versiyasiga yangilang."
+    },
+    {
+      "product": "ollama",
+      "min": "0.1.0",
+      "max": "0.1.34",
+      "cve": "CVE-2024-37032",
+      "title": "Ollama (< 0.1.34) Model Path Validation Advisory",
+      "severity": "Critical",
+      "cvss": 9.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-22",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Ollama xizmatini 0.1.34+ / 0.3+ versiyasiga yangilang va loopback interfeysga bog'lang."
+    },
+    {
+      "product": "mlflow",
+      "min": "1.0.0",
+      "max": "2.11.3",
+      "cve": "CVE-2024-2928",
+      "title": "MLflow (< 2.11.3) Artifact URI Traversal Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-22",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "MLflow platformasini 2.12.1+ versiyasiga yangilang va autentifikatsiyani yoqing."
+    },
+    {
+      "product": "qdrant",
+      "min": "1.0.0",
+      "max": "1.9.0",
+      "cve": "CVE-2024-3829",
+      "title": "Qdrant Vector DB (< 1.9.0) Snapshot Upload Validation Advisory",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:N",
+      "cwe": "CWE-22",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Qdrant serverini 1.9.0+ versiyasiga yangilang va API key o'rnating."
+    },
+    {
+      "product": "flink",
+      "min": "1.11.0",
+      "max": "1.18.1",
+      "cve": "CVE-2023-47891",
+      "title": "Outdated Apache Flink (< 1.18.1) Cluster REST Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-200",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache Flink klasterini 1.18.1+ / 1.19+ reliziga yangilang."
+    },
+    {
+      "product": "spark",
+      "min": "3.0.0",
+      "max": "3.5.1",
+      "cve": "CVE-2023-32007",
+      "title": "Apache Spark (< 3.5.1) UI ACL Command Handling Advisory",
+      "severity": "High",
+      "cvss": 8.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-78",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache Spark tizimini 3.5.1+ reliziga yangilang."
+    },
+    {
+      "product": "nomad",
+      "min": "1.0.0",
+      "max": "1.7.6",
+      "cve": "CVE-2024-3251",
+      "title": "HashiCorp Nomad (< 1.7.6) ACL Policy Validation Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "HashiCorp Nomad paketini 1.7.6+ versiyasiga yangilang."
+    },
+    {
+      "product": "rancher",
+      "min": "2.6.0",
+      "max": "2.8.3",
+      "cve": "CVE-2023-32191",
+      "title": "SUSE Rancher (< 2.8.3) Kubernetes Secret Handling Advisory",
+      "severity": "Critical",
+      "cvss": 9.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H",
+      "cwe": "CWE-200",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "SUSE Rancher boshqaruv serverini 2.8.4+ versiyasiga yangilang."
+    },
+    {
+      "product": "webmin",
+      "min": "1.900",
+      "max": "2.105",
+      "cve": "CVE-2023-40224",
+      "title": "Outdated Webmin (< 2.105) Administrative Session Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Webmin boshqaruv paketini 2.111+ reliziga yangilang."
+    },
+    {
+      "product": "paloalto_panos",
+      "min": "10.2.0",
+      "max": "11.1.3",
+      "cve": "CVE-2024-3400",
+      "title": "Palo Alto PAN-OS GlobalProtect Gateway Telemetry Advisory",
+      "severity": "Critical",
+      "cvss": 10.0,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+      "cwe": "CWE-77",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "PAN-OS dasturiy ta'minotini xavfsizlik reliziga yangilang."
+    },
+    {
+      "product": "ivanti_connect_secure",
+      "min": "9.0.0",
+      "max": "22.6.2",
+      "cve": "CVE-2024-21887",
+      "title": "Ivanti Connect Secure Gateway Web Component Advisory",
+      "severity": "Critical",
+      "cvss": 9.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-78",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Ivanti Connect Secure tizimini 22.7R1+ versiyasiga yangilang."
+    },
+    {
+      "product": "f5_bigip",
+      "min": "13.1.0",
+      "max": "17.1.1",
+      "cve": "CVE-2023-46747",
+      "title": "F5 BIG-IP TMUI Configuration Utility Auth Bypass Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-287",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "F5 BIG-IP ni 17.1.1+ ga yangilang va TMUI portini yoping."
+    },
+    {
+      "product": "cisco_ios_xe",
+      "min": "16.1.0",
+      "max": "17.9.4",
+      "cve": "CVE-2023-20198",
+      "title": "Cisco IOS XE Web UI Privilege Escalation Advisory",
+      "severity": "Critical",
+      "cvss": 10.0,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+      "cwe": "CWE-284",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "`no ip http server` o'rnating va IOS XE ni yangilang."
+    },
+    {
+      "product": "juniper_junos",
+      "min": "20.4.0",
+      "max": "23.2.1",
+      "cve": "CVE-2023-36845",
+      "title": "Juniper Junos OS J-Web Environment Variable Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-94",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Junos OS tizimini yangilang va J-Web interfeysini o'chiring."
+    },
+    {
+      "product": "sonicwall_sonicos",
+      "min": "7.0.0",
+      "max": "7.1.2",
+      "cve": "CVE-2024-40766",
+      "title": "SonicWall SonicOS Access Control & SSLVPN Advisory",
+      "severity": "Critical",
+      "cvss": 9.3,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-284",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "SonicOS ni 7.1.2-7019+ versiyasiga yangilang va MFA yoqing."
+    },
+    {
+      "product": "check_point_gaia",
+      "min": "80.10",
+      "max": "81.20",
+      "cve": "CVE-2024-24919",
+      "title": "Check Point Security Gateway Information Disclosure Advisory",
+      "severity": "High",
+      "cvss": 8.6,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-200",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Check Point Jumbo Hotfix paketini o'rnating."
+    },
+    {
+      "product": "openvpn",
+      "min": "2.4.0",
+      "max": "2.6.10",
+      "cve": "CVE-2024-27459",
+      "title": "Outdated OpenVPN (< 2.6.10) Service Handling Advisory",
+      "severity": "High",
+      "cvss": 7.8,
+      "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-122",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "OpenVPN xizmatini 2.6.10+ reliziga yangilang."
+    },
+    {
+      "product": "strongswan",
+      "min": "5.0.0",
+      "max": "5.9.12",
+      "cve": "CVE-2023-41913",
+      "title": "strongSwan (< 5.9.12) IKEv2 EAP Buffer Handling Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-787",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "strongSwan IPsec xizmatini 5.9.12+ versiyasiga yangilang."
+    },
+    {
+      "product": "unbound",
+      "min": "1.10.0",
+      "max": "1.19.1",
+      "cve": "CVE-2023-50387",
+      "title": "NLnet Labs Unbound (< 1.19.1) DNSSEC KeyTrap Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Unbound DNS resolverini 1.19.1+ versiyasiga yangilang."
+    },
+    {
+      "product": "zookeeper",
+      "min": "3.4.0",
+      "max": "3.8.3",
+      "cve": "CVE-2023-44981",
+      "title": "Apache ZooKeeper (< 3.8.3) SASL Quorum Authorization Advisory",
+      "severity": "Critical",
+      "cvss": 9.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-285",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "Apache ZooKeeper ni 3.8.3+ / 3.9.1+ versiyasiga yangilang."
+    },
+    {
+      "product": "druid",
+      "min": "0.15.0",
+      "max": "25.0.0",
+      "cve": "CVE-2023-25194",
+      "title": "Apache Druid (< 25.0.0) Kafka Connector Configuration Advisory",
+      "severity": "High",
+      "cvss": 8.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-502",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache Druid klasterini 28.0+ versiyasiga yangilang."
+    },
+    {
+      "product": "nifi",
+      "min": "1.10.0",
+      "max": "1.22.0",
+      "cve": "CVE-2023-34468",
+      "title": "Apache NiFi (< 1.22.0) DBCP Connection Pool Validation Advisory",
+      "severity": "High",
+      "cvss": 8.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-94",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache NiFi platformasini 1.25+ / 2.0+ versiyasiga yangilang."
+    },
+    {
+      "product": "guacamole",
+      "min": "1.0.0",
+      "max": "1.5.2",
+      "cve": "CVE-2023-30575",
+      "title": "Apache Guacamole (< 1.5.2) RDP Protocol Handling Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-416",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache Guacamole ni 1.5.4+ reliziga yangilang."
+    },
+    {
+      "product": "ofbiz",
+      "min": "17.0.0",
+      "max": "18.12.15",
+      "cve": "CVE-2024-38856",
+      "title": "Apache OFBiz (< 18.12.15) Controller View Override Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-284",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "Apache OFBiz ERP tizimini 18.12.15+ reliziga yangilang."
+    },
+    {
+      "product": "hugegraph",
+      "min": "1.0.0",
+      "max": "1.3.0",
+      "cve": "CVE-2024-27348",
+      "title": "Apache HugeGraph-Server (< 1.3.0) Gremlin Sandbox Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-94",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Apache HugeGraph ni 1.3.0+ ga yangilang va Auth rejimini yoqing."
+    },
+    {
+      "product": "teamcity",
+      "min": "2018.1.0",
+      "max": "2023.11.4",
+      "cve": "CVE-2024-27198",
+      "title": "JetBrains TeamCity (< 2023.11.4) Web Authentication Bypass Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-288",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "remediation": "JetBrains TeamCity CI/CD serverini 2023.11.4+ versiyasiga yangilang."
+    },
+    {
+      "product": "bamboo",
+      "min": "8.0.0",
+      "max": "9.6.1",
+      "cve": "CVE-2024-1597",
+      "title": "Atlassian Bamboo (< 9.6.1) Data Center Dependency Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-89",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Atlassian Bamboo serverini 9.6.1+ LTS versiyasiga yangilang."
+    },
+    {
+      "product": "bitbucket",
+      "min": "7.0.0",
+      "max": "8.3.1",
+      "cve": "CVE-2022-36804",
+      "title": "Atlassian Bitbucket Server (< 8.3.1) Git Archive Advisory",
+      "severity": "Critical",
+      "cvss": 9.9,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+      "cwe": "CWE-78",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Bitbucket Data Center ni 8.9.10+ LTS versiyasiga yangilang."
+    },
+    {
+      "product": "crucible",
+      "min": "4.0.0",
+      "max": "4.8.14",
+      "cve": "CVE-2024-21683",
+      "title": "Atlassian Fisheye / Crucible (< 4.8.14) Template Advisory",
+      "severity": "High",
+      "cvss": 8.3,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:L",
+      "cwe": "CWE-94",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Atlassian Fisheye/Crucible tizimini 4.8.14+ versiyasiga yangilang."
+    },
+    {
+      "product": "splunk",
+      "min": "8.0.0",
+      "max": "9.2.2",
+      "cve": "CVE-2024-36991",
+      "title": "Splunk Enterprise (< 9.2.2) Windows Modules Path Traversal Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-22",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Splunk Enterprise ni 9.2.2+ / 9.1.5+ reliziga yangilang."
+    },
+    {
+      "product": "wazuh",
+      "min": "4.0.0",
+      "max": "4.7.2",
+      "cve": "CVE-2024-24497",
+      "title": "Outdated Wazuh SIEM (< 4.7.2) Cluster API Validation Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Wazuh Manager va Dashboard ni 4.8+ versiyasiga yangilang."
+    },
+    {
+      "product": "graylog",
+      "min": "4.0.0",
+      "max": "5.1.6",
+      "cve": "CVE-2023-41044",
+      "title": "Graylog (< 5.1.6) Support Bundle Information Exposure Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-200",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Graylog serverini 5.2+ barqaror versiyasiga yangilang."
+    },
+    {
+      "product": "victoriametrics",
+      "min": "1.50.0",
+      "max": "1.99.0",
+      "cve": "CVE-2024-27918",
+      "title": "Outdated VictoriaMetrics (< 1.99.0) Metrics UI Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:L",
+      "cwe": "CWE-200",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "VictoriaMetrics tizimini 1.101+ LTS versiyasiga yangilang."
+    },
+    {
+      "product": "meilisearch",
+      "min": "0.20.0",
+      "max": "1.2.0",
+      "cve": "CVE-2023-33968",
+      "title": "Outdated Meilisearch (< 1.2.0) Master Key Posture Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+      "cwe": "CWE-287",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "remediation": "Meilisearch 1.8+ versiyasiga yangilang va `MEILI_MASTER_KEY` o'rnating."
+    },
+    {
+      "product": "chromadb",
+      "min": "0.3.0",
+      "max": "0.4.24",
+      "cve": "CVE-2024-29028",
+      "title": "ChromaDB (< 0.4.24) Vector Store Authentication Posture Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-306",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "ChromaDB ni 0.5+ ga yangilang va token autentifikatsiyani yoqing."
+    },
+    {
+      "product": "ray",
+      "min": "2.0.0",
+      "max": "2.8.1",
+      "cve": "CVE-2023-48022",
+      "title": "Anyscale Ray (< 2.8.1) Unauthenticated Jobs Submission API Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-306",
+      "owasp": "A05:2021 - Security Misconfiguration",
+      "remediation": "Ray Dashboard `:8265` portini faqat `127.0.0.1` ga bog'lang."
+    },
+    {
+      "product": "gradio",
+      "min": "3.0.0",
+      "max": "4.19.2",
+      "cve": "CVE-2024-1561",
+      "title": "Gradio (< 4.19.2) Arbitrary File Read via Component API Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-22",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Gradio kutubxonasini 4.36+ xavfsiz reliziga yangilang."
+    },
+    {
+      "product": "langflow",
+      "min": "0.5.0",
+      "max": "1.0.15",
+      "cve": "CVE-2024-3120",
+      "title": "Outdated Langflow (< 1.0.15) Workflow Validation Advisory",
+      "severity": "High",
+      "cvss": 7.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-94",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Langflow platformasini 1.1+ reliziga yangilang va `AUTO_LOGIN=False` o'rnating."
+    },
+    {
+      "product": "cockroachdb",
+      "min": "21.1.0",
+      "max": "23.1.9",
+      "cve": "CVE-2023-38443",
+      "title": "Outdated CockroachDB (< 23.1.9) SQL Privilege Evaluation Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "CockroachDB klasterini 23.2+ LTS reliziga yangilang."
+    },
+    {
+      "product": "vernemq",
+      "min": "1.0.0",
+      "max": "1.12.0",
+      "cve": "CVE-2021-34432",
+      "title": "Outdated VerneMQ (< 1.12.0) MQTT Broker ACL Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "VerneMQ brokerini 1.13+ versiyasiga yangilang."
+    },
+    {
+      "product": "emqx",
+      "min": "4.0.0",
+      "max": "5.1.0",
+      "cve": "CVE-2023-35848",
+      "title": "Outdated EMQX (< 5.1.0) MQTT Dashboard API Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-287",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "remediation": "EMQX brokerini 5.5+ LTS versiyasiga yangilang."
+    },
+    {
+      "product": "mosquitto",
+      "min": "1.6.0",
+      "max": "2.0.16",
+      "cve": "CVE-2023-28366",
+      "title": "Eclipse Mosquitto (< 2.0.16) QoS Memory Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-401",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Eclipse Mosquitto ni 2.0.18+ versiyasiga yangilang."
+    },
+    {
+      "product": "coredns",
+      "min": "1.5.0",
+      "max": "1.10.1",
+      "cve": "CVE-2023-30464",
+      "title": "Outdated CoreDNS (< 1.10.1) DNS Cache Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "CoreDNS ni 1.11+ versiyasiga yangilang."
+    },
+    {
+      "product": "knot_resolver",
+      "min": "5.0.0",
+      "max": "5.7.1",
+      "cve": "CVE-2023-50868",
+      "title": "Outdated Knot Resolver (< 5.7.1) DNSSEC Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Knot Resolver ni 5.7.1+ versiyasiga yangilang."
+    },
+    {
+      "product": "nginx_unit",
+      "min": "1.10.0",
+      "max": "1.31.1",
+      "cve": "CVE-2023-44487",
+      "title": "Outdated NGINX Unit (< 1.31.1) HTTP/2 Reset Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "NGINX Unit ni 1.32+ versiyasiga yangilang."
+    },
+    {
+      "product": "undertow",
+      "min": "2.0.0",
+      "max": "2.3.10",
+      "cve": "CVE-2023-5685",
+      "title": "Red Hat Undertow (< 2.3.10) Stream Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Undertow ni 2.3.12+ versiyasiga yangilang."
+    },
+    {
+      "product": "wildfly",
+      "min": "20.0.0",
+      "max": "30.0.1",
+      "cve": "CVE-2023-5685",
+      "title": "Outdated WildFly (< 30.0.1) Application Server Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "WildFly ni 31.0+ reliziga yangilang."
+    },
+    {
+      "product": "glassfish",
+      "min": "5.0.0",
+      "max": "7.0.9",
+      "cve": "CVE-2023-4043",
+      "title": "Eclipse GlassFish (< 7.0.9) Admin File Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-22",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "GlassFish ni 7.0.11+ versiyasiga yangilang."
+    },
+    {
+      "product": "weblogic",
+      "min": "12.2.1",
+      "max": "14.1.2",
+      "cve": "CVE-2023-21839",
+      "title": "Oracle WebLogic (< 14.1.2) IIOP/T3 JNDI Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-502",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Oracle CPU o'rnating va T3/IIOP portni yoping."
+    },
+    {
+      "product": "coldfusion",
+      "min": "2021.0.0",
+      "max": "2023.0.7",
+      "cve": "CVE-2024-20767",
+      "title": "Adobe ColdFusion (< 2023.0.7) Access Control Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "ColdFusion serverini yangilang."
+    },
+    {
+      "product": "ghost",
+      "min": "5.0.0",
+      "max": "5.59.1",
+      "cve": "CVE-2023-40028",
+      "title": "Ghost CMS (< 5.59.1) Symlink Import Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-59",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Ghost CMS ni 5.80+ versiyasiga yangilang."
+    },
+    {
+      "product": "discourse",
+      "min": "2.8.0",
+      "max": "3.2.1",
+      "cve": "CVE-2024-27098",
+      "title": "Outdated Discourse (< 3.2.1) API Input Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Discourse ni 3.2.2+ versiyasiga yangilang."
+    },
+    {
+      "product": "mastodon",
+      "min": "3.5.0",
+      "max": "4.2.5",
+      "cve": "CVE-2024-23832",
+      "title": "Mastodon (< 4.2.5) Origin Signature Advisory",
+      "severity": "Critical",
+      "cvss": 9.4,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:L",
+      "cwe": "CWE-347",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "remediation": "Mastodon ni 4.2.5+ versiyasiga yangilang."
+    },
+    {
+      "product": "seafile",
+      "min": "8.0.0",
+      "max": "10.0.2",
+      "cve": "CVE-2023-38500",
+      "title": "Outdated Seafile (< 10.0.2) Share Link Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "Seafile ni 11.0+ versiyasiga yangilang."
+    },
+    {
+      "product": "openproject",
+      "min": "11.0.0",
+      "max": "13.0.6",
+      "cve": "CVE-2023-45136",
+      "title": "OpenProject (< 13.0.6) Attachment Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+      "cwe": "CWE-79",
+      "owasp": "A03:2021 - Injection",
+      "remediation": "OpenProject ni 13.4+ versiyasiga yangilang."
+    },
+    {
+      "product": "bookstack",
+      "min": "21.0.0",
+      "max": "23.10.4",
+      "cve": "CVE-2023-49803",
+      "title": "BookStack (< 23.10.4) SSRF Filter Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N",
+      "cwe": "CWE-918",
+      "owasp": "A10:2021 - Server-Side Request Forgery",
+      "remediation": "BookStack ni 23.12+ versiyasiga yangilang."
+    },
+    {
+      "product": "pocketbase",
+      "min": "0.10.0",
+      "max": "0.18.0",
+      "cve": "CVE-2023-41338",
+      "title": "Outdated PocketBase (< 0.18.0) Filter Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-200",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "PocketBase ni 0.22+ reliziga yangilang."
+    },
+    {
+      "product": "appwrite",
+      "min": "1.0.0",
+      "max": "1.3.2",
+      "cve": "CVE-2023-27159",
+      "title": "Appwrite (< 1.3.2) Webhook SSRF Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N",
+      "cwe": "CWE-918",
+      "owasp": "A10:2021 - Server-Side Request Forgery",
+      "remediation": "Appwrite ni 1.5+ reliziga yangilang."
+    },
+    {
+      "product": "typesense",
+      "min": "0.20.0",
+      "max": "0.25.2",
+      "cve": "CVE-2023-46233",
+      "title": "Outdated Typesense (< 0.25.2) Search Key Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "Typesense ni 26.0+ versiyasiga yangilang."
+    },
+    {
+      "product": "milvus",
+      "min": "2.0.0",
+      "max": "2.3.3",
+      "cve": "CVE-2023-29510",
+      "title": "Outdated Milvus (< 2.3.3) Proxy Auth Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-306",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Milvus ni 2.4+ ga yangilang."
+    },
+    {
+      "product": "triton_server",
+      "min": "22.01.0",
+      "max": "24.04.0",
+      "cve": "CVE-2024-0087",
+      "title": "NVIDIA Triton (< 24.04) Shared Memory Advisory",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+      "cwe": "CWE-284",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Triton Serverni 24.05+ reliziga yangilang."
+    },
+    {
+      "product": "vllm",
+      "min": "0.2.0",
+      "max": "0.6.2",
+      "cve": "CVE-2024-9052",
+      "title": "vLLM (< 0.6.2) Distributed RPC Deserialization Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-502",
+      "owasp": "A08:2021 - Software and Data Integrity Failures",
+      "remediation": "vLLM ni 0.6.3+ ga yangilang."
+    },
+    {
+      "product": "litellm",
+      "min": "1.10.0",
+      "max": "1.40.0",
+      "cve": "CVE-2024-5225",
+      "title": "LiteLLM (< 1.40.0) Admin Key Validation Advisory",
+      "severity": "High",
+      "cvss": 8.6,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "LiteLLM ni 1.44+ ga yangilang."
+    },
+    {
+      "product": "dify",
+      "min": "0.3.0",
+      "max": "0.6.13",
+      "cve": "CVE-2024-39848",
+      "title": "Dify (< 0.6.13) Sandbox SSRF Advisory",
+      "severity": "High",
+      "cvss": 8.2,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:L/A:N",
+      "cwe": "CWE-918",
+      "owasp": "A10:2021 - Server-Side Request Forgery",
+      "remediation": "Dify ni 0.6.14+ ga yangilang."
+    },
+    {
+      "product": "authelia",
+      "min": "4.0.0",
+      "max": "4.38.0",
+      "cve": "CVE-2024-27302",
+      "title": "Outdated Authelia (< 4.38.0) OIDC Consent Validation Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-287",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "remediation": "Authelia SSO shlyuzini 4.38+ versiyasiga yangilang."
+    },
+    {
+      "product": "authentik",
+      "min": "2022.1.0",
+      "max": "2024.2.2",
+      "cve": "CVE-2024-21637",
+      "title": "Outdated Authentik (< 2024.2.2) Session Token Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-287",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "remediation": "Authentik IdP ni 2024.4+ reliziga yangilang."
+    },
+    {
+      "product": "dex",
+      "min": "2.20.0",
+      "max": "2.37.0",
+      "cve": "CVE-2023-39325",
+      "title": "Outdated Dex OIDC (< 2.37.0) HTTP/2 Resource Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Dex IdP ni 2.38+ versiyasiga yangilang."
+    },
+    {
+      "product": "cas",
+      "min": "6.0.0",
+      "max": "6.6.14",
+      "cve": "CVE-2023-25859",
+      "title": "Apereo CAS (< 6.6.14) SSO Ticket Validation Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-287",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "remediation": "Apereo CAS ni 7.0+ versiyasiga yangilang."
+    },
+    {
+      "product": "gluu",
+      "min": "4.0.0",
+      "max": "4.5.4",
+      "cve": "CVE-2023-44487",
+      "title": "Outdated Gluu Server (< 4.5.4) IAM Runtime Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Gluu IAM serverini 4.5.5+ versiyasiga yangilang."
+    },
+    {
+      "product": "wso2_is",
+      "min": "5.3.0",
+      "max": "6.1.0",
+      "cve": "CVE-2022-29464",
+      "title": "WSO2 Identity Server (< 6.1.0) File Upload Path Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-22",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "WSO2 Identity Server ni 6.1.0+ / 7.0+ reliziga yangilang."
+    },
+    {
+      "product": "wso2_apim",
+      "min": "3.0.0",
+      "max": "4.2.0",
+      "cve": "CVE-2022-29464",
+      "title": "WSO2 API Manager (< 4.2.0) Endpoint Upload Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-22",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "WSO2 API Manager ni 4.2.0+ versiyasiga yangilang."
+    },
+    {
+      "product": "gravitee",
+      "min": "3.15.0",
+      "max": "4.1.2",
+      "cve": "CVE-2023-38501",
+      "title": "Gravitee APIM (< 4.1.2) Expression Language Advisory",
+      "severity": "High",
+      "cvss": 8.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-94",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Gravitee APIM ni 4.2+ reliziga yangilang."
+    },
+    {
+      "product": "tyk",
+      "min": "4.0.0",
+      "max": "5.2.2",
+      "cve": "CVE-2023-44487",
+      "title": "Outdated Tyk Gateway (< 5.2.2) HTTP/2 Stream Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Tyk Gateway ni 5.3+ LTS versiyasiga yangilang."
+    },
+    {
+      "product": "krakend",
+      "min": "2.0.0",
+      "max": "2.5.0",
+      "cve": "CVE-2023-44487",
+      "title": "Outdated KrakenD (< 2.5.0) API Gateway Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "KrakenD ni 2.6+ versiyasiga yangilang."
+    },
+    {
+      "product": "pfsense",
+      "min": "2.4.0",
+      "max": "2.7.1",
+      "cve": "CVE-2023-42326",
+      "title": "Netgate pfSense (< 2.7.1) WebGUI Input Validation Advisory",
+      "severity": "High",
+      "cvss": 8.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-78",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "pfSense ni 2.7.2+ versiyasiga yangilang."
+    },
+    {
+      "product": "opnsense",
+      "min": "22.1.0",
+      "max": "23.7.8",
+      "cve": "CVE-2023-48222",
+      "title": "Outdated OPNsense (< 23.7.8) Firewall UI Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+      "cwe": "CWE-79",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "OPNsense ni 24.1+ versiyasiga yangilang."
+    },
+    {
+      "product": "vyos",
+      "min": "1.2.0",
+      "max": "1.4.0",
+      "cve": "CVE-2023-48795",
+      "title": "Outdated VyOS (< 1.4.0) SSH Transport Advisory",
+      "severity": "Medium",
+      "cvss": 5.9,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:N",
+      "cwe": "CWE-354",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "VyOS marshrutizator tizimini 1.4+ LTS ga yangilang."
+    },
+    {
+      "product": "frrouting",
+      "min": "7.5.0",
+      "max": "9.0.2",
+      "cve": "CVE-2023-47235",
+      "title": "FRRouting (< 9.0.2) BGP Attribute Parsing Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-476",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "FRRouting paketini 9.1+ versiyasiga yangilang."
+    },
+    {
+      "product": "bird",
+      "min": "2.0.0",
+      "max": "2.14.0",
+      "cve": "CVE-2023-44487",
+      "title": "Outdated BIRD Routing Daemon (< 2.14.0) Advisory",
+      "severity": "Medium",
+      "cvss": 5.9,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+      "cwe": "CWE-400",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "BIRD daemonini 2.15+ versiyasiga yangilang."
+    },
+    {
+      "product": "keepalived",
+      "min": "2.0.0",
+      "max": "2.2.8",
+      "cve": "CVE-2021-44225",
+      "title": "Outdated Keepalived (< 2.2.8) D-Bus Access Control Advisory",
+      "severity": "High",
+      "cvss": 7.8,
+      "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-284",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Keepalived ni 2.2.8+ versiyasiga yangilang."
+    },
+    {
+      "product": "corosync",
+      "min": "2.4.0",
+      "max": "3.1.8",
+      "cve": "CVE-2021-3879",
+      "title": "Outdated Corosync (< 3.1.8) Packet Validation Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-120",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Corosync klaster paketini 3.1.8+ ga yangilang."
+    },
+    {
+      "product": "ceph",
+      "min": "15.0.0",
+      "max": "18.2.1",
+      "cve": "CVE-2023-43040",
+      "title": "Ceph Storage (< 18.2.1) RGW Bucket Policy Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A01:2021 - Broken Access Control",
+      "remediation": "Ceph Reef 18.2.1+ reliziga yangilang."
+    },
+    {
+      "product": "glusterfs",
+      "min": "9.0.0",
+      "max": "11.1.0",
+      "cve": "CVE-2023-26253",
+      "title": "Outdated GlusterFS (< 11.1.0) Buffer Handling Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "cwe": "CWE-787",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "GlusterFS ni 11.1+ reliziga yangilang."
+    },
+    {
+      "product": "longhorn",
+      "min": "1.2.0",
+      "max": "1.5.4",
+      "cve": "CVE-2024-21650",
+      "title": "Rancher Longhorn (< 1.5.4) UI Proxy Exposure Advisory",
+      "severity": "High",
+      "cvss": 7.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-284",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Longhorn tizimini 1.6+ versiyasiga yangilang."
+    },
+    {
+      "product": "velero",
+      "min": "1.8.0",
+      "max": "1.12.3",
+      "cve": "CVE-2024-23331",
+      "title": "VMware Velero (< 1.12.3) Backup Credential Log Advisory",
+      "severity": "Medium",
+      "cvss": 6.5,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+      "cwe": "CWE-532",
+      "owasp": "A09:2021 - Security Logging and Monitoring Failures",
+      "remediation": "Velero ni 1.13+ versiyasiga yangilang."
+    },
+    {
+      "product": "k3s",
+      "min": "1.24.0",
+      "max": "1.28.6",
+      "cve": "CVE-2024-21626",
+      "title": "Outdated K3s Kubernetes (< 1.28.6) Runtime Advisory",
+      "severity": "High",
+      "cvss": 8.6,
+      "vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H",
+      "cwe": "CWE-200",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "K3s klasterini 1.29+ versiyasiga yangilang."
+    },
+    {
+      "product": "containerd",
+      "min": "1.5.0",
+      "max": "1.7.13",
+      "cve": "CVE-2024-21626",
+      "title": "Outdated containerd (< 1.7.13) File Descriptor Escape Advisory",
+      "severity": "High",
+      "cvss": 8.6,
+      "vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H",
+      "cwe": "CWE-250",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "containerd va runc ni 1.7.13+ ga yangilang."
+    },
+    {
+      "product": "cri_o",
+      "min": "1.24.0",
+      "max": "1.28.4",
+      "cve": "CVE-2024-21626",
+      "title": "Outdated CRI-O (< 1.28.4) Container Runtime Advisory",
+      "severity": "High",
+      "cvss": 8.6,
+      "vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H",
+      "cwe": "CWE-250",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "CRI-O runtime ni 1.29+ versiyasiga yangilang."
+    },
+    {
+      "product": "fluent_bit",
+      "min": "2.0.0",
+      "max": "3.0.4",
+      "cve": "CVE-2024-4323",
+      "title": "Fluent Bit (< 3.0.4) Embedded HTTP Server Memory Advisory",
+      "severity": "Critical",
+      "cvss": 9.8,
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-787",
+      "owasp": "A06:2021 - Vulnerable and Outdated Components",
+      "remediation": "Fluent Bit ni 3.0.4+ versiyasiga yangilang va `:2020` HTTP portni yoping."
+    }
+  ],
+  "distro_lsc_advisory_table": [
+    {
+      "distro": "ubuntu:22.04",
+      "pkg": "openssh-server",
+      "product": "openssh",
+      "fixed": "1:8.9p1-3ubuntu0.10",
+      "cve": "CVE-2024-6387",
+      "title": "Ubuntu 22.04 OpenSSH (< 1:8.9p1-3ubuntu0.10) Signal Handler Race Advisory",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-362",
+      "remediation": "`apt-get install --only-upgrade openssh-server` orqali 1:8.9p1-3ubuntu0.10+ versiyaga yangilang."
+    },
+    {
+      "distro": "ubuntu:24.04",
+      "pkg": "openssh-server",
+      "product": "openssh",
+      "fixed": "1:9.6p1-3ubuntu13.3",
+      "cve": "CVE-2024-6387",
+      "title": "Ubuntu 24.04 OpenSSH (< 1:9.6p1-3ubuntu13.3) Signal Handler Race Advisory",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-362",
+      "remediation": "`apt-get install --only-upgrade openssh-server` orqali 1:9.6p1-3ubuntu13.3+ versiyaga yangilang."
+    },
+    {
+      "distro": "debian:12",
+      "pkg": "openssh-server",
+      "product": "openssh",
+      "fixed": "1:9.2p1-2+deb12u3",
+      "cve": "CVE-2024-6387",
+      "title": "Debian 12 OpenSSH (< 1:9.2p1-2+deb12u3) Signal Handler Race Advisory",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-362",
+      "remediation": "`apt-get install --only-upgrade openssh-server` orqali 1:9.2p1-2+deb12u3+ versiyaga yangilang."
+    },
+    {
+      "distro": "rhel:9",
+      "pkg": "openssh-server",
+      "product": "openssh",
+      "fixed": "8.7p1-38.el9_4.1",
+      "cve": "CVE-2024-6387",
+      "title": "RHEL/Rocky/Alma 9 OpenSSH (< 8.7p1-38.el9_4.1) Signal Handler Race Advisory",
+      "severity": "High",
+      "cvss": 8.1,
+      "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-362",
+      "remediation": "`dnf upgrade openssh-server` orqali 8.7p1-38.el9_4.1+ versiyaga yangilang."
+    },
+    {
+      "distro": "ubuntu:22.04",
+      "pkg": "sudo",
+      "product": "sudo",
+      "fixed": "1.9.9-1ubuntu2.4",
+      "cve": "CVE-2023-22809",
+      "title": "Ubuntu 22.04 Sudo (< 1.9.9-1ubuntu2.4) sudoedit File Access Advisory",
+      "severity": "High",
+      "cvss": 7.8,
+      "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-269",
+      "remediation": "`apt-get install --only-upgrade sudo` orqali 1.9.9-1ubuntu2.4+ versiyaga yangilang."
+    },
+    {
+      "distro": "debian:12",
+      "pkg": "libc6",
+      "product": "glibc",
+      "fixed": "2.36-9+deb12u4",
+      "cve": "CVE-2023-6246",
+      "title": "Debian 12 glibc (< 2.36-9+deb12u4) syslog Buffer Boundary Advisory",
+      "severity": "High",
+      "cvss": 7.8,
+      "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-787",
+      "remediation": "`apt-get install --only-upgrade libc6` orqali 2.36-9+deb12u4+ versiyaga yangilang."
+    },
+    {
+      "distro": "ubuntu:22.04",
+      "pkg": "libc6",
+      "product": "glibc",
+      "fixed": "2.35-0ubuntu3.6",
+      "cve": "CVE-2023-6246",
+      "title": "Ubuntu 22.04 glibc (< 2.35-0ubuntu3.6) syslog Buffer Boundary Advisory",
+      "severity": "High",
+      "cvss": 7.8,
+      "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-787",
+      "remediation": "`apt-get install --only-upgrade libc6` orqali 2.35-0ubuntu3.6+ versiyaga yangilang."
+    },
+    {
+      "distro": "rhel:9",
+      "pkg": "glibc",
+      "product": "glibc",
+      "fixed": "2.34-83.el9_3.12",
+      "cve": "CVE-2023-6246",
+      "title": "RHEL/Rocky/Alma 9 glibc (< 2.34-83.el9_3.12) syslog Advisory",
+      "severity": "High",
+      "cvss": 7.8,
+      "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "cwe": "CWE-787",
+      "remediation": "`dnf upgrade glibc` orqali 2.34-83.el9_3.12+ versiyaga yangilang."
+    }
+  ]
+}
