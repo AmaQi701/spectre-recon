@@ -532,7 +532,19 @@ uint32_t spectre_secret_prefilter_mask(const uint8_t* data, size_t len) {
 }
 
 uint32_t spectre_cpp_abi_version() {
-    return 840U;
+    return 850U;
+}
+
+uint64_t spectre_fnv1a64_ci(const uint8_t* data, size_t len) {
+    if (!data || len == 0) return 0ULL;
+    uint64_t h = 14695981039346656037ULL;
+    for (size_t i = 0; i < len; ++i) {
+        uint8_t c = data[i];
+        if (c >= 'A' && c <= 'Z') c += 32;
+        h ^= static_cast<uint64_t>(c);
+        h *= 1099511628211ULL;
+    }
+    return h;
 }
 
 int spectre_dual_baseline_threshold(int base_len, int base_jitter) {

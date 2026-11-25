@@ -11,6 +11,7 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from core.native_bridge import fast_dual_baseline_threshold
+from core.threat_intel_pack import EXTENDED_FAVICON_MMH3, lookup_favicon_mmh3_offline
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 urllib3_disable = getattr(requests.packages, "urllib3", None)
@@ -19,19 +20,7 @@ if urllib3_disable:
 
 
 # --- 3 (SHODAN COMPATIBLE) ---
-FAVICON_SIGNATURES = {
-    116323821: "Spring Boot",
-    81586312: "Jenkins",
-    1278323681: "GitLab",
-    1624375939: "Zimbra Web Client",
-    1768726119: "Microsoft OWA (Exchange)",
-    945408572: "FortiGate SSL VPN",
-    -1293291541: "Plesk Panel",
-    1485257654: "Roundcube Webmail",
-    -305179312: "Grafana",
-    708578229: "Bitrix CMS",
-    -1581907337: "Keycloak SSO",
-}
+FAVICON_SIGNATURES = dict(EXTENDED_FAVICON_MMH3)
 
 
 def murmur3_32(data: bytes, seed: int = 0) -> int:
@@ -46,7 +35,7 @@ def fingerprint_favicon(session, base_url: str, db, project_id: int, log_fn) -> 
         if r.status_code == 200 and len(r.content) > 40 and "text/html" not in r.headers.get("Content-Type", "").lower():
             b64_data = base64.encodebytes(r.content)
             f_hash = murmur3_32(b64_data)
-            matched_tech = FAVICON_SIGNATURES.get(f_hash, "")
+            matched_tech = lookup_favicon_mmh3_offline(f_hash) or FAVICON_SIGNATURES.get(f_hash, "")
             log_fn(f"  [+] Favicon Hash ({base_url}): http.favicon.hash:{f_hash} {f'[{matched_tech}]' if matched_tech else ''}")
             if matched_tech:
                 db.upsert_finding(

@@ -953,7 +953,9 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
     if dom.lower() in getattr(agent, "_dead_hosts", set()):
         return
 
+    from core.threat_intel_pack import INTEL_WORDLISTS_DIR
     _wl_candidates = (
+        INTEL_WORDLISTS_DIR / "web_paths_seclists.txt",
         Path.home() / "SecLists/Discovery/Web-Content/common.txt",
         Path("/usr/share/seclists/Discovery/Web-Content/common.txt"),
         Path("/usr/share/wordlists/dirb/common.txt"),

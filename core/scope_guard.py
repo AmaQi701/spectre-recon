@@ -84,6 +84,18 @@ class ScopeGuard:
     }
 
     @classmethod
+    def _is_multi_label_psl(cls, tail: str) -> bool:
+        if tail in cls.SECOND_LEVEL_TLDS:
+            return True
+        if "." not in tail:
+            return False
+        try:
+            from core.threat_intel_pack import get_public_suffix_set
+            return tail in get_public_suffix_set()
+        except Exception:
+            return False
+
+    @classmethod
     def extract_apex_domain(cls, target: str) -> str:
         host = cls.extract_host(target)
         try:
@@ -92,9 +104,11 @@ class ScopeGuard:
         except ValueError:
             pass
         parts = host.split(".")
+        if len(parts) >= 4 and cls._is_multi_label_psl(".".join(parts[-3:])):
+            return ".".join(parts[-4:])
         if len(parts) >= 3:
             last_two = f"{parts[-2]}.{parts[-1]}"
-            if last_two in cls.SECOND_LEVEL_TLDS:
+            if cls._is_multi_label_psl(last_two):
                 return ".".join(parts[-3:])
             return ".".join(parts[-2:])
         return host
@@ -103,7 +117,7 @@ class ScopeGuard:
         raw_rule = (rule or "").strip().lower()
         is_wildcard = raw_rule.startswith("*.") or "://*." in raw_rule or raw_rule.startswith("//*.")
         rule_host = self.extract_host(raw_rule)
-        if not rule_host or rule_host in self.SECOND_LEVEL_TLDS:
+        if not rule_host or self._is_multi_label_psl(rule_host):
             return False
 
         # CIDR yoki IP (IPv4 / IPv6) tekshiruvi
@@ -122,7 +136,7 @@ class ScopeGuard:
             return host == rule_host or host.endswith("." + rule_host)
 
         apex = self.extract_apex_domain(rule_host)
-        if apex in self.SECOND_LEVEL_TLDS:
+        if self._is_multi_label_psl(apex):
             return host == rule_host or host.endswith("." + rule_host)
         return host == rule_host or host.endswith("." + rule_host) or host == apex or host.endswith("." + apex)
 

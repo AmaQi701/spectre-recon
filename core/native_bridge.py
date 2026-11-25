@@ -22,11 +22,15 @@ CPP_SRC = NATIVE_DIR / "spectre_accel.cpp"
 SO_PATH = NATIVE_DIR / "libspectre_accel.so"
 RUST_SRC = NATIVE_DIR / "spectre_rust_core.rs"
 RUST_SO_PATH = NATIVE_DIR / "libspectre_rust_core.so"
+GO_SRC = NATIVE_DIR / "spectre_intel_indexer.go"
+GO_BIN_PATH = NATIVE_DIR / "spectre-intel-indexer"
 _BUILD_LOCK = threading.Lock()
 _LIB: ctypes.CDLL | None = None
 _TRIED_LOAD = False
 _RUST_LIB: ctypes.CDLL | None = None
 _TRIED_RUST_LOAD = False
+_GO_BIN: Path | None = None
+_TRIED_GO_BUILD = False
 
 
 JS_TOK_ROUTE = 1
@@ -115,6 +119,9 @@ def get_native_lib() -> ctypes.CDLL | None:
                 if hasattr(lib, "spectre_nvt_body_sig_mask"):
                     lib.spectre_nvt_body_sig_mask.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
                     lib.spectre_nvt_body_sig_mask.restype = ctypes.c_uint32
+                if hasattr(lib, "spectre_fnv1a64_ci"):
+                    lib.spectre_fnv1a64_ci.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+                    lib.spectre_fnv1a64_ci.restype = ctypes.c_uint64
                 _LIB = lib
         except Exception:
             _LIB = None
@@ -153,6 +160,12 @@ def get_rust_lib() -> ctypes.CDLL | None:
                 rlib.spectre_rust_sast_prefilter_mask.restype = ctypes.c_uint32
                 rlib.spectre_rust_cvss31_score.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
                 rlib.spectre_rust_cvss31_score.restype = ctypes.c_double
+                if hasattr(rlib, "spectre_rust_tech_fingerprint_mask"):
+                    rlib.spectre_rust_tech_fingerprint_mask.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+                    rlib.spectre_rust_tech_fingerprint_mask.restype = ctypes.c_uint32
+                if hasattr(rlib, "spectre_rust_is_valid_dns_label"):
+                    rlib.spectre_rust_is_valid_dns_label.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+                    rlib.spectre_rust_is_valid_dns_label.restype = ctypes.c_int32
                 _RUST_LIB = rlib
         except Exception:
             _RUST_LIB = None
@@ -385,6 +398,76 @@ def fast_cvss31_score(vector: str) -> float | None:
     if not b:
         return 0.0
     return float(rlib.spectre_rust_cvss31_score(b, len(b)))
+
+def _resolve_go_bin() -> str | None:
+    found = shutil.which("go")
+    if found:
+        return found
+    for cand in (Path("/usr/local/go/bin/go"), Path("/usr/bin/go")):
+        if cand.is_file():
+            return str(cand)
+    return None
+
+
+def get_go_indexer_bin() -> Path | None:
+    global _GO_BIN, _TRIED_GO_BUILD
+    if _TRIED_GO_BUILD:
+        return _GO_BIN
+    with _BUILD_LOCK:
+        if _TRIED_GO_BUILD:
+            return _GO_BIN
+        _TRIED_GO_BUILD = True
+        try:
+            need_build = (not GO_BIN_PATH.is_file()) or (GO_SRC.is_file() and GO_SRC.stat().st_mtime > GO_BIN_PATH.stat().st_mtime)
+            go_bin = _resolve_go_bin()
+            if need_build and GO_SRC.is_file() and go_bin:
+                subprocess.run(
+                    [go_bin, "build", "-ldflags=-s -w", "-o", str(GO_BIN_PATH), str(GO_SRC)],
+                    cwd=str(NATIVE_DIR),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=35,
+                    check=True,
+                )
+            if GO_BIN_PATH.is_file():
+                _GO_BIN = GO_BIN_PATH
+        except Exception:
+            _GO_BIN = None
+    return _GO_BIN
+
+
+def fast_fnv1a64_ci(text_or_bytes: str | bytes) -> int:
+    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+    if not b:
+        return 0
+    lib = get_native_lib()
+    if lib is not None and hasattr(lib, "spectre_fnv1a64_ci"):
+        return int(lib.spectre_fnv1a64_ci(b, len(b)))
+    h = 14695981039346656037
+    for ch in b.lower():
+        h = ((h ^ ch) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return h
+
+
+def fast_tech_fingerprint_mask(text_or_bytes: str | bytes) -> int:
+    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+    if len(b) < 4:
+        return 0
+    rlib = get_rust_lib()
+    if rlib is not None and hasattr(rlib, "spectre_rust_tech_fingerprint_mask"):
+        return int(rlib.spectre_rust_tech_fingerprint_mask(b, len(b)))
+    return 0x1FF
+
+
+def fast_is_valid_dns_label(label: str) -> bool:
+    b = (label or "").encode("utf-8", errors="ignore")
+    if not b or len(b) > 63:
+        return False
+    rlib = get_rust_lib()
+    if rlib is not None and hasattr(rlib, "spectre_rust_is_valid_dns_label"):
+        return int(rlib.spectre_rust_is_valid_dns_label(b, len(b))) == 1
+    return bool(b[0] != 45 and b[-1] != 45 and all((97 <= (c | 32) <= 122) or (48 <= c <= 57) or c == 45 for c in b))
 
 
 

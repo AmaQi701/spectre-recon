@@ -31,11 +31,13 @@ FIND_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI v8.4.0")
-    p.add_argument("-t", "--target", default="", help="Primary target domain, host, or URL (required unless --export-project/--benchmark/--doctor)")
+    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI v8.5.0")
+    p.add_argument("-t", "--target", default="", help="Primary target domain, host, or URL (required unless --export-project/--benchmark/--doctor/--intel-status/--rebuild-intel)")
     p.add_argument("--export-project", type=int, default=0, help="Re-generate HTML/SARIF/SBOM/JUnit/Compliance artifacts for an existing project ID without re-scanning")
-    p.add_argument("--benchmark", action="store_true", help="Run live 1 MB C++17 + Rust native kernel throughput benchmark and exit")
-    p.add_argument("--doctor", action="store_true", help="Verify C++17 & Rust kernels, SQLite WAL DB, 250-NVT/CPE catalogs, 50-port verifiers, and CLI tools")
+    p.add_argument("--benchmark", action="store_true", help="Run live 1 MB C++17 + Rust + Go native kernel throughput benchmark and exit")
+    p.add_argument("--doctor", action="store_true", help="Verify C++17, Rust & Go kernels, Offline Threat Intel Pack, 1500-NVT/CPE catalogs, 50-port verifiers, and CLI tools")
+    p.add_argument("--intel-status", action="store_true", help="Inspect Offline Threat Intelligence, SecLists & Clean-Room NVT Pack status and SPDX compliance")
+    p.add_argument("--rebuild-intel", action="store_true", help="Compile/refresh intel/spectre_intel.db, Go-indexed SecLists wordlists, and Clean-Room KEV NVTs")
     p.add_argument("-n", "--name", default="", help="Project name (defaults to target host)")
     p.add_argument("--in-scope", default="", help="Comma/newline-separated in-scope rules")
     p.add_argument("--out-of-scope", default="", help="Comma/newline-separated out-of-scope rules")
@@ -63,17 +65,21 @@ def _extract_qod_pct(conf_str: str) -> int:
 
 def _run_live_cpp_benchmark() -> int:
     from core.native_bridge import (
+        fast_fnv1a64_ci,
         fast_js_token_mask,
         fast_mmh3_signed,
         fast_nvt_body_sig_mask,
         fast_sast_prefilter_mask,
         fast_secret_prefilter_mask,
         fast_structural_hash,
+        fast_tech_fingerprint_mask,
+        get_go_indexer_bin,
         get_native_lib,
         get_rust_lib,
     )
     lib = get_native_lib()
     rlib = get_rust_lib()
+    gobin = get_go_indexer_bin()
     buf = (b"fetch('/api/v1/accounts'); el.innerHTML = x; AKIA1234567890ABCDEF sk-ant-api03-test0011223344556677889900\n") * 10000
     mb = len(buf) / (1024.0 * 1024.0)
 
@@ -84,32 +90,41 @@ def _run_live_cpp_benchmark() -> int:
         return (mb * iters) / max(1e-6, time.perf_counter() - t0)
 
     r_mmh = _rate(fast_mmh3_signed)
+    r_fnv = _rate(fast_fnv1a64_ci)
     r_sec = _rate(fast_secret_prefilter_mask)
     r_tok = _rate(fast_js_token_mask)
     r_nvt = _rate(fast_nvt_body_sig_mask)
     r_sast = _rate(fast_sast_prefilter_mask)
+    r_tech = _rate(fast_tech_fingerprint_mask)
     r_str = _rate(fast_structural_hash, iters=4)
-    print(f"SPECTRE v8.4.0 Polyglot C++17 + Rust Kernel Benchmark (CppLoaded={lib is not None} | RustLoaded={rlib is not None})")
-    print("=" * 76)
+    print(f"SPECTRE v8.5.0 Polyglot C++17 + Rust + Go Kernel Benchmark (Cpp={lib is not None} | Rust={rlib is not None} | Go={gobin is not None})")
+    print("=" * 80)
     print(f"  1. C++17 MurmurHash3 (Favicon/Asset Fingerprint) : {r_mmh:8.1f} MB/s")
-    print(f"  2. C++17 Secret & AI Key Pre-Filter Mask         : {r_sec:8.1f} MB/s")
-    print(f"  3. C++17 JS Route/Sink/SourceMap Token Scanner   : {r_tok:8.1f} MB/s")
-    print(f"  4. C++17 v4 NVT HTTP Body Signature Classifier   : {r_nvt:8.1f} MB/s")
-    print(f"  5. Rust 6-Lang SAST Zero-Copy Byte Automaton     : {r_sast:8.1f} MB/s")
-    print(f"  6. C++17 Structural DOM/JSON Soft-200 Skeleton   : {r_str:8.1f} MB/s")
-    print("=" * 76)
+    print(f"  2. C++17 v5 FNV-1a64 Case-Insensitive Indexer    : {r_fnv:8.1f} MB/s")
+    print(f"  3. C++17 Secret & AI Key Pre-Filter Mask         : {r_sec:8.1f} MB/s")
+    print(f"  4. C++17 JS Route/Sink/SourceMap Token Scanner   : {r_tok:8.1f} MB/s")
+    print(f"  5. C++17 NVT HTTP Body Signature Classifier      : {r_nvt:8.1f} MB/s")
+    print(f"  6. Rust 6-Lang SAST Zero-Copy Byte Automaton     : {r_sast:8.1f} MB/s")
+    print(f"  7. Rust Tech-Fingerprint HTTP/Cookie Automaton   : {r_tech:8.1f} MB/s")
+    print(f"  8. C++17 Structural DOM/JSON Soft-200 Skeleton   : {r_str:8.1f} MB/s")
+    print("=" * 80)
     return 0 if (lib is not None and rlib is not None) else 1
 
 
 def _run_doctor_diagnostics(db_path: str) -> int:
     from core.advisory_kb import _CPE_VENDOR_PRODUCT
-    from core.native_bridge import get_native_lib, get_rust_lib
+    from core.native_bridge import get_go_indexer_bin, get_native_lib, get_rust_lib
     from core.nvt_declarative_engine import load_nvt_catalog
     from core.protocol_verifiers import SUPPORTED_ACTIVE_PORTS
     from core.sca_engine import OFFLINE_SCA_RULES, SUPPORTED_MANIFEST_NAMES
+    from core.threat_intel_pack import ensure_offline_intel_pack, get_offline_intel_status, verify_spdx_compliance
 
     cpp_ok = get_native_lib() is not None
     rust_ok = get_rust_lib() is not None
+    go_ok = get_go_indexer_bin() is not None
+    ensure_offline_intel_pack()
+    intel_st = get_offline_intel_status()
+    spdx_errs = verify_spdx_compliance()
     nvts = len(load_nvt_catalog())
     cpes = len(_CPE_VENDOR_PRODUCT)
     ports_n = len(SUPPORTED_ACTIVE_PORTS)
@@ -118,14 +133,27 @@ def _run_doctor_diagnostics(db_path: str) -> int:
     db_chk = DatabaseManager(db_path)
     projs = len(db_chk.get_projects())
     print(
-        f"SPECTRE_DOCTOR_OK | CppKernel={cpp_ok} | RustKernel={rust_ok} | NVTs={nvts} | CPEs={cpes} "
-        f"| ActivePorts={ports_n} | SCAFormats={man_n}+csproj | SCARules={sca_n} | DBProjects={projs}"
+        f"SPECTRE_DOCTOR_OK | CppKernel={cpp_ok} | RustKernel={rust_ok} | GoIndexer={go_ok} "
+        f"| NVTs={nvts} | CPEs={cpes} | IntelDB={intel_st['total_db_records']} | Wordlists={intel_st['total_wordlist_lines']} "
+        f"| PackMB={intel_st['size_mb']} | SPDX={'OK' if not spdx_errs else 'ERR'} | ActivePorts={ports_n} | SCARules={sca_n} | DBProjects={projs}"
     )
-    return 0 if (cpp_ok and nvts >= 250 and cpes >= 250 and ports_n >= 50) else 1
+    return 0 if (cpp_ok and nvts >= 1000 and cpes >= 250 and ports_n >= 50 and not spdx_errs) else 1
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.rebuild_intel:
+        from core.threat_intel_pack import build_offline_intel_pack
+        st = build_offline_intel_pack()
+        print(json.dumps(st, indent=2, ensure_ascii=False))
+        return 0 if st.get("ready") else 1
+    if args.intel_status:
+        from core.threat_intel_pack import ensure_offline_intel_pack, get_offline_intel_status, verify_spdx_compliance
+        ensure_offline_intel_pack()
+        st = get_offline_intel_status()
+        st["spdx_errors"] = verify_spdx_compliance()
+        print(json.dumps(st, indent=2, ensure_ascii=False))
+        return 0 if (st.get("ready") and not st["spdx_errors"]) else 1
     if args.benchmark:
         return _run_live_cpp_benchmark()
     if args.doctor:

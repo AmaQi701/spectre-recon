@@ -1,17 +1,18 @@
-// SPECTRE Polyglot Rust Security Kernel (`libspectre_rust_core.so` — ABI v840)
+// SPECTRE Polyglot Rust Security Kernel (`libspectre_rust_core.so` — ABI v850)
 // Compiled with: rustc -O --crate-type cdylib spectre_rust_core.rs -o libspectre_rust_core.so
 // Memory-safe, zero-dependency Rust FFI kernel accelerating:
 //   1. Debian Policy 5.6.12 & RPM Epoch-Upstream-Revision Distro LSC Comparator
 //   2. Kahn Topological Wave DAG Planner with Deterministic Tie-Breaking & Cycle Detection
 //   3. Single-Pass 6-Language SAST Byte Automaton Pre-Filter (Sharp-Edges / Entry-Point / TOCTOU)
 //   4. Official FIRST.org CVSS v3.1 Vector Base Score Engine
+//   5. HTTP/Cookie/DOM Clean-Room Technology Fingerprint Automaton & RFC-1123 DNS Validator
 
 use std::collections::{HashMap, HashSet};
 use std::slice;
 
 #[no_mangle]
 pub extern "C" fn spectre_rust_abi_version() -> u32 {
-    840
+    850
 }
 
 #[inline]
@@ -403,6 +404,82 @@ pub extern "C" fn spectre_rust_cvss31_score(vec_ptr: *const u8, vec_len: usize) 
         (impact + exploitability).min(10.0_f64)
     };
     (((raw * 100_000.0_f64).round()) / 10_000.0_f64).ceil() / 10.0_f64
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_is_valid_dns_label(ptr: *const u8, len: usize) -> i32 {
+    if ptr.is_null() || len == 0 || len > 63 {
+        return 0;
+    }
+    let s = unsafe { slice::from_raw_parts(ptr, len) };
+    if s[0] == b'-' || s[len - 1] == b'-' {
+        return 0;
+    }
+    for &b in s {
+        let low = b.to_ascii_lowercase();
+        if !(low.is_ascii_lowercase() || low.is_ascii_digit() || low == b'-') {
+            return 0;
+        }
+    }
+    1
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_tech_fingerprint_mask(data_ptr: *const u8, data_len: usize) -> u32 {
+    if data_ptr.is_null() || data_len < 4 {
+        return 0;
+    }
+    let data = unsafe { slice::from_raw_parts(data_ptr, data_len) };
+    let mut mask = 0u32;
+    for i in 0..data_len {
+        let rem = &data[i..];
+        match rem[0].to_ascii_lowercase() {
+            b'c' => {
+                if (mask & 1) == 0 && (match_ci_rs(rem, b"cf-ray") || match_ci_rs(rem, b"cloudflare") || match_ci_rs(rem, b"cloudfront")) { mask |= 1; }
+                if (mask & 4) == 0 && match_ci_rs(rem, b"csrftoken") { mask |= 4; }
+            }
+            b'x' => {
+                if (mask & 1) == 0 && (match_ci_rs(rem, b"x-amz-cf-id") || match_ci_rs(rem, b"x-fastly") || match_ci_rs(rem, b"x-akamai")) { mask |= 1; }
+                if (mask & 64) == 0 && (match_ci_rs(rem, b"x-kong-") || match_ci_rs(rem, b"x-envoy-")) { mask |= 64; }
+                if (mask & 256) == 0 && match_ci_rs(rem, b"x-litellm-") { mask |= 256; }
+            }
+            b'_' => {
+                if (mask & 2) == 0 && (match_ci_rs(rem, b"__next_data__") || match_ci_rs(rem, b"__nuxt__")) { mask |= 2; }
+                if (mask & 128) == 0 && match_ci_rs(rem, b"_gitlab_session") { mask |= 128; }
+            }
+            b'/' => {
+                if (mask & 2) == 0 && (match_ci_rs(rem, b"/_next/static/") || match_ci_rs(rem, b"/_nuxt/")) { mask |= 2; }
+                if (mask & 8) == 0 && (match_ci_rs(rem, b"/wp-content/") || match_ci_rs(rem, b"/wp-includes/") || match_ci_rs(rem, b"/bitrix/")) { mask |= 8; }
+            }
+            b'l' => {
+                if (mask & 4) == 0 && match_ci_rs(rem, b"laravel_session") { mask |= 4; }
+            }
+            b'j' => {
+                if (mask & 4) == 0 && match_ci_rs(rem, b"jsessionid") { mask |= 4; }
+                if (mask & 8) == 0 && match_ci_rs(rem, b"joomla!") { mask |= 8; }
+            }
+            b'k' => {
+                if (mask & 16) == 0 && match_ci_rs(rem, b"keycloak") { mask |= 16; }
+            }
+            b's' => {
+                if (mask & 32) == 0 && match_ci_rs(rem, b"supabase.co") { mask |= 32; }
+            }
+            b'g' => {
+                if (mask & 128) == 0 && match_ci_rs(rem, b"grafanabootdata") { mask |= 128; }
+            }
+            b'a' => {
+                if (mask & 4) == 0 && match_ci_rs(rem, b"asp.net_sessionid") { mask |= 4; }
+                if (mask & 16) == 0 && match_ci_rs(rem, b"auth_session_id") { mask |= 16; }
+                if (mask & 64) == 0 && match_ci_rs(rem, b"apisix") { mask |= 64; }
+                if (mask & 128) == 0 && match_ci_rs(rem, b"atlassian.xsrf") { mask |= 128; }
+            }
+            _ => {}
+        }
+        if mask == 0x1FF {
+            break;
+        }
+    }
+    mask
 }
 
 

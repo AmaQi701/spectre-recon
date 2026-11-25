@@ -28,7 +28,7 @@ ENTERPRISE_MASTER_PLAN.md
 workspaces/*.py
 workspaces/skills/
 
-# Python, build & OS artifacts
+# Python, build, offline compiled intel pack & OS artifacts
 __pycache__/
 *.py[cod]
 *$py.class
@@ -36,6 +36,9 @@ __pycache__/
 venv/
 .env
 dist/
+intel/
+!intel/.gitkeep
+core/native/spectre-intel-indexer
 *.deb
 *.so
 .DS_Store

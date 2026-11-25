@@ -2,12 +2,12 @@
 
 <img src="ui/apex-icon.svg" width="105" alt="SPECTRE Logo" />
 
-# SPECTRE (`spectre-recon`) v8.4.0
+# SPECTRE (`spectre-recon`) v8.5.0
 
-**Polyglot C++17 v4 + Rust + Python Enterprise ASM, KB-Gated 250-Rule NVT + Rust Topological Wave DAG Scheduler, Rust Distro LSC Version Engine, AI/LLM/RAG/BaaS, Agentic CI/CD & MCP Security Auditor, 50-Port Active Socket NVT, 250-Product NIST CPE 2.3, 6-Language Taint/Sharp-Edges SAST, Cloud/IaC v3, 18-Format Supply-Chain SCA, 1-Click Reproducer/Patch Cookbook & 7-Framework (+MITRE ATT&CK v15) Platform**
+**Polyglot C++17 v5 + Rust + Go + Python Enterprise ASM, 62,000+ Record Offline Threat Intelligence DB (CISA KEV, NVD/OSV, IEEE OUI, Mozilla PSL, Favicon MMH3), 370,000+ MIT SecLists Wordlist Pack, KB-Gated 1,500-Rule NVT + Rust Wave DAG Scheduler, 50-Port Active Socket NVT, AI/LLM/RAG/MCP Auditor, 6-Language SAST, 18-Format SCA & 7-Framework (+MITRE ATT&CK v15) Platform**
 
 [![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Kali%20%7C%20Debian-0ea5e9?style=for-the-badge&logo=linux)](https://github.com/AmaQi701/spectre-recon)
-[![Engine](https://img.shields.io/badge/Kernels-C%2B%2B17%20v4%20%2B%20Rust%20FFI-ef4444?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
+[![Engine](https://img.shields.io/badge/Kernels-C%2B%2B17%20v5%20%2B%20Rust%20%2B%20Go-ef4444?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
 [![AI_Security](https://img.shields.io/badge/AI%20%26%20MCP%20Audit-Ollama%20%7C%20vLLM%20%7C%20Qdrant%20%7C%20MCP-8b5cf6?style=for-the-badge)](https://github.com/AmaQi701/spectre-recon)
 [![GUI](https://img.shields.io/badge/Desktop%20GUI-Native%20GTK3%20%2B%20Cairo-6366f1?style=for-the-badge&logo=gnome)](https://gtk.org/)
 [![License](https://img.shields.io/badge/License-MIT-f59e0b?style=for-the-badge)](LICENSE)
@@ -155,7 +155,7 @@ python3 spectre_cli.py --export-project 1
 ```bash
 chmod +x build_deb.sh
 ./build_deb.sh
-sudo dpkg -i dist/spectre-recon_8.3.0_amd64.deb
+sudo dpkg -i dist/spectre-recon_8.5.0_amd64.deb
 spectre-recon
 ```
 

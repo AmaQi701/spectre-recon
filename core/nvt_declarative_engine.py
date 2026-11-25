@@ -76,19 +76,45 @@ def load_nvt_catalog(extra_dir: Path | None = None) -> list[dict[str, Any]]:
     if _CACHED_RULES is not None and extra_dir is None:
         return _CACHED_RULES
     rules: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
     if CATALOG_PATH.is_file():
         data = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
-        rules.extend(list(data.get("rules", [])) if isinstance(data, dict) else [])
+        for r in (list(data.get("rules", [])) if isinstance(data, dict) else []):
+            rid = str(r.get("id") or "")
+            if rid and rid not in seen_ids:
+                seen_ids.add(rid)
+                rules.append(r)
+    if extra_dir is None:
+        from core.threat_intel_pack import INTEL_NVT_PACK_PATH, ensure_offline_intel_pack
+        ensure_offline_intel_pack()
+        if INTEL_NVT_PACK_PATH.is_file():
+            try:
+                kdata = json.loads(INTEL_NVT_PACK_PATH.read_text(encoding="utf-8"))
+                for kr in (kdata.get("rules") or []):
+                    krid = str(kr.get("id") or "")
+                    if krid and krid not in seen_ids:
+                        seen_ids.add(krid)
+                        rules.append(kr)
+            except Exception:
+                pass
     scan_dir = extra_dir or CUSTOM_NVTS_DIR
     if scan_dir.is_dir():
         for pf in sorted(scan_dir.glob("*")):
             if pf.suffix.lower() in (".yaml", ".yml"):
-                rules.extend(parse_custom_yaml_nvt(pf.read_text(encoding="utf-8", errors="ignore")))
+                for yr in parse_custom_yaml_nvt(pf.read_text(encoding="utf-8", errors="ignore")):
+                    yrid = str(yr.get("id") or "")
+                    if yrid and yrid not in seen_ids:
+                        seen_ids.add(yrid)
+                        rules.append(yr)
             elif pf.suffix.lower() == ".json":
                 try:
                     jd = json.loads(pf.read_text(encoding="utf-8", errors="ignore"))
                     if isinstance(jd, dict) and isinstance(jd.get("rules"), list):
-                        rules.extend(jd["rules"])
+                        for jr in jd["rules"]:
+                            jrid = str(jr.get("id") or "")
+                            if jrid and jrid not in seen_ids:
+                                seen_ids.add(jrid)
+                                rules.append(jr)
                 except Exception:
                     pass
     if extra_dir is None:

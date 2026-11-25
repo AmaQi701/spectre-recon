@@ -76,6 +76,22 @@ def load_local_kev_map() -> dict[str, str]:
                     kev_map[cid] = f"{prefix}{vname}{r_tag}"[:140]
         except Exception:
             pass
+    else:
+        try:
+            import sqlite3
+            from core.threat_intel_pack import INTEL_DB_PATH
+            if INTEL_DB_PATH.is_file():
+                conn = sqlite3.connect(f"file:{INTEL_DB_PATH}?mode=ro", uri=True)
+                try:
+                    for cid, vend, prod, summ, ransom in conn.execute(
+                        "SELECT cve_id, vendor, product, summary, ransomware_use FROM cve_advisories WHERE is_kev = 1"
+                    ):
+                        r_tag = " [Ransomware-Linked]" if str(ransom).lower() == "known" else ""
+                        kev_map[str(cid)] = f"{vend} {prod}: {summ[:80]}{r_tag}"[:140]
+                finally:
+                    conn.close()
+        except Exception:
+            pass
     return kev_map
 
 
