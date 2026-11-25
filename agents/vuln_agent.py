@@ -20,6 +20,7 @@ from core.cms_enterprise_nvts import run_cms_and_enterprise_nvts
 from core.database import DatabaseManager
 from core.feed_updater import enrich_project_findings_with_kev
 from core.http_engine import RateLimitedHttpEngine
+from core.native_bridge import fast_sast_prefilter_mask
 from core.nvt_declarative_engine import run_declarative_nvt_catalog
 from core.plugin_runner import PhaseOrchestrator, QoD, ScanContextKB, ScanPhase
 from core.protocol_verifiers import run_active_protocol_verifiers
@@ -1012,11 +1013,12 @@ class VulnAssessmentSuperAgent:
                 else:
                     ast_flows, safe_sast_lns = ([], set())
                 if sfx in (".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".java", ".php", ".cs"):
+                    sast_mask = fast_sast_prefilter_mask(raw_src)
                     ast_flows = (
                         list(ast_flows)
-                        + analyze_sharp_edges_and_timing(fpath.name, raw_src)
-                        + analyze_unauthenticated_entry_points(fpath.name, raw_src)
-                        + analyze_toctou_race_patterns(fpath.name, raw_src)
+                        + analyze_sharp_edges_and_timing(fpath.name, raw_src, prefilter_mask=sast_mask)
+                        + analyze_unauthenticated_entry_points(fpath.name, raw_src, prefilter_mask=sast_mask)
+                        + analyze_toctou_race_patterns(fpath.name, raw_src, prefilter_mask=sast_mask)
                     )
                 lines = raw_src.splitlines()
                 ast_reported_lines: set[int] = set()

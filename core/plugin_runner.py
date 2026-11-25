@@ -12,6 +12,8 @@ import time
 import traceback
 from typing import Any, Callable, Iterable
 
+from core.native_bridge import fast_topological_waves
+
 
 class ScanPhase:
     """Ordered lifecycle phases for reconnaissance and security posture verification."""
@@ -263,6 +265,10 @@ def compute_topological_waves(
             for d in (deps or []):
                 if str(d) and str(d) not in raw_deps[t_name]:
                     raw_deps[t_name].append(str(d))
+
+    rs_waves = fast_topological_waves([(n, raw_deps[n]) for n in ordered_names])
+    if rs_waves is not None:
+        return rs_waves
 
     known = set(ordered_names)
     in_deg: dict[str, int] = {}

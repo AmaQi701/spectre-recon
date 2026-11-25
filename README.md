@@ -2,12 +2,12 @@
 
 <img src="ui/apex-icon.svg" width="105" alt="SPECTRE Logo" />
 
-# SPECTRE (`spectre-recon`) v8.3.0
+# SPECTRE (`spectre-recon`) v8.4.0
 
-**Hybrid C++17 v3 / Python Enterprise ASM, KB-Gated 250-Rule NVT + Topological Wave DAG Scheduler, Distro LSC Version Engine, AI/LLM/RAG/BaaS, Agentic CI/CD & MCP Security Auditor, 50-Port Active Socket NVT, 250-Product NIST CPE 2.3, 6-Language Taint/Sharp-Edges SAST, Cloud/IaC v3, 18-Format Supply-Chain SCA, 1-Click Reproducer/Patch Cookbook & 7-Framework (+MITRE ATT&CK v15) Platform**
+**Polyglot C++17 v4 + Rust + Python Enterprise ASM, KB-Gated 250-Rule NVT + Rust Topological Wave DAG Scheduler, Rust Distro LSC Version Engine, AI/LLM/RAG/BaaS, Agentic CI/CD & MCP Security Auditor, 50-Port Active Socket NVT, 250-Product NIST CPE 2.3, 6-Language Taint/Sharp-Edges SAST, Cloud/IaC v3, 18-Format Supply-Chain SCA, 1-Click Reproducer/Patch Cookbook & 7-Framework (+MITRE ATT&CK v15) Platform**
 
 [![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Kali%20%7C%20Debian-0ea5e9?style=for-the-badge&logo=linux)](https://github.com/AmaQi701/spectre-recon)
-[![Engine](https://img.shields.io/badge/Core-C%2B%2B17%20epoll%20%2B%20OpenSSL-ef4444?style=for-the-badge&logo=cplusplus)](https://isocpp.org/)
+[![Engine](https://img.shields.io/badge/Kernels-C%2B%2B17%20v4%20%2B%20Rust%20FFI-ef4444?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
 [![AI_Security](https://img.shields.io/badge/AI%20%26%20MCP%20Audit-Ollama%20%7C%20vLLM%20%7C%20Qdrant%20%7C%20MCP-8b5cf6?style=for-the-badge)](https://github.com/AmaQi701/spectre-recon)
 [![GUI](https://img.shields.io/badge/Desktop%20GUI-Native%20GTK3%20%2B%20Cairo-6366f1?style=for-the-badge&logo=gnome)](https://gtk.org/)
 [![License](https://img.shields.io/badge/License-MIT-f59e0b?style=for-the-badge)](LICENSE)
@@ -16,12 +16,12 @@
 
 ---
 
-## Why SPECTRE v8.3 Over Legacy Scanners?
+## Why SPECTRE v8.4 Over Legacy Scanners?
 
-| Capability | **SPECTRE v8.3 (OSS)** | Nessus Pro | OpenVAS / Greenbone | Nuclei | Trivy |
+| Capability | **SPECTRE v8.4 (OSS)** | Nessus Pro | OpenVAS / Greenbone | Nuclei | Trivy |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **100% Free & Open-Source** | **Yes (MIT)** | Paid Commercial | Yes | Yes | Yes |
-| **Hybrid C++17 `epoll` + OpenSSL Kernel** | **Yes (`>350 MB/s`)** | Proprietary C/NASL | C / NASL | Go | Go |
+| **Polyglot C++17 `epoll`/OpenSSL + Rust FFI Kernels** | **Yes (`>460–3670 MB/s`)** | Proprietary C/NASL | C / Rust / NASL | Go | Go |
 | **AI/LLM, RAG Vector DB & MCP `tools/list` Audit** | **Built-in (`Ollama/vLLM/Qdrant/Chroma/Ray/MCP`)** | Partial | No | Community YAML | No |
 | **Active Read-Only Binary/Text Socket NVTs** | **50 Protocols** | Yes | Yes | Limited TCP | No |
 | **Declarative NVTs + Custom YAML / Nuclei SDK** | **250 Built-in + Custom YAML** | NASL Only | NASL Only | YAML | No |

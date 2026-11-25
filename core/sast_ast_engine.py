@@ -12,6 +12,13 @@ import ast
 import re
 from typing import Any
 
+from core.native_bridge import (
+    SAST_MASK_ENTRY_POINT,
+    SAST_MASK_SHARP_EDGES,
+    SAST_MASK_TOCTOU,
+    fast_sast_prefilter_mask,
+)
+
 _SQL_KW_RE = re.compile(r"\b(?:SELECT|INSERT|UPDATE|DELETE)\b", re.I)
 _DOM_SANITIZER_RE = re.compile(r"(?i)(?:DOMPurify\.sanitize|sanitizeHtml|escapeHtml|xss)\s*\(")
 _SAFE_INFRA_PARAMS = {"self", "cls", "db", "conn", "cursor", "cur", "session", "log", "logger"}
@@ -569,7 +576,11 @@ _JAVA_CS_EQUALS_RE = re.compile(
 )
 
 
-def analyze_sharp_edges_and_timing(filename: str, src_text: str) -> list[dict[str, Any]]:
+def analyze_sharp_edges_and_timing(
+    filename: str,
+    src_text: str,
+    prefilter_mask: int | None = None,
+) -> list[dict[str, Any]]:
     """
     6-Language Cryptographic Sharp-Edges & Timing Side-Channel Analyzer:
       1. Non-constant-time HMAC/signature/token equality (`CWE-208`);
@@ -577,9 +588,14 @@ def analyze_sharp_edges_and_timing(filename: str, src_text: str) -> list[dict[st
       3. Block cipher ECB mode (`CWE-327`);
       4. Unchecked archive `extractall` ZipSlip/TarSlip (`CWE-22`).
     """
+    if not src_text:
+        return []
+    mask = fast_sast_prefilter_mask(src_text) if prefilter_mask is None else prefilter_mask
+    if not (mask & SAST_MASK_SHARP_EDGES):
+        return []
     findings: list[dict[str, Any]] = []
     seen: set[tuple[int, str]] = set()
-    lines = (src_text or "").splitlines()
+    lines = src_text.splitlines()
 
     def _emit(ln: int, title: str, sev: str, cvss: float, vec: str, cwe: str, owasp: str, rem: str) -> None:
         if (ln, cwe) not in seen:
@@ -667,9 +683,18 @@ _AUTH_GUARD_RE = re.compile(
 )
 
 
-def analyze_unauthenticated_entry_points(filename: str, src_text: str) -> list[dict[str, Any]]:
+def analyze_unauthenticated_entry_points(
+    filename: str,
+    src_text: str,
+    prefilter_mask: int | None = None,
+) -> list[dict[str, Any]]:
     """6-Framework State-Changing Privileged Route Auth-Guard Verifier (`CWE-306`)."""
-    lines = (src_text or "").splitlines()
+    if not src_text:
+        return []
+    mask = fast_sast_prefilter_mask(src_text) if prefilter_mask is None else prefilter_mask
+    if not (mask & SAST_MASK_ENTRY_POINT):
+        return []
+    lines = src_text.splitlines()
     if not lines:
         return []
     file_level_guard = bool(re.search(r"(?:\[Authorize\b|@PreAuthorize\b|router\.use\([^)]*auth|middleware\(\s*\[?['\"]auth)", (src_text or "")[:1500], re.I))
@@ -716,9 +741,18 @@ _TOCTOU_LOCK_RE = re.compile(
 )
 
 
-def analyze_toctou_race_patterns(filename: str, src_text: str) -> list[dict[str, Any]]:
+def analyze_toctou_race_patterns(
+    filename: str,
+    src_text: str,
+    prefilter_mask: int | None = None,
+) -> list[dict[str, Any]]:
     """Detects Non-Atomic Financial/Quota Check-Then-Deduct Race Windows (`CWE-362`)."""
-    lines = (src_text or "").splitlines()
+    if not src_text:
+        return []
+    mask = fast_sast_prefilter_mask(src_text) if prefilter_mask is None else prefilter_mask
+    if not (mask & SAST_MASK_TOCTOU):
+        return []
+    lines = src_text.splitlines()
     findings: list[dict[str, Any]] = []
     for idx, raw_ln in enumerate(lines, start=1):
         if not _TOCTOU_CHECK_RE.search(raw_ln):

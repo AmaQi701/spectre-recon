@@ -14,7 +14,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from core.native_bridge import fast_structural_hash
+from core.native_bridge import fast_nvt_body_sig_mask, fast_structural_hash
 from core.plugin_runner import QoD
 
 CATALOG_PATH = Path(__file__).resolve().parent.parent / "config" / "nvt_catalog.json"
@@ -156,11 +156,13 @@ def build_host_kb_facts(
     srv = str(svc.get("server") or "").strip()
     title = str(svc.get("title") or "").strip()
     waf = str(svc.get("cdn_waf") or "").strip()
+    nvt_sig = fast_nvt_body_sig_mask(f"{title}\n{svc.get('body_preview', '')}")
     return {
         "url": raw_url,
         "http/status": str(svc.get("status_code") or ""),
         "http/server": srv,
         "http/title": title,
+        "http/nvt_sig_mask": str(nvt_sig),
         "tech/stack": f"{srv} {tech_str}".strip(),
         "cdn/waf": waf,
         "tls/enabled": "true" if scheme == "https" else "false",

@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from core.native_bridge import fast_compare_distro_versions
+
 
 _SEMVER_RE = re.compile(r"(?i)^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:p(\d+)|([a-z])(?![a-z]))?")
 _NOISE_BRACKETS_RE = re.compile(r"(?i)\[(?:http-title|ssl-cert|http-robots\.txt|http-favicon):[^\]]*\]")
@@ -2389,7 +2391,10 @@ def parse_distro_version(ver_str: str) -> tuple[int, str, str]:
 
 
 def compare_distro_versions(v1: str, v2: str) -> int:
-    """Returns `-1` if `v1 < v2`, `0` if `v1 == v2`, and `1` if `v1 > v2`."""
+    """Returns `-1` if `v1 < v2`, `0` if `v1 == v2`, and `1` if `v1 > v2` (Rust FFI accelerated)."""
+    rs_cmp = fast_compare_distro_versions(v1, v2)
+    if rs_cmp is not None:
+        return rs_cmp
     ep1, up1, rev1 = parse_distro_version(v1)
     ep2, up2, rev2 = parse_distro_version(v2)
     if ep1 != ep2:

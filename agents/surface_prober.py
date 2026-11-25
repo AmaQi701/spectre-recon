@@ -10,6 +10,7 @@ import warnings
 from pathlib import Path
 import requests
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+from core.native_bridge import fast_dual_baseline_threshold
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 urllib3_disable = getattr(requests.packages, "urllib3", None)
@@ -214,7 +215,7 @@ def hunt_virtual_hosts(db, session, project_id: int, apex_domain: str, log_fn):
         except Exception:
             pass
 
-        min_diff = max(500, base_jitter * 4, int(base_len * 0.12))
+        min_diff = fast_dual_baseline_threshold(base_len, base_jitter)
 
         def check_vhost(pref: str):
             cand_vhost = f"{pref}.{apex_domain}"

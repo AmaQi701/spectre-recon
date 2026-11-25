@@ -531,4 +531,71 @@ uint32_t spectre_secret_prefilter_mask(const uint8_t* data, size_t len) {
     return mask;
 }
 
+uint32_t spectre_cpp_abi_version() {
+    return 840U;
+}
+
+int spectre_dual_baseline_threshold(int base_len, int base_jitter) {
+    int j4 = base_jitter > 0 ? (base_jitter * 4) : 0;
+    int pct12 = base_len > 0 ? static_cast<int>(base_len * 0.12) : 0;
+    int thr = 500;
+    if (j4 > thr) thr = j4;
+    if (pct12 > thr) thr = pct12;
+    return thr;
+}
+
+uint32_t spectre_nvt_body_sig_mask(const uint8_t* data, size_t len) {
+    if (!data || len < 4) return 0U;
+    uint32_t mask = 0U;
+    for (size_t i = 0; i + 3 < len; ++i) {
+        const uint8_t* p = data + i;
+        const size_t rem = len - i;
+        uint8_t c = p[0];
+        if (c >= 'A' && c <= 'Z') c += 32;
+        switch (c) {
+            case '"':
+                if (!(mask & 1U) && (match_ci(p, rem, "\"beans\"", 7) || match_ci(p, rem, "\"propertysources\"", 17))) mask |= 1U;
+                if (!(mask & 4U) && (match_ci(p, rem, "\"__schema\"", 10) || match_ci(p, rem, "\"openapi\"", 9) || match_ci(p, rem, "\"swagger\"", 9))) mask |= 4U;
+                if (!(mask & 8U) && (match_ci(p, rem, "\"models\"", 8) || match_ci(p, rem, "\"jsonrpc\"", 9) || match_ci(p, rem, "\"collections\"", 13))) mask |= 8U;
+                break;
+            case 'r':
+                if (!(mask & 2U) && match_ci(p, rem, "ref: refs/heads/", 16)) mask |= 2U;
+                break;
+            case '[':
+                if (!(mask & 2U) && match_ci(p, rem, "[core]", 6)) mask |= 2U;
+                break;
+            case 'd':
+                if (!(mask & 2U) && match_ci(p, rem, "db_password", 11)) mask |= 2U;
+                break;
+            case 'a':
+                if (!(mask & 2U) && (match_ci(p, rem, "app_key=", 8) || match_ci(p, rem, "aws_secret", 10))) mask |= 2U;
+                if (!(mask & 16U) && match_ci(p, rem, "active connections:", 19)) mask |= 16U;
+                break;
+            case 'p':
+                if (!(mask & 1U) && match_ci(p, rem, "process_cpu_seconds_total", 25)) mask |= 1U;
+                if (!(mask & 16U) && match_ci(p, rem, "phpinfo()", 9)) mask |= 16U;
+                break;
+            case '#':
+                if (!(mask & 1U) && match_ci(p, rem, "# help ", 7)) mask |= 1U;
+                break;
+            case 'o':
+                if (!(mask & 8U) && match_ci(p, rem, "ollama", 6)) mask |= 8U;
+                break;
+            case 'w':
+                if (!(mask & 16U) && match_ci(p, rem, "werkzeug", 8)) mask |= 16U;
+                break;
+            case 't':
+                if (!(mask & 16U) && match_ci(p, rem, "traceback", 9)) mask |= 16U;
+                break;
+            case 's':
+                if (!(mask & 16U) && match_ci(p, rem, "server-status", 13)) mask |= 16U;
+                break;
+            default:
+                break;
+        }
+        if (mask == 0x1FU) break;
+    }
+    return mask;
+}
+
 } // extern "C"

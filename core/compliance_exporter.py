@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from core.advisory_kb import extract_cpe_inventory
+from core.native_bridge import fast_cvss31_score
 
 
 _CVSS31_WEIGHTS: dict[str, dict[str, float]] = {
@@ -28,7 +29,10 @@ _CVSS31_WEIGHTS: dict[str, dict[str, float]] = {
 
 
 def calculate_cvss31_base_score(vector: str) -> float:
-    """Official FIRST.org CVSS v3.1 Base Score calculator (`trailofbits/cvss-scoring` parity)."""
+    """Official FIRST.org CVSS v3.1 Base Score calculator (Rust FFI accelerated)."""
+    rs_score = fast_cvss31_score(vector)
+    if rs_score is not None:
+        return rs_score
     metrics: dict[str, str] = {}
     for tok in (vector or "").strip().split("/"):
         if ":" in tok and not tok.upper().startswith("CVSS"):
@@ -101,7 +105,7 @@ def build_sarif_report(bundle: dict[str, Any]) -> dict[str, Any]:
             "tool": {
                 "driver": {
                     "name": "SPECTRE Hybrid Security Studio",
-                    "version": "8.3.0",
+                    "version": "8.4.0",
                     "informationUri": "https://github.com/AmaQi701/spectre-recon",
                     "rules": list(rules_map.values()),
                 }
