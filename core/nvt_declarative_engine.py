@@ -9,6 +9,7 @@ from __future__ import annotations
 import concurrent.futures
 import hashlib
 import json
+import re
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -129,6 +130,99 @@ def _is_calibrated_hit(resp: Any, rule: dict[str, Any], cal: tuple[int, int, str
     return True
 
 
+def build_host_kb_facts(
+    svc: dict[str, Any],
+    open_ports: set[int] | None = None,
+) -> dict[str, Any]:
+    """Builds a per-origin Host Posture Knowledge Base (KB) dictionary for NVT pre-flight gating."""
+    raw_url = str(svc.get("url") or "").rstrip("/")
+    parsed = urllib.parse.urlparse(raw_url)
+    scheme = (parsed.scheme or "http").lower()
+    inferred_port = parsed.port or (443 if scheme == "https" else 80)
+    ports_set: set[int] = {int(inferred_port)}
+    if open_ports:
+        ports_set.update(int(p) for p in open_ports if int(p) > 0)
+
+    raw_tech = svc.get("tech_stack") or ""
+    tech_str = raw_tech
+    if isinstance(raw_tech, str) and raw_tech.strip().startswith("["):
+        try:
+            tech_str = " ".join(str(x) for x in json.loads(raw_tech) if x)
+        except Exception:
+            tech_str = raw_tech
+    elif isinstance(raw_tech, (list, tuple, set)):
+        tech_str = " ".join(str(x) for x in raw_tech if x)
+
+    srv = str(svc.get("server") or "").strip()
+    title = str(svc.get("title") or "").strip()
+    waf = str(svc.get("cdn_waf") or "").strip()
+    return {
+        "url": raw_url,
+        "http/status": str(svc.get("status_code") or ""),
+        "http/server": srv,
+        "http/title": title,
+        "tech/stack": f"{srv} {tech_str}".strip(),
+        "cdn/waf": waf,
+        "tls/enabled": "true" if scheme == "https" else "false",
+        "ports/tcp": ports_set,
+    }
+
+
+def _kb_expr_matches(host_kb: dict[str, Any], expr: str) -> bool:
+    raw = str(expr or "").strip()
+    if not raw:
+        return False
+    if "=" not in raw:
+        val = host_kb.get(raw)
+        if isinstance(val, (set, list, tuple)):
+            return len(val) > 0
+        return bool(str(val or "").strip())
+    k_part, pat_part = raw.split("=", 1)
+    k_part = k_part.strip()
+    pat_part = pat_part.strip()
+    raw_val = host_kb.get(k_part)
+    if raw_val is None:
+        return False
+    val_str = " ".join(str(x) for x in raw_val) if isinstance(raw_val, (set, list, tuple)) else str(raw_val)
+    if not val_str.strip():
+        return False
+    try:
+        return bool(re.search(pat_part, val_str, re.IGNORECASE))
+    except re.error:
+        return pat_part.lower() in val_str.lower()
+
+
+def evaluate_nvt_kb_gate(host_kb: dict[str, Any], rule: dict[str, Any]) -> tuple[bool, str]:
+    """
+    Evaluates declarative NVT pre-flight gates (`required_ports`, `excluded_keys`,
+    `mandatory_keys`, and `tech_any`) against `host_kb` prior to issuing HTTP probes.
+    """
+    req_ports = [int(p) for p in (rule.get("required_ports") or []) if int(p) > 0]
+    if req_ports:
+        open_tcp = host_kb.get("ports/tcp") or set()
+        if not any(p in open_tcp for p in req_ports):
+            return False, f"missing_required_port:{req_ports}"
+
+    for ex_expr in (rule.get("excluded_keys") or []):
+        if _kb_expr_matches(host_kb, str(ex_expr)):
+            return False, f"excluded_key:{ex_expr}"
+
+    for req_expr in (rule.get("mandatory_keys") or []):
+        if not _kb_expr_matches(host_kb, str(req_expr)):
+            return False, f"missing_mandatory_key:{req_expr}"
+
+    req_tech = [str(t).lower() for t in (rule.get("tech_any") or []) if str(t)]
+    if req_tech:
+        t_blob = (
+            f"{host_kb.get('http/title', '')} {host_kb.get('http/server', '')} "
+            f"{host_kb.get('tech/stack', '')} {host_kb.get('url', '')}"
+        ).lower()
+        if not any(t in t_blob for t in req_tech):
+            return False, "missing_tech_any"
+
+    return True, "OK"
+
+
 def run_declarative_nvt_catalog(
     db: Any,
     http_engine: Any,
@@ -140,7 +234,7 @@ def run_declarative_nvt_catalog(
     if not rules or not http_services:
         return 0
 
-    targets: list[tuple[str, str]] = []
+    targets: list[tuple[str, dict[str, Any]]] = []
     seen_tpl: set[tuple[str, str, int]] = set()
     ordered = sorted(
         http_services,
@@ -156,16 +250,15 @@ def run_declarative_nvt_catalog(
         if tpl in seen_tpl and targets:
             continue
         seen_tpl.add(tpl)
-        t_blob = f"{svc.get('title', '')} {svc.get('server', '')} {svc.get('tech_stack', '')} {u}".lower()
-        targets.append((u, t_blob))
+        targets.append((u, build_host_kb_facts(svc)))
 
     if not targets:
         return 0
 
     hits_by_rule: dict[str, list[tuple[dict[str, Any], str, int]]] = {}
 
-    def _eval_host(item: tuple[str, str]) -> list[tuple[dict[str, Any], str, int]]:
-        base_u, t_blob = item
+    def _eval_host(item: tuple[str, dict[str, Any]]) -> list[tuple[dict[str, Any], str, int]]:
+        base_u, host_kb = item
         local_hits: list[tuple[dict[str, Any], str, int]] = []
         try:
             rc = http_engine.request("GET", f"{base_u}/spectre-decl-cal-7741", timeout=(2.0, 2.8), allow_redirects=False, max_bytes=16384)
@@ -174,8 +267,8 @@ def run_declarative_nvt_catalog(
         except Exception:
             return local_hits
         for rl in rules:
-            req_tech = [str(t).lower() for t in (rl.get("tech_any") or [])]
-            if req_tech and not any(t in t_blob for t in req_tech):
+            ok_gate, _ = evaluate_nvt_kb_gate(host_kb, rl)
+            if not ok_gate:
                 continue
             probe_u = f"{base_u}{rl['path']}"
             try:

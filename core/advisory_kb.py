@@ -2332,3 +2332,141 @@ def match_version_advisories(raw_text: str) -> list[dict[str, Any]]:
         )
         matches.append(best)
     return matches
+
+
+def _char_order_deb(ch: str | None) -> int:
+    if ch == "~":
+        return -2
+    if ch is None:
+        return -1
+    if ch.isalpha():
+        return ord(ch)
+    return ord(ch) + 256
+
+
+def _cmp_deb_rpm_part(part_a: str, part_b: str) -> int:
+    """Compares upstream or revision strings using Debian Policy 5.6.12 / RPM lexical+numeric rules."""
+    i, j = 0, 0
+    la, lb = len(part_a), len(part_b)
+    while i < la or j < lb:
+        while (i < la and not part_a[i].isdigit()) or (j < lb and not part_b[j].isdigit()):
+            ca = part_a[i] if (i < la and not part_a[i].isdigit()) else None
+            cb = part_b[j] if (j < lb and not part_b[j].isdigit()) else None
+            oa, ob = _char_order_deb(ca), _char_order_deb(cb)
+            if oa != ob:
+                return -1 if oa < ob else 1
+            if ca is not None:
+                i += 1
+            if cb is not None:
+                j += 1
+        sa = i
+        while i < la and part_a[i].isdigit():
+            i += 1
+        sb = j
+        while j < lb and part_b[j].isdigit():
+            j += 1
+        va = int(part_a[sa:i]) if sa < i else 0
+        vb = int(part_b[sb:j]) if sb < j else 0
+        if va != vb:
+            return -1 if va < vb else 1
+    return 0
+
+
+def parse_distro_version(ver_str: str) -> tuple[int, str, str]:
+    """Splits `[epoch:]upstream_version[-distro_revision]` into `(epoch, upstream, revision)`."""
+    s = (ver_str or "").strip()
+    epoch = 0
+    if ":" in s:
+        ep_part, rest = s.split(":", 1)
+        if ep_part.isdigit():
+            epoch = int(ep_part)
+            s = rest
+    if "-" in s:
+        upstream, revision = s.rsplit("-", 1)
+    else:
+        upstream, revision = s, ""
+    return epoch, upstream, revision
+
+
+def compare_distro_versions(v1: str, v2: str) -> int:
+    """Returns `-1` if `v1 < v2`, `0` if `v1 == v2`, and `1` if `v1 > v2`."""
+    ep1, up1, rev1 = parse_distro_version(v1)
+    ep2, up2, rev2 = parse_distro_version(v2)
+    if ep1 != ep2:
+        return -1 if ep1 < ep2 else 1
+    c_up = _cmp_deb_rpm_part(up1, up2)
+    if c_up != 0:
+        return c_up
+    return _cmp_deb_rpm_part(rev1, rev2)
+
+
+DISTRO_LSC_ADVISORY_TABLE: tuple[dict[str, Any], ...] = (
+    {"distro": "ubuntu:22.04", "pkg": "openssh-server", "product": "openssh", "fixed": "1:8.9p1-3ubuntu0.10", "cve": "CVE-2024-6387", "title": "Ubuntu 22.04 OpenSSH (< 1:8.9p1-3ubuntu0.10) Signal Handler Race Advisory", "severity": "High", "cvss": 8.1, "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H", "cwe": "CWE-362", "remediation": "`apt-get install --only-upgrade openssh-server` orqali 1:8.9p1-3ubuntu0.10+ versiyaga yangilang."},
+    {"distro": "ubuntu:24.04", "pkg": "openssh-server", "product": "openssh", "fixed": "1:9.6p1-3ubuntu13.3", "cve": "CVE-2024-6387", "title": "Ubuntu 24.04 OpenSSH (< 1:9.6p1-3ubuntu13.3) Signal Handler Race Advisory", "severity": "High", "cvss": 8.1, "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H", "cwe": "CWE-362", "remediation": "`apt-get install --only-upgrade openssh-server` orqali 1:9.6p1-3ubuntu13.3+ versiyaga yangilang."},
+    {"distro": "debian:12", "pkg": "openssh-server", "product": "openssh", "fixed": "1:9.2p1-2+deb12u3", "cve": "CVE-2024-6387", "title": "Debian 12 OpenSSH (< 1:9.2p1-2+deb12u3) Signal Handler Race Advisory", "severity": "High", "cvss": 8.1, "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H", "cwe": "CWE-362", "remediation": "`apt-get install --only-upgrade openssh-server` orqali 1:9.2p1-2+deb12u3+ versiyaga yangilang."},
+    {"distro": "rhel:9", "pkg": "openssh-server", "product": "openssh", "fixed": "8.7p1-38.el9_4.1", "cve": "CVE-2024-6387", "title": "RHEL/Rocky/Alma 9 OpenSSH (< 8.7p1-38.el9_4.1) Signal Handler Race Advisory", "severity": "High", "cvss": 8.1, "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H", "cwe": "CWE-362", "remediation": "`dnf upgrade openssh-server` orqali 8.7p1-38.el9_4.1+ versiyaga yangilang."},
+    {"distro": "ubuntu:22.04", "pkg": "sudo", "product": "sudo", "fixed": "1.9.9-1ubuntu2.4", "cve": "CVE-2023-22809", "title": "Ubuntu 22.04 Sudo (< 1.9.9-1ubuntu2.4) sudoedit File Access Advisory", "severity": "High", "cvss": 7.8, "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H", "cwe": "CWE-269", "remediation": "`apt-get install --only-upgrade sudo` orqali 1.9.9-1ubuntu2.4+ versiyaga yangilang."},
+    {"distro": "debian:12", "pkg": "libc6", "product": "glibc", "fixed": "2.36-9+deb12u4", "cve": "CVE-2023-6246", "title": "Debian 12 glibc (< 2.36-9+deb12u4) syslog Buffer Boundary Advisory", "severity": "High", "cvss": 7.8, "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H", "cwe": "CWE-787", "remediation": "`apt-get install --only-upgrade libc6` orqali 2.36-9+deb12u4+ versiyaga yangilang."},
+    {"distro": "ubuntu:22.04", "pkg": "libc6", "product": "glibc", "fixed": "2.35-0ubuntu3.6", "cve": "CVE-2023-6246", "title": "Ubuntu 22.04 glibc (< 2.35-0ubuntu3.6) syslog Buffer Boundary Advisory", "severity": "High", "cvss": 7.8, "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H", "cwe": "CWE-787", "remediation": "`apt-get install --only-upgrade libc6` orqali 2.35-0ubuntu3.6+ versiyaga yangilang."},
+    {"distro": "rhel:9", "pkg": "glibc", "product": "glibc", "fixed": "2.34-83.el9_3.12", "cve": "CVE-2023-6246", "title": "RHEL/Rocky/Alma 9 glibc (< 2.34-83.el9_3.12) syslog Advisory", "severity": "High", "cvss": 7.8, "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H", "cwe": "CWE-787", "remediation": "`dnf upgrade glibc` orqali 2.34-83.el9_3.12+ versiyaga yangilang."},
+)
+
+
+def detect_distro_family(os_release_text: str) -> str:
+    low = (os_release_text or "").lower()
+    if "ubuntu" in low:
+        if "24.04" in low or "noble" in low:
+            return "ubuntu:24.04"
+        if "22.04" in low or "jammy" in low:
+            return "ubuntu:22.04"
+    if "debian" in low and ("12" in low or "bookworm" in low):
+        return "debian:12"
+    if any(k in low for k in ("rhel", "red hat", "rocky", "almalinux", "centos stream")) and ("9" in low or "el9" in low):
+        return "rhel:9"
+    return ""
+
+
+def evaluate_distro_lsc_inventory(
+    os_release_text: str,
+    pkg_inventory_text: str,
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """
+    Table-driven Distro Local Security Check (LSC) evaluator.
+    Compares installed `dpkg`/`rpm` package revisions against distro security advisories.
+    """
+    distro_id = detect_distro_family(os_release_text)
+    if not distro_id:
+        return [], set()
+
+    pkgs: dict[str, str] = {}
+    for raw_ln in (pkg_inventory_text or "").splitlines():
+        parts = raw_ln.strip().split()
+        if len(parts) >= 2:
+            p_name = parts[0].split(":", 1)[0].strip().lower()
+            pkgs[p_name] = parts[1].strip()
+
+    findings: list[dict[str, Any]] = []
+    covered_products: set[str] = set()
+    for row in DISTRO_LSC_ADVISORY_TABLE:
+        if row["distro"] != distro_id:
+            continue
+        inst_ver = pkgs.get(row["pkg"])
+        if not inst_ver:
+            continue
+        covered_products.add(str(row["product"]))
+        if compare_distro_versions(inst_ver, str(row["fixed"])) < 0:
+            item = dict(row)
+            item["installed_version"] = inst_ver
+            item["owasp"] = "A06:2021 - Vulnerable and Outdated Components"
+            item["cpe23"] = build_cpe23(str(row["product"]), parse_distro_version(inst_ver)[1])
+            findings.append(item)
+    return findings, covered_products
+
+
+def evaluate_distro_package_advisory(
+    os_release_text: str,
+    pkg_inventory_text: str,
+) -> list[dict[str, Any]]:
+    """Convenience wrapper returning confirmed distro LSC advisories."""
+    hits, _ = evaluate_distro_lsc_inventory(os_release_text, pkg_inventory_text)
+    return hits

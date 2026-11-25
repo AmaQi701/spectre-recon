@@ -11,7 +11,7 @@ import shutil
 import subprocess
 from typing import Any
 
-from core.advisory_kb import match_version_advisories
+from core.advisory_kb import evaluate_distro_lsc_inventory, match_version_advisories
 from core.plugin_runner import QoD
 
 
@@ -87,9 +87,9 @@ def run_credentialed_ssh_audit(
         "uname -sr; echo '===OS==='; cat /etc/os-release 2>/dev/null | head -n 6; "
         "echo '===SSHD==='; grep -Ev '^[[:space:]]*(#|$)' /etc/ssh/sshd_config 2>/dev/null; "
         "echo '===PKGS==='; dpkg-query -W -f='${Package} ${Version}\\n' 2>/dev/null | "
-        "grep -Ei '^(openssh-server|nginx|apache2|mysql-server|mariadb-server|postgresql|redis-server|php|exim4|postfix|squid|bind9|dnsmasq)' || "
+        "grep -Ei '^(openssh-server|sudo|libc6|nginx|apache2|mysql-server|mariadb-server|postgresql|redis-server|php|exim4|postfix|squid|bind9|dnsmasq)' || "
         "rpm -qa --qf '%{NAME} %{VERSION}-%{RELEASE}\\n' 2>/dev/null | "
-        "grep -Ei '^(openssh-server|nginx|httpd|mariadb-server|postgresql-server|redis|php|postfix|squid|bind|dnsmasq)'"
+        "grep -Ei '^(openssh-server|sudo|glibc|nginx|httpd|mariadb-server|postgresql-server|redis|php|postfix|squid|bind|dnsmasq)'"
     )
     cmd.extend([user_host, remote_probe])
 
@@ -124,9 +124,21 @@ def run_credentialed_ssh_audit(
         )
         written += 1
 
+    distro_hits, covered_prods = evaluate_distro_lsc_inventory(f"{os_name}\n{os_rel}", pkgs_txt)
+    for d_adv in distro_hits:
+        db.upsert_finding(
+            project_id, "Agent-2 (Credentialed-SSH)", f"[CONFIRMED] {d_adv['title']} ({host_part}) [{d_adv['cve']}]",
+            "Authenticated Package Audit (LSC)", d_adv["severity"], float(d_adv["cvss"]), d_adv["vector"],
+            d_adv["cwe"], d_adv["owasp"], f"ssh://{host_part}:{port_num}",
+            f"Distro LSC revision check: {d_adv['pkg']} {d_adv['installed_version']} < {d_adv['fixed']} | {d_adv.get('cpe23', '')}",
+            "Distro paket reviziyasi xavfsizlik yangilanishidan eski ekanligi aniq tasdiqlandi.",
+            d_adv["remediation"], confidence=QoD.ACTIVE_VERIFIED,
+        )
+        written += 1
+
     norm_pkgs = pkgs_txt.replace("openssh-server", "openssh").replace("apache2", "apache").replace("httpd", "apache").replace("-server", "")
     for adv in match_version_advisories(f"{os_name}\n{norm_pkgs}"):
-        if adv.get("distro_backport_likely"):
+        if adv.get("product") in covered_prods or adv.get("distro_backport_likely"):
             continue
         db.upsert_finding(
             project_id, "Agent-2 (Credentialed-SSH)", f"[CONFIRMED] {adv['title']} ({host_part}) [{adv['cve']}]",

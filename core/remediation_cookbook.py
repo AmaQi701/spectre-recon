@@ -18,6 +18,15 @@ def build_safe_reproducer(finding: dict[str, Any]) -> str:
     title = str(finding.get("title") or "").lower()
     cat = str(finding.get("category") or "").lower()
 
+    if asset.startswith("ssh://"):
+        p = urllib.parse.urlparse(asset)
+        qh = shlex.quote(p.hostname or "target")
+        qp = str(p.port or 22)
+        return (
+            f"ssh -o BatchMode=yes -o ConnectTimeout=5 -p {qp} {qh} "
+            "'uname -sr && (dpkg-query -W openssh-server sudo libc6 2>/dev/null || rpm -q openssh-server sudo glibc)'"
+        )
+
     if asset.startswith(("http://", "https://")):
         q_url = shlex.quote(asset)
         if "mcp" in title and "tool server" in title:
@@ -140,6 +149,12 @@ def build_fix_patch_snippet(finding: dict[str, Any]) -> str:
         return (
             "ssl_protocols TLSv1.2 TLSv1.3;\n"
             "add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains; preload\" always;"
+        )
+    if "authenticated package audit" in cat or cwe in ("CWE-269", "CWE-787"):
+        return (
+            "# Apply Distro Security Backport Update (Debian/Ubuntu or RHEL/RPM):\n"
+            "sudo apt-get update && sudo apt-get install --only-upgrade <package>\n"
+            "# RHEL/Rocky/Alma: sudo dnf upgrade --security <package>"
         )
     if cwe in ("CWE-1104", "CWE-1395") or "sca" in cat or "dependencies" in title or "outdated" in title:
         return (

@@ -6,6 +6,7 @@ SPECTRE — KB-Driven Phased Orchestrator, QoD Standard & Fault-Isolated Plugin 
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 import traceback
@@ -78,6 +79,29 @@ class ScanContextKB:
                 return bool(self._facts.get(category)) or bool(self._kv.get(category))
             return item in self._facts.get(category, set())
 
+    def matches_key_expr(self, expr: str) -> bool:
+        """Evaluates plain KB keys (`Services/www`) or regex predicates (`Tech/detected=nginx|apache`)."""
+        raw = str(expr or "").strip()
+        if not raw:
+            return False
+        with self._lock:
+            if "=" not in raw:
+                return self.has_fact(raw)
+            key_part, pat_part = raw.split("=", 1)
+            key_part = key_part.strip()
+            pat_part = pat_part.strip()
+            candidates: list[str] = [str(x) for x in self._facts.get(key_part, set()) if x is not None]
+            if key_part in self._kv and self._kv[key_part] is not None:
+                candidates.append(str(self._kv[key_part]))
+            if not candidates:
+                return False
+            try:
+                cre = re.compile(pat_part, re.IGNORECASE)
+                return any(bool(cre.search(val)) for val in candidates)
+            except re.error:
+                low_p = pat_part.lower()
+                return any(low_p in val.lower() for val in candidates)
+
     def hydrate_from_bundle(
         self, bundle: dict[str, Any], has_auth_a: bool = False, has_auth_b: bool = False
     ) -> None:
@@ -136,15 +160,15 @@ class ScanContextKB:
         with self._lock:
             if exclude_keys:
                 for ek in exclude_keys:
-                    if self.has_fact(ek):
+                    if self.matches_key_expr(ek):
                         return False, f"excluded_kb_key:{ek}"
             if require_keys:
                 for rk in require_keys:
-                    if not self.has_fact(rk):
+                    if not self.matches_key_expr(rk):
                         return False, f"missing_kb_key:{rk}"
             if require_any_keys:
                 any_list = list(require_any_keys)
-                if any_list and not any(self.has_fact(rk) for rk in any_list):
+                if any_list and not any(self.matches_key_expr(rk) for rk in any_list):
                     return False, f"missing_any_kb_key:{any_list}"
             if require_ports:
                 open_all = self._facts.get("Ports/tcp", set()) | self._facts.get("Ports/udp", set())
@@ -221,12 +245,62 @@ def run_plugin_safely(
         return None
 
 
+def compute_topological_waves(
+    task_specs: Iterable[tuple[str, Iterable[str] | None]],
+) -> list[list[str]]:
+    """
+    Groups named tasks into deterministic topological execution waves (Kahn DAG algorithm).
+    Raises `ValueError` if a cyclic dependency exists among registered task names.
+    """
+    ordered_names: list[str] = []
+    raw_deps: dict[str, list[str]] = {}
+    for name, deps in task_specs:
+        t_name = str(name)
+        if t_name not in raw_deps:
+            ordered_names.append(t_name)
+            raw_deps[t_name] = [str(d) for d in (deps or []) if str(d)]
+        else:
+            for d in (deps or []):
+                if str(d) and str(d) not in raw_deps[t_name]:
+                    raw_deps[t_name].append(str(d))
+
+    known = set(ordered_names)
+    in_deg: dict[str, int] = {}
+    dependents: dict[str, list[str]] = {n: [] for n in ordered_names}
+    for n in ordered_names:
+        valid_deps = [d for d in raw_deps[n] if d in known]
+        in_deg[n] = len(valid_deps)
+        for d in valid_deps:
+            dependents[d].append(n)
+
+    rank = {n: idx for idx, n in enumerate(ordered_names)}
+    ready = sorted([n for n in ordered_names if in_deg[n] == 0], key=lambda x: rank[x])
+    waves: list[list[str]] = []
+    visited = 0
+
+    while ready:
+        current_wave = list(ready)
+        waves.append(current_wave)
+        visited += len(current_wave)
+        next_ready: list[str] = []
+        for done_node in current_wave:
+            for child in dependents[done_node]:
+                in_deg[child] -= 1
+                if in_deg[child] == 0:
+                    next_ready.append(child)
+        ready = sorted(next_ready, key=lambda x: rank[x])
+
+    if visited != len(ordered_names):
+        cyclic = [n for n in ordered_names if in_deg[n] > 0]
+        raise ValueError(f"Cyclic plugin dependency detected: {', '.join(cyclic)}")
+    return waves
+
+
 class PhaseOrchestrator:
     """
-    Deterministic NASL/NVT-style scheduler.
-    Executes registered plugins strictly in `ScanPhase.ORDER` (`ACT_INIT` -> ... -> `ACT_END`)
-    and evaluates `ScanContextKB` gates dynamically at execution time so facts gathered in
-    `ACT_GATHER_INFO` unlock or skip downstream `ACT_VERIFY` / `ACT_END` plugins.
+    Deterministic phased + DAG wave scheduler.
+    Executes registered plugins strictly in `ScanPhase.ORDER` and topological `depends_on` waves,
+    evaluating `ScanContextKB` gates dynamically at execution time.
     """
 
     def __init__(
@@ -240,7 +314,7 @@ class PhaseOrchestrator:
         self.project_id = project_id
         self.kb = kb
         self.log_fn = log_fn
-        self._tasks: list[tuple[int, int, str, str, Callable[..., Any], tuple[Any, ...], dict[str, Any], dict[str, Any]]] = []
+        self._tasks: list[tuple[int, int, str, str, Callable[..., Any], tuple[Any, ...], dict[str, Any], dict[str, Any], list[str]]] = []
         self._seq = 0
 
     def register(
@@ -253,6 +327,7 @@ class PhaseOrchestrator:
         require_any_keys: Iterable[str] | None = None,
         exclude_keys: Iterable[str] | None = None,
         require_ports: Iterable[int] | None = None,
+        depends_on: Iterable[str] | None = None,
         **kwargs: Any,
     ) -> None:
         p_ord = ScanPhase.ORDER.get(phase, 40)
@@ -262,8 +337,24 @@ class PhaseOrchestrator:
             "exclude_keys": exclude_keys,
             "require_ports": require_ports,
         }
-        self._tasks.append((p_ord, self._seq, plugin_name, phase, fn, args, kwargs, gate_cfg))
+        dep_list = [str(d) for d in (depends_on or []) if str(d)]
+        self._tasks.append((p_ord, self._seq, plugin_name, phase, fn, args, kwargs, gate_cfg, dep_list))
         self._seq += 1
+
+    def build_execution_waves(self) -> list[list[str]]:
+        """Builds phase-respecting topological execution waves across all registered plugins."""
+        ordered = sorted(self._tasks, key=lambda x: (x[0], x[1]))
+        waves: list[list[str]] = []
+        idx = 0
+        while idx < len(ordered):
+            p_ord = ordered[idx][0]
+            group = []
+            while idx < len(ordered) and ordered[idx][0] == p_ord:
+                group.append(ordered[idx])
+                idx += 1
+            specs = [(item[2], item[8]) for item in group]
+            waves.extend(compute_topological_waves(specs))
+        return waves
 
     def execute_all(
         self,
@@ -272,9 +363,12 @@ class PhaseOrchestrator:
         end_frac: float = 0.96,
     ) -> dict[str, Any]:
         results: dict[str, Any] = {}
-        ordered = sorted(self._tasks, key=lambda x: (x[0], x[1]))
-        total = max(1, len(ordered))
-        for idx, (_, _, p_name, phase, fn, args, kwargs, gate_cfg) in enumerate(ordered, start=1):
+        waves = self.build_execution_waves()
+        by_name = {item[2]: item for item in self._tasks}
+        flat_order = [name for wave in waves for name in wave if name in by_name]
+        total = max(1, len(flat_order))
+        for idx, p_name in enumerate(flat_order, start=1):
+            _, _, _, phase, fn, args, kwargs, gate_cfg, _ = by_name[p_name]
             if progress_fn:
                 frac = start_frac + (end_frac - start_frac) * ((idx - 1) / total)
                 progress_fn(frac, f"Phase 2 ({idx}/{total}): {p_name}...")
