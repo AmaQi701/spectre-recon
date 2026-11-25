@@ -146,7 +146,13 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		seeds := []string{"www", "api", "dev", "staging", "stage", "test", "admin", "portal", "mail", "webmail", "vpn", "auth", "sso", "id", "cdn", "static", "media", "storage", "s3", "minio", "docs", "app", "cabinet", "dashboard", "git", "gitlab", "jenkins", "grafana", "kibana", "prometheus", "zabbix", "status", "backend", "cms", "crm", "erp", "billing", "db"}
+		seeds := []string{
+			"www", "api", "dev", "staging", "stage", "test", "admin", "portal",
+			"mail", "webmail", "vpn", "auth", "sso", "id", "cdn", "static",
+			"media", "storage", "s3", "minio", "docs", "app", "cabinet", "dashboard",
+			"git", "gitlab", "jenkins", "grafana", "kibana", "prometheus", "zabbix",
+			"status", "backend", "cms", "crm", "erp", "billing", "db",
+		}
 		seen := make(map[string]struct{}, 160000)
 		list := make([]string, 0, 160000)
 		for _, s := range seeds {
@@ -154,7 +160,12 @@ func main() {
 			list = append(list, s)
 		}
 		used := false
-		for _, rel := range []string{"DNS/services-names.txt", "DNS/subdomains-top1million-110000.txt", "DNS/bitquark-subdomains-top100000.txt"} {
+		dnsFiles := []string{
+			"DNS/services-names.txt",
+			"DNS/subdomains-top1million-110000.txt",
+			"DNS/bitquark-subdomains-top100000.txt",
+		}
+		for _, rel := range dnsFiles {
 			if streamFileLines(filepath.Join(*secRoot, rel), func(raw string) {
 				tok := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(raw)), "*.")
 				if _, ok := seen[tok]; !ok && isValidDNSLabel(tok) {
@@ -180,7 +191,12 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		seeds := []string{"/robots.txt", "/sitemap.xml", "/swagger.json", "/openapi.json", "/v1/api-docs", "/graphql", "/.well-known/security.txt", "/.well-known/openid-configuration", "/actuator/health", "/wp-json/wp/v2/users", "/server-status", "/nginx_status"}
+		seeds := []string{
+			"/robots.txt", "/sitemap.xml", "/swagger.json", "/openapi.json",
+			"/v1/api-docs", "/graphql", "/.well-known/security.txt",
+			"/.well-known/openid-configuration", "/actuator/health",
+			"/wp-json/wp/v2/users", "/server-status", "/nginx_status",
+		}
 		seen := make(map[string]struct{}, 240000)
 		list := make([]string, 0, 240000)
 		for _, s := range seeds {
@@ -188,7 +204,13 @@ func main() {
 			list = append(list, s)
 		}
 		used := false
-		for _, rel := range []string{"Web-Content/Common-DB-Backups.txt", "Web-Content/SAP-NetWeaver.txt", "Web-Content/Roundcube-123.txt", "Web-Content/DirBuster-2007_directory-list-2.3-medium.txt"} {
+		webFiles := []string{
+			"Web-Content/Common-DB-Backups.txt",
+			"Web-Content/SAP-NetWeaver.txt",
+			"Web-Content/Roundcube-123.txt",
+			"Web-Content/DirBuster-2007_directory-list-2.3-medium.txt",
+		}
+		for _, rel := range webFiles {
 			if streamFileLines(filepath.Join(*secRoot, rel), func(raw string) {
 				ln := strings.TrimSpace(raw)
 				if ln == "" || strings.HasPrefix(ln, "#") || strings.ContainsRune(ln, ' ') {
@@ -220,7 +242,12 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		seeds := []string{"id", "user_id", "account_id", "org_id", "role", "admin", "debug", "redirect", "redirect_uri", "next", "url", "callback", "token", "api_key", "file", "path", "template", "page", "limit", "offset", "sort", "filter", "q", "search"}
+		seeds := []string{
+			"id", "user_id", "account_id", "org_id", "role", "admin", "debug",
+			"redirect", "redirect_uri", "next", "url", "callback", "token",
+			"api_key", "file", "path", "template", "page", "limit", "offset",
+			"sort", "filter", "q", "search",
+		}
 		seen := make(map[string]struct{}, 12000)
 		list := make([]string, 0, 12000)
 		for _, s := range seeds {

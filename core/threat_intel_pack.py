@@ -1,5 +1,5 @@
 """
-SPECTRE v8.5.0 Offline Threat Intelligence, SecLists & Clean-Room NVT Pack Engine
+SPECTRE v9.0.0 Offline Threat Intelligence, SecLists & Clean-Room NVT Pack Engine
 =================================================================================
 Compiles and queries a 100% copyright-clean offline intelligence pack (`intel/`):
   1. `intel/spectre_intel.db` (SQLite WAL B-Tree: KEV/CVE, IEEE OUI, Mozilla PSL, IANA Ports, Favicon MMH3, Tech Fingerprints)

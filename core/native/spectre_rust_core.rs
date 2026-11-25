@@ -8,7 +8,9 @@
 //   5. HTTP/Cookie/DOM Clean-Room Technology Fingerprint Automaton & RFC-1123 DNS Validator
 
 pub mod rust_cpe_advisory_engine;
-pub mod rust_kev_cve_rodata;
+pub mod rust_kev_cve_part1;
+pub mod rust_kev_cve_part2;
+pub mod rust_kev_cve_part3;
 
 use std::collections::{HashMap, HashSet};
 use std::slice;
@@ -482,10 +484,12 @@ pub extern "C" fn spectre_rust_tech_fingerprint_mask(data_ptr: *const u8, data_l
             break;
         }
     }
+    mask
+}
 
 #[no_mangle]
 pub extern "C" fn spectre_rust_kev_cve_count() -> u32 {
-    rust_kev_cve_rodata::KEV_CVE_TABLE.len() as u32
+    rust_kev_cve_part3::total_kev_cve_count()
 }
 
 #[no_mangle]
@@ -514,16 +518,13 @@ pub extern "C" fn spectre_rust_lookup_cve_json(
         Err(_) => return 0,
     };
     let _ = rust_cpe_advisory_engine::lookup_cpe_vendor_slug("nginx");
-    if let Some(json_s) = rust_kev_cve_rodata::lookup_cve_json(cve_str) {
+    if let Some(json_s) = rust_kev_cve_part3::lookup_cve_json(cve_str) {
         if write_c_buf(json_s.as_bytes(), out_ptr, out_cap) {
             return 1;
         }
         return -2;
     }
     0
-}
-
-    mask
 }
 
 

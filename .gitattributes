@@ -1,3 +1,11 @@
-# GitHub Linguist classification: exclude test harnesses & data snapshots from language bar
-tests/** linguist-vendored
-config/** linguist-vendored
+# GitHub Linguist classification rules for SPECTRE v9.0.0 Polyglot Architecture
+tests/** linguist-vendored=true
+config/** linguist-vendored=true
+workspaces/** linguist-vendored=true
+reports/** linguist-vendored=true
+core/native/*.rs linguist-detectable=true linguist-generated=false linguist-vendored=false
+core/native/*.go linguist-detectable=true linguist-generated=false linguist-vendored=false
+core/native/*.cpp linguist-detectable=true linguist-generated=false linguist-vendored=false
+core/native/*.hpp linguist-detectable=true linguist-generated=false linguist-vendored=false
+ui/*.css linguist-detectable=true linguist-generated=false linguist-vendored=false
+

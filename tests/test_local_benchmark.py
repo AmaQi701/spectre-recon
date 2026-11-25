@@ -351,7 +351,7 @@ def run_benchmark() -> None:
             assert any("Agentic RAG & Model Exposure Chain" in c for c in chains), f"AI/MCP->Data attack chain missing: {chains}"
             assert any("/internal-ops/metrics" in u for u in ep_urls), f"robots.txt Disallow harvester missed /internal-ops/metrics: {ep_urls}"
             html_out = pathlib.Path(rep_paths["html_path"]).read_text(encoding="utf-8")
-            assert "spSetSev(" in html_out and "NIST CSF 2.0" in html_out and "AICPA SOC 2 TSC" in html_out, "HTML v6.0 filter or 6-framework table missing"
+            assert "spSetSev(" in html_out and "NIST CSF 2.0" in html_out and "AICPA SOC 2 TSC" in html_out, "HTML v9.0 filter or 7-framework table missing"
             assert any("[EPSS:" in str(f.get("evidence", "")) for f in bundle["findings"]), "EPSS enrichment tag missing from CVE findings"
             assert not any("safe_q" in t for t in titles), f"False positive on properly HTML-escaped safe_q: {titles}"
             assert any("Unvalidated X-Forwarded-Host" in t for t in titles), f"XFH verifier missed flaw: {titles}"
