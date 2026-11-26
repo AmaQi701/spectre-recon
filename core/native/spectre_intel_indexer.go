@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -100,19 +101,85 @@ func streamFileLines(path string, fn func(string)) bool {
 	return true
 }
 
+func parseSocketSpecsFlagGo(specStr string, singlePort int) []SocketProbeSpec {
+	var specs []SocketProbeSpec
+	if specStr != "" {
+		for _, tok := range strings.Split(specStr, ",") {
+			tok = strings.TrimSpace(tok)
+			if tok == "" {
+				continue
+			}
+			if strings.Contains(tok, ":") {
+				parts := strings.SplitN(tok, ":", 2)
+				lp, e1 := strconv.Atoi(parts[0])
+				cp, e2 := strconv.Atoi(parts[1])
+				if e1 == nil && e2 == nil && lp > 0 && cp > 0 {
+					specs = append(specs, SocketProbeSpec{LogicalPort: lp, ConnectPort: cp})
+				}
+			} else if lp, err := strconv.Atoi(tok); err == nil && lp > 0 {
+				specs = append(specs, SocketProbeSpec{LogicalPort: lp, ConnectPort: lp})
+			}
+		}
+	} else if singlePort > 0 {
+		specs = append(specs, SocketProbeSpec{LogicalPort: singlePort, ConnectPort: singlePort})
+	}
+	return specs
+}
+
 func main() {
 	showVer := flag.Bool("version", false, "Print Go engine ABI version and .rodata stats")
 	outDir := flag.String("out-dir", "", "Output directory for deduplicated wordlists")
 	secRoot := flag.String("seclists", "/usr/share/seclists/Discovery", "SecLists Discovery root")
 	lookupOui := flag.String("lookup-oui", "", "Lookup MAC OUI vendor via Go binary search")
 	lookupPsl := flag.String("lookup-psl", "", "Check Mozilla Public Suffix via Go binary search")
-	probeHost := flag.String("probe-host", "", "Optional target host for Go concurrent socket verifier")
-	probePort := flag.Int("probe-port", 0, "Optional port for Go socket verifier")
+	probeHost := flag.String("probe-host", "", "Optional target host/IP for Go concurrent socket verifier")
+	dispHost := flag.String("disp-host", "", "Optional display hostname for socket findings")
+	probePort := flag.Int("probe-port", 0, "Optional single port for Go socket verifier")
+	probePorts := flag.String("probe-ports", "", "Comma-separated port or logical:connect specs")
+	timeoutMs := flag.Int("timeout-ms", 2400, "Socket/HTTP timeout in milliseconds")
+	syncFeeds := flag.String("sync-feeds", "", "Stream OSV + Clean-Room advisories into TSV path")
+	syncEcos := flag.String("ecosystems", "crates.io,NuGet,RubyGems,Go,Maven,Packagist,PyPI", "OSV ecosystems to sync")
+	runPlugins := flag.String("run-plugins", "", "Target base URL to execute YAML plugins against")
+	pluginsDir := flag.String("plugins-dir", "", "Directory containing declarative *.yaml plugins")
+	kbHints := flag.String("kb-hints", "", "Semicolon-separated key=val KB facts for YAML plugin gating")
+	mcpServer := flag.Bool("mcp-server", false, "Start local read-only JSON-RPC 2.0 MCP server on stdio")
+	mcpDbPath := flag.String("intel-db", "", "Path to intel/spectre_intel.db or state DB for MCP queries")
 	flag.Parse()
 
 	if *showVer {
-		fmt.Printf("SPECTRE-Go-Security-Engine v9.0.0 ABI=900 PSL=%d OUI=%d SCA=%d SocketPorts=%d\n",
-			len(CompiledPslTable), len(CompiledOuiTable), len(CompiledScaTable), len(SupportedSocketPorts))
+		fmt.Printf("SPECTRE-Go-Security-Engine v9.5.0 ABI=950 PSL=%d OUI=%d SCA=%d CleanAdv=%d SocketPorts=%d\n",
+			len(CompiledPslTable), len(CompiledOuiTable), len(CompiledScaTable),
+			len(CompiledCleanroomAdvisories), len(SupportedSocketPorts))
+		return
+	}
+	if *mcpServer {
+		if err := RunLocalMcpStdioServerGo(*mcpDbPath); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+	if *runPlugins != "" {
+		res, err := RunClusteredYamlPluginsGo(*runPlugins, *pluginsDir, *kbHints, *timeoutMs)
+		if err != nil {
+			os.Exit(1)
+		}
+		b, _ := json.Marshal(res)
+		fmt.Println(string(b))
+		return
+	}
+	if *syncFeeds != "" {
+		var ecos []string
+		for _, e := range strings.Split(*syncEcos, ",") {
+			if t := strings.TrimSpace(e); t != "" {
+				ecos = append(ecos, t)
+			}
+		}
+		rep, err := StreamSyncCleanroomFeedsGo(*syncFeeds, ecos)
+		if err != nil {
+			os.Exit(1)
+		}
+		b, _ := json.Marshal(rep)
+		fmt.Println(string(b))
 		return
 	}
 	if *lookupOui != "" {
@@ -126,8 +193,9 @@ func main() {
 		fmt.Println(LookupPslBinaryGo(*lookupPsl))
 		return
 	}
-	if *probeHost != "" && *probePort > 0 {
-		res := ProbePortsConcurrentGo(*probeHost, []int{*probePort}, 900)
+	if *probeHost != "" && (*probePort > 0 || *probePorts != "") {
+		specs := parseSocketSpecsFlagGo(*probePorts, *probePort)
+		res := ProbePortsConcurrentGo(*probeHost, *dispHost, specs, *timeoutMs)
 		b, _ := json.Marshal(res)
 		fmt.Println(string(b))
 		return

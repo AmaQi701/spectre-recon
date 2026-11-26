@@ -1,4 +1,4 @@
-# THIRD-PARTY OPEN DATA & SOFTWARE LICENSES (`SPECTRE v9.0.0+`)
+# THIRD-PARTY OPEN DATA & SOFTWARE LICENSES (`SPECTRE v9.5.0+`)
 
 SPECTRE (`spectre-recon`) strictly enforces clean-room engineering and open-data copyright compliance. Every offline threat-intelligence table, wordlist, domain suffix registry, hardware vendor prefix table, and declarative NVT template distributed with or compiled by SPECTRE originates exclusively from **U.S. Government Public Domain (`17 U.S.C. § 105`)**, **MIT**, **Apache-2.0**, **CC-BY-4.0**, **MPL-2.0**, **Public Standards Registries**, or **100% SPECTRE Clean-Room Original IP**.
 

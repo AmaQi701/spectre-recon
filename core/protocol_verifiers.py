@@ -989,19 +989,65 @@ def run_active_protocol_verifiers(
     if not tasks:
         return 0
 
+    from core.native_bridge import fast_go_probe_sockets
+
+    by_host: dict[tuple[str, str], list[tuple[int, str]]] = {}
+    for tip, dh, pn, ev in tasks[:32]:
+        conn_h = tip or dh
+        by_host.setdefault((conn_h, dh), []).append((pn, ev))
+
     total_hits = 0
-    ex = concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(tasks)))
-    futs = [
-        ex.submit(_probe_single_port, db, http_engine, project_id, tip, dh, pn, ev, log_fn)
-        for tip, dh, pn, ev in tasks[:24]
-    ]
-    done, _ = concurrent.futures.wait(futs, timeout=12.0)
-    ex.shutdown(wait=False, cancel_futures=True)
-    for fut in done:
-        try:
-            total_hits += int(fut.result() or 0)
-        except Exception:
-            pass
+    go_handled = True
+    for (conn_h, dh), p_list in by_host.items():
+        go_res = fast_go_probe_sockets(conn_h, dh, [(pn, pn) for pn, _ in p_list], timeout_ms=2500)
+        if go_res is None:
+            go_handled = False
+            break
+        ev_map = {pn: ev for pn, ev in p_list}
+        tip_val = conn_h if conn_h != dh else ""
+        for item in go_res:
+            p_num = int(item.get("port") or 0)
+            svc = str(item.get("service") or "")
+            ver = str(item.get("version") or "")
+            bnr = str(item.get("banner") or "")
+            if svc and (ver or bnr) and not ev_map.get(p_num):
+                db.upsert_port(project_id, dh, p_num, "tcp", ip=tip_val, service=svc, version=ver, banner=bnr, source="socket_nvt")
+            if item.get("has_finding"):
+                db.upsert_finding(
+                    project_id,
+                    "Agent-2 (Socket-NVT)",
+                    str(item.get("title") or f"[CONFIRMED] Socket Service Exposure ({dh}:{p_num})"),
+                    str(item.get("category") or "Protocol Exposure"),
+                    str(item.get("severity") or "High"),
+                    float(item.get("cvss") or 7.5),
+                    str(item.get("vector") or ""),
+                    str(item.get("cwe") or "CWE-306"),
+                    str(item.get("owasp") or "A05:2021 - Security Misconfiguration"),
+                    str(item.get("asset") or f"{dh}:{p_num}"),
+                    str(item.get("evidence") or bnr),
+                    str(item.get("description") or ""),
+                    str(item.get("remediation") or ""),
+                    confidence=(
+                        QoD.ACTIVE_VERIFIED
+                        if int(item.get("confidence") or 99) >= 99
+                        else QoD.PROTOCOL_VERIFIED
+                    ),
+                )
+                total_hits += 1
+
+    if not go_handled:
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(tasks)))
+        futs = [
+            ex.submit(_probe_single_port, db, http_engine, project_id, tip, dh, pn, ev, log_fn)
+            for tip, dh, pn, ev in tasks[:24]
+        ]
+        done, _ = concurrent.futures.wait(futs, timeout=12.0)
+        ex.shutdown(wait=False, cancel_futures=True)
+        for fut in done:
+            try:
+                total_hits += int(fut.result() or 0)
+            except Exception:
+                pass
     if total_hits:
         log_fn(f"  [SOCKET-NVT] Jonli protokol tekshiruvi: {total_hits} ta tasdiqlangan xizmat zaifligi/metrikasi aniqlandi.")
     return total_hits

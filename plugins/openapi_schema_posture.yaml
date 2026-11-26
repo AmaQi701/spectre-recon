@@ -1,0 +1,19 @@
+id: YAML-NVT-003
+title: Exposed OpenAPI v3 Specification With Unprotected Server Metadata
+category: API Schema Exposure
+severity: Medium
+cvss: 5.3
+cwe: CWE-200
+method: GET
+path: /openapi.json
+status: 200
+min_bytes: 40
+content_type_any:
+  - application/json
+match_all:
+  - '"openapi"'
+  - '"paths"'
+exclude_any:
+  - Welcome to nginx!
+  - Attention Required!
+remediation: Gate OpenAPI specification endpoints behind authentication in production environments.

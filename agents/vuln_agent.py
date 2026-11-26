@@ -1647,7 +1647,7 @@ class VulnAssessmentSuperAgent:
         kb = ScanContextKB(project_id, str(proj.get("primary_target", "")))
         kb.hydrate_from_bundle(bundle, has_auth_a=bool(self.role_a_headers), has_auth_b=bool(self.role_b_headers))
 
-        log_fn(f"--- [PHASE 2] SPECTRE v9.0.0 KB-GATED CVE, NVT, AI/MCP & BOLA AUDIT ({proj['name']}) ---")
+        log_fn(f"--- [PHASE 2] SPECTRE v9.5.0 KB-GATED CVE, NVT, AI/MCP & BOLA AUDIT ({proj['name']}) ---")
         http_svcs = bundle.get("http_services", [])
         ports = bundle.get("ports", [])
         eps = bundle.get("endpoints", [])

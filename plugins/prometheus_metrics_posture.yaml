@@ -1,0 +1,21 @@
+id: YAML-NVT-004
+title: Exposed Prometheus Process & Go Runtime Telemetry Endpoint
+category: Monitoring / Telemetry Exposure
+severity: Medium
+cvss: 6.5
+cwe: CWE-200
+method: GET
+path: /metrics
+status: 200
+min_bytes: 48
+content_type_any:
+  - text/plain
+  - openmetrics
+match_any:
+  - process_cpu_seconds_total
+  - go_goroutines
+exclude_any:
+  - Welcome to nginx!
+  - Attention Required!
+  - <html
+remediation: Restrict /metrics scraping to internal monitoring subnets or require mTLS / Bearer authentication.

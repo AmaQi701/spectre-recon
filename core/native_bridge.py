@@ -78,8 +78,14 @@ def get_native_lib() -> ctypes.CDLL | None:
             need_build = (not SO_PATH.exists()) or any(p.stat().st_mtime > SO_PATH.stat().st_mtime for p in cpp_files)
             if need_build and cpp_files and shutil.which("g++"):
                 subprocess.run(
-                    ["g++", "-O3", "-std=c++17", "-shared", "-fPIC", *[str(p) for p in cpp_files], "-o", str(SO_PATH), "-lssl", "-lcrypto"],
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=True,
+                    [
+                        "g++", "-O3", "-Wall", "-Wextra",
+                        "-D_FORTIFY_SOURCE=2", "-fstack-protector-strong",
+                        "-std=c++17", "-shared", "-fPIC", "-pthread",
+                        *[str(p) for p in cpp_files],
+                        "-o", str(SO_PATH), "-lssl", "-lcrypto",
+                    ],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=40, check=True,
                 )
             if SO_PATH.exists():
                 lib = ctypes.CDLL(str(SO_PATH))
@@ -129,6 +135,19 @@ def get_native_lib() -> ctypes.CDLL | None:
                 if hasattr(lib, "spectre_cpp_lookup_favicon_mmh3"):
                     lib.spectre_cpp_lookup_favicon_mmh3.argtypes = [ctypes.c_int32, ctypes.c_char_p, ctypes.c_size_t]
                     lib.spectre_cpp_lookup_favicon_mmh3.restype = ctypes.c_int
+                if hasattr(lib, "spectre_cpp_mad_latency_us"):
+                    lib.spectre_cpp_mad_latency_us.argtypes = [ctypes.POINTER(ctypes.c_int64), ctypes.c_size_t]
+                    lib.spectre_cpp_mad_latency_us.restype = ctypes.c_double
+                if hasattr(lib, "spectre_cpp_idempotency_drift_score"):
+                    lib.spectre_cpp_idempotency_drift_score.argtypes = [
+                        ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.c_size_t,
+                    ]
+                    lib.spectre_cpp_idempotency_drift_score.restype = ctypes.c_int
+                if hasattr(lib, "spectre_cpp_barrier_selftest"):
+                    lib.spectre_cpp_barrier_selftest.argtypes = [
+                        ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_int64),
+                    ]
+                    lib.spectre_cpp_barrier_selftest.restype = ctypes.c_int
                 _LIB = lib
         except Exception:
             _LIB = None
@@ -185,6 +204,27 @@ def get_rust_lib() -> ctypes.CDLL | None:
                         ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
                     ]
                     rlib.spectre_rust_lookup_cve_json.restype = ctypes.c_int32
+                if hasattr(rlib, "spectre_rust_consolidate_cpe_json"):
+                    rlib.spectre_rust_consolidate_cpe_json.argtypes = [
+                        ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+                    ]
+                    rlib.spectre_rust_consolidate_cpe_json.restype = ctypes.c_int32
+                if hasattr(rlib, "spectre_rust_strip_comments"):
+                    rlib.spectre_rust_strip_comments.argtypes = [
+                        ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+                    ]
+                    rlib.spectre_rust_strip_comments.restype = ctypes.c_int32
+                if hasattr(rlib, "spectre_rust_strip_comments_lang"):
+                    rlib.spectre_rust_strip_comments_lang.argtypes = [
+                        ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+                        ctypes.c_char_p, ctypes.c_size_t,
+                    ]
+                    rlib.spectre_rust_strip_comments_lang.restype = ctypes.c_int32
+                if hasattr(rlib, "spectre_rust_triage_brocards_score"):
+                    rlib.spectre_rust_triage_brocards_score.argtypes = [
+                        ctypes.c_char_p, ctypes.c_size_t, ctypes.c_int32,
+                    ]
+                    rlib.spectre_rust_triage_brocards_score.restype = ctypes.c_int32
                 _RUST_LIB = rlib
         except Exception:
             _RUST_LIB = None
@@ -514,6 +554,166 @@ def fast_cpp_lookup_favicon_mmh3(hash_val: int) -> str:
     out_buf = ctypes.create_string_buffer(128)
     rc = int(lib.spectre_cpp_lookup_favicon_mmh3(int(hash_val), out_buf, 128))
     return out_buf.value.decode("utf-8", errors="ignore") if rc == 1 else ""
+
+
+def fast_go_probe_sockets(
+    host: str,
+    disp_host: str,
+    port_specs: list[tuple[int, int]],
+    timeout_ms: int = 2400,
+) -> list[dict] | None:
+    import json as _json
+    gobin = get_go_indexer_bin()
+    if gobin is None or not host or not port_specs:
+        return None
+    spec_str = ",".join(f"{lp}:{cp}" if lp != cp else str(lp) for lp, cp in port_specs)
+    try:
+        proc = subprocess.run(
+            [
+                str(gobin),
+                "-probe-host", str(host),
+                "-disp-host", str(disp_host or host),
+                "-probe-ports", spec_str,
+                "-timeout-ms", str(int(timeout_ms)),
+            ],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=max(8, int(timeout_ms / 1000) * 4),
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            parsed = _json.loads(proc.stdout.strip())
+            return parsed if isinstance(parsed, list) else []
+        if proc.returncode == 0:
+            return []
+    except Exception:
+        return None
+    return None
+
+
+def fast_go_run_yaml_plugins(
+    base_url: str,
+    plugins_dir: str,
+    kb_hints: str = "",
+    timeout_ms: int = 3500,
+) -> dict | None:
+    import json as _json
+    gobin = get_go_indexer_bin()
+    if gobin is None or not base_url or not plugins_dir:
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                str(gobin),
+                "-run-plugins", str(base_url),
+                "-plugins-dir", str(plugins_dir),
+                "-kb-hints", str(kb_hints),
+                "-timeout-ms", str(int(timeout_ms)),
+            ],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=25,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return _json.loads(proc.stdout.strip())
+    except Exception:
+        return None
+    return None
+
+
+def fast_rust_consolidate_cpe(observations: str) -> list[dict]:
+    import json as _json
+    b = (observations or "").strip().encode("utf-8", errors="ignore")
+    if not b:
+        return []
+    rlib = get_rust_lib()
+    if rlib is None or not hasattr(rlib, "spectre_rust_consolidate_cpe_json"):
+        return []
+    out_cap = max(8192, len(b) * 4)
+    out_buf = ctypes.create_string_buffer(out_cap)
+    rc = int(rlib.spectre_rust_consolidate_cpe_json(b, len(b), out_buf, out_cap))
+    if rc == 1:
+        try:
+            parsed = _json.loads(out_buf.value.decode("utf-8", errors="ignore"))
+            return parsed if isinstance(parsed, list) else []
+        except Exception:
+            return []
+    return []
+
+
+def fast_rust_strip_comments(code_or_bytes: str | bytes, lang: str = "") -> str:
+    b = code_or_bytes.encode("utf-8", errors="ignore") if isinstance(code_or_bytes, str) else code_or_bytes
+    if not b:
+        return ""
+    rlib = get_rust_lib()
+    if rlib is None:
+        return b.decode("utf-8", errors="ignore")
+    out_cap = len(b) + 16
+    out_buf = ctypes.create_string_buffer(out_cap)
+    if lang and hasattr(rlib, "spectre_rust_strip_comments_lang"):
+        lb = lang.encode("ascii", errors="ignore")
+        rc = int(rlib.spectre_rust_strip_comments_lang(b, len(b), lb, len(lb), out_buf, out_cap))
+    elif hasattr(rlib, "spectre_rust_strip_comments"):
+        rc = int(rlib.spectre_rust_strip_comments(b, len(b), out_buf, out_cap))
+    else:
+        return b.decode("utf-8", errors="ignore")
+    if rc >= 0:
+        return out_buf.raw[:rc].decode("utf-8", errors="ignore")
+    return b.decode("utf-8", errors="ignore")
+
+
+def fast_cpp_barrier_selftest(worker_count: int = 8, timeout_ms: int = 1000) -> tuple[int, int]:
+    lib = get_native_lib()
+    if lib is not None and hasattr(lib, "spectre_cpp_barrier_selftest"):
+        spread = ctypes.c_int64(0)
+        ok_n = int(lib.spectre_cpp_barrier_selftest(int(worker_count), int(timeout_ms), ctypes.byref(spread)))
+        return ok_n, int(spread.value)
+    return int(worker_count), 0
+
+
+def fast_rust_triage_brocards_score(
+    severity: str, cwe: str, asset: str, evidence: str, remediation: str, qod: int = 80
+) -> int:
+    rlib = get_rust_lib()
+    payload = f"{severity}\t{cwe}\t{asset}\t{evidence}\t{remediation}".encode("utf-8", errors="ignore")
+    if rlib is not None and hasattr(rlib, "spectre_rust_triage_brocards_score"):
+        return int(rlib.spectre_rust_triage_brocards_score(payload, len(payload), int(qod)))
+    return 0 if (severity or "").lower() in ("info", "informational", "") else 80
+
+
+def fast_cpp_mad_latency_us(samples_us: list[int]) -> float:
+    if not samples_us or len(samples_us) < 2:
+        return 0.0
+    lib = get_native_lib()
+    if lib is not None and hasattr(lib, "spectre_cpp_mad_latency_us"):
+        arr_t = ctypes.c_int64 * len(samples_us)
+        c_arr = arr_t(*[int(x) for x in samples_us])
+        return float(lib.spectre_cpp_mad_latency_us(c_arr, len(samples_us)))
+    s = sorted(float(max(0, x)) for x in samples_us)
+    m = s[len(s) // 2]
+    d = sorted(abs(x - m) for x in s)
+    return d[len(d) // 2] * 1.4826
+
+
+def fast_go_sync_feeds(
+    out_tsv: str,
+    ecosystems: str = "crates.io,NuGet,RubyGems,Go,Maven,Packagist,PyPI",
+) -> dict | None:
+    import json as _json
+    gobin = get_go_indexer_bin()
+    if gobin is None or not out_tsv:
+        return None
+    try:
+        proc = subprocess.run(
+            [str(gobin), "-sync-feeds", str(out_tsv), "-ecosystems", str(ecosystems)],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=180,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return _json.loads(proc.stdout.strip())
+    except Exception:
+        return None
+    return None
 
 
 

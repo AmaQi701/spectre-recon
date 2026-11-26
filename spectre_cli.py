@@ -31,7 +31,7 @@ FIND_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI v9.0.0")
+    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI v9.5.0")
     p.add_argument("-t", "--target", default="", help="Primary target domain, host, or URL (required unless --export-project/--benchmark/--doctor/--intel-status/--rebuild-intel)")
     p.add_argument("--export-project", type=int, default=0, help="Re-generate HTML/SARIF/SBOM/JUnit/Compliance artifacts for an existing project ID without re-scanning")
     p.add_argument("--benchmark", action="store_true", help="Run live 1 MB C++17 + Rust + Go native kernel throughput benchmark and exit")
@@ -97,7 +97,7 @@ def _run_live_cpp_benchmark() -> int:
     r_sast = _rate(fast_sast_prefilter_mask)
     r_tech = _rate(fast_tech_fingerprint_mask)
     r_str = _rate(fast_structural_hash, iters=4)
-    print(f"SPECTRE v9.0.0 Polyglot Rust + Go + C++17 Kernel Benchmark (Cpp={lib is not None} | Rust={rlib is not None} | Go={gobin is not None})")
+    print(f"SPECTRE v9.5.0 Polyglot Rust + Go + C++17 Kernel Benchmark (Cpp={lib is not None} | Rust={rlib is not None} | Go={gobin is not None})")
     print("=" * 80)
     print(f"  1. C++17 MurmurHash3 (Favicon/Asset Fingerprint) : {r_mmh:8.1f} MB/s")
     print(f"  2. C++17 v5 FNV-1a64 Case-Insensitive Indexer    : {r_fnv:8.1f} MB/s")

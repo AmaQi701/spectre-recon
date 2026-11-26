@@ -1,0 +1,19 @@
+id: YAML-NVT-005
+title: Unauthenticated AI Model Server Catalog Exposure (Ollama / vLLM)
+category: AI Agentic / Inference Exposure
+severity: High
+cvss: 8.6
+cwe: CWE-306
+method: GET
+path: /api/tags
+status: 200
+min_bytes: 24
+content_type_any:
+  - application/json
+match_all:
+  - '"models"'
+  - '"digest"'
+exclude_any:
+  - Welcome to nginx!
+  - Attention Required!
+remediation: Bind Ollama/vLLM inference listeners to 127.0.0.1 and enforce API gateway authentication.

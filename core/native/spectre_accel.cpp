@@ -8,6 +8,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <string>
@@ -20,6 +21,7 @@
 extern "C" {
 
 uint32_t spectre_mmh3_32(const uint8_t* data, size_t len, uint32_t seed) {
+    if (!data) len = 0;
     const uint32_t c1 = 0xcc9e2d51U;
     const uint32_t c2 = 0x1b873593U;
     uint32_t h1 = seed;
@@ -34,7 +36,7 @@ uint32_t spectre_mmh3_32(const uint8_t* data, size_t len, uint32_t seed) {
         h1 = (h1 << 13) | (h1 >> 19);
         h1 = h1 * 5 + 0xe6546b64U;
     }
-    const uint8_t* tail = data + nblocks * 4;
+    const uint8_t* tail = data ? (data + nblocks * 4) : nullptr;
     uint32_t k1 = 0;
     switch (len & 3) {
         case 3: k1 ^= static_cast<uint32_t>(tail[2]) << 16; [[fallthrough]];
@@ -134,11 +136,13 @@ int spectre_jwt_verify_wordlist(
             size_t copy_n = wlen < (matched_cap - 1) ? wlen : (matched_cap - 1);
             std::memcpy(matched_out, p, copy_n);
             matched_out[copy_n] = '\0';
+            OPENSSL_cleanse(digest, sizeof(digest));
             return 1;
         }
         if (!nl) break;
         p = nl + 1;
     }
+    OPENSSL_cleanse(digest, sizeof(digest));
     return 0;
 }
 
@@ -532,7 +536,7 @@ uint32_t spectre_secret_prefilter_mask(const uint8_t* data, size_t len) {
 }
 
 uint32_t spectre_cpp_abi_version() {
-    return 900U;
+    return 950U;
 }
 
 uint64_t spectre_fnv1a64_ci(const uint8_t* data, size_t len) {

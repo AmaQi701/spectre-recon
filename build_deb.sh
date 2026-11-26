@@ -14,7 +14,7 @@ mkdir -p "${DIST_DIR}"
 
 cat << 'EOF' > "${PKG_DIR}/DEBIAN/control"
 Package: spectre-recon
-Version: 9.0.0
+Version: 9.5.0
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -23,12 +23,12 @@ Recommends: g++, rustc, golang-go, libssl-dev, nmap, whois, dnsutils
 Maintainer: AmaQi701 <67887617+AmaQi701@users.noreply.github.com>
 Description: SPECTRE Polyglot C++17/Rust/Go/Python ASM & Offline Threat Intelligence Studio
  Native Linux GTK3 & Headless CLI platform with C++17 v5, Rust FFI & Go Goroutine kernels,
- 1500 declarative NVTs, 62k+ Offline Threat Intel DB (CISA KEV, IEEE OUI, PSL, Favicon MMH3),
- 370k+ MIT SecLists discovery wordlists, 50 socket verifiers, 6-lang SAST, and 7-Framework Compliance.
+ 2000 declarative NVTs, 109k+ Offline Threat Intel DB (CISA KEV, IEEE OUI, PSL, Favicon MMH3),
+ 402k+ MIT SecLists discovery wordlists, 50 socket verifiers, 6-lang SAST, and 7-Framework Compliance.
 EOF
 
 if command -v g++ >/dev/null 2>&1; then
-    g++ -O3 -std=c++17 -shared -fPIC "${ROOT_DIR}"/core/native/*.cpp -o "${ROOT_DIR}/core/native/libspectre_accel.so" -lssl -lcrypto
+    g++ -O3 -Wall -Wextra -D_FORTIFY_SOURCE=2 -fstack-protector-strong -std=c++17 -shared -fPIC -pthread "${ROOT_DIR}"/core/native/*.cpp -o "${ROOT_DIR}/core/native/libspectre_accel.so" -lssl -lcrypto
 fi
 
 RUSTC_BIN="$(command -v rustc || true)"
@@ -46,7 +46,7 @@ fi
 
 python3 "${ROOT_DIR}/spectre_cli.py" --rebuild-intel >/dev/null
 
-cp -r "${ROOT_DIR}/agents" "${ROOT_DIR}/config" "${ROOT_DIR}/core" "${ROOT_DIR}/intel" "${ROOT_DIR}/ui" "${ROOT_DIR}/THIRD_PARTY_LICENSES.md" "${ROOT_DIR}/apex_gtk_app.py" "${ROOT_DIR}/spectre_cli.py" "${ROOT_DIR}/launch_apex.sh" "${PKG_DIR}/opt/apex-asm-studio/"
+cp -r "${ROOT_DIR}/agents" "${ROOT_DIR}/config" "${ROOT_DIR}/core" "${ROOT_DIR}/intel" "${ROOT_DIR}/plugins" "${ROOT_DIR}/ui" "${ROOT_DIR}/THIRD_PARTY_LICENSES.md" "${ROOT_DIR}/apex_gtk_app.py" "${ROOT_DIR}/spectre_cli.py" "${ROOT_DIR}/launch_apex.sh" "${PKG_DIR}/opt/apex-asm-studio/"
 find "${PKG_DIR}/opt/apex-asm-studio" -name "__pycache__" -exec rm -rf {} +
 mkdir -p "${PKG_DIR}/opt/apex-asm-studio/workspaces" "${PKG_DIR}/opt/apex-asm-studio/reports"
 chmod 755 "${PKG_DIR}/opt/apex-asm-studio/launch_apex.sh" "${PKG_DIR}/opt/apex-asm-studio/apex_gtk_app.py" "${PKG_DIR}/opt/apex-asm-studio/spectre_cli.py"
@@ -60,7 +60,7 @@ Version=1.0
 Type=Application
 Name=SPECTRE Recon Studio
 GenericName=Cyber-Recon & Attack Surface Studio
-Comment=SPECTRE v9.0.0 Polyglot Rust/Go/C++17/Python ASM, Offline Threat Intel Pack, 1500-NVT, 50-Port Socket NVT & 7-Framework Studio
+Comment=SPECTRE v9.5.0 Polyglot Rust/Go/C++17/Python ASM, Offline Threat Intel Pack, 2000-NVT, 50-Port Socket NVT & 7-Framework Studio
 Exec=/bin/bash /opt/apex-asm-studio/launch_apex.sh
 Path=/opt/apex-asm-studio
 Icon=/opt/apex-asm-studio/ui/apex-icon.svg
@@ -70,5 +70,5 @@ Keywords=pentest;recon;security;audit;spectre;scanner;
 StartupNotify=true
 EOF
 
-dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_9.0.0_amd64.deb"
-echo "[+] Built package: ${DIST_DIR}/spectre-recon_9.0.0_amd64.deb"
+dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_9.5.0_amd64.deb"
+echo "[+] Built package: ${DIST_DIR}/spectre-recon_9.5.0_amd64.deb"

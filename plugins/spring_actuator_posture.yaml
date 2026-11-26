@@ -1,0 +1,23 @@
+id: YAML-NVT-001
+title: Unauthenticated Spring Boot Actuator Environment Exposure
+category: Framework Management Exposure
+severity: Critical
+cvss: 9.1
+cwe: CWE-200
+method: GET
+path: /actuator/env
+status: 200
+min_bytes: 32
+mandatory_keys:
+  - tech/stack=(?:spring|java|tomcat|netty)
+content_type_any:
+  - application/json
+  - actuator
+match_all:
+  - '"propertySources"'
+  - '"activeProfiles"'
+exclude_any:
+  - Welcome to nginx!
+  - Attention Required!
+  - Telegram Web
+remediation: Restrict Spring Boot Actuator endpoints via management.endpoints.web.exposure.include=health and bind management port to 127.0.0.1.

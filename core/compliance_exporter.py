@@ -105,7 +105,7 @@ def build_sarif_report(bundle: dict[str, Any]) -> dict[str, Any]:
             "tool": {
                 "driver": {
                     "name": "SPECTRE Hybrid Security Studio",
-                    "version": "9.0.0",
+                    "version": "9.5.0",
                     "informationUri": "https://github.com/AmaQi701/spectre-recon",
                     "rules": list(rules_map.values()),
                 }

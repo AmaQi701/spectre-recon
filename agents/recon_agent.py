@@ -1710,7 +1710,7 @@ class ReconSuperAgent:
                 _prog(0.0, f"NXDOMAIN: {apex_domain} topilmadi")
                 return
 
-        log_fn(f"--- [PHASE 1] SPECTRE v9.0.0 AUTONOMOUS RECON [{recon_mode.upper()}] (Target: {primary_host} | Apex: {apex_domain}) ---")
+        log_fn(f"--- [PHASE 1] SPECTRE v9.5.0 AUTONOMOUS RECON [{recon_mode.upper()}] (Target: {primary_host} | Apex: {apex_domain}) ---")
         self.db.upsert_domain(project_id, primary_host, source="primary_target")
         if apex_domain != primary_host:
             self.db.upsert_domain(project_id, apex_domain, source="apex_domain")

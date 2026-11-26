@@ -2,9 +2,9 @@
 
 <img src="ui/apex-icon.svg" width="105" alt="SPECTRE Logo" />
 
-# SPECTRE (`spectre-recon`) v9.0.0
+# SPECTRE (`spectre-recon`) v9.5.0
 
-**Polyglot Rust + Go + C++17 + Python Enterprise ASM (`~72%` Compiled Native Systems Code), `.rodata` Binary-Search CVE/CPE/PSL/OUI/NVT Kernels, 402k+ MIT SecLists Wordlist Pack, KB-Gated 1,500-Rule NVT + Rust Wave DAG Scheduler, 50-Port Active Socket NVT, AI/LLM/RAG/MCP Auditor, 6-Language SAST, 18-Format SCA & 7-Framework (+MITRE ATT&CK v15) Platform**
+**Polyglot Rust + Go + C++17 + Python Enterprise ASM (`>72%` Compiled Native Systems Code, ABI v950), `.rodata` Binary-Search CVE/CPE/PSL/OUI/NVT Kernels, 109k+ Offline Threat-Intel DB, 402k+ MIT SecLists Wordlist Pack, KB-Gated 2,000-Rule NVT + Go YAML Plugin Runner, 50-Port Active Socket NVT, Local MCP Server, 6-Language SAST, 18-Format SCA & 7-Framework (+MITRE ATT&CK v15) Platform**
 
 [![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Kali%20%7C%20Debian-0ea5e9?style=for-the-badge&logo=linux)](https://github.com/AmaQi701/spectre-recon)
 [![Engine](https://img.shields.io/badge/Native%20Code-Rust%20%2B%20Go%20%2B%20C%2B%2B17%20(%3E72%25)-ef4444?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
@@ -16,16 +16,16 @@
 
 ---
 
-## Why SPECTRE v9.0 Over Legacy Scanners?
+## Why SPECTRE v9.5 Over Legacy Scanners?
 
-| Capability | **SPECTRE v9.0 (OSS)** | Nessus Pro | OpenVAS / Greenbone | Nuclei | Trivy |
+| Capability | **SPECTRE v9.5 (OSS)** | Nessus Pro | OpenVAS / Greenbone | Nuclei | Trivy |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **100% Free & Open-Source** | **Yes (MIT)** | Paid Commercial | Yes | Yes | Yes |
-| **Polyglot Rust + Go + C++17 Native Kernels (`~72%`)** | **Yes (`>460–3670 MB/s`, ABI v900)** | Proprietary C/NASL | C / Rust / NASL | Go | Go |
+| **Polyglot Rust + Go + C++17 Native Kernels (`>72%`)** | **Yes (`>520–3670 MB/s`, ABI v950)** | Proprietary C/NASL | C / Rust / NASL | Go | Go |
 | **AI/LLM, RAG Vector DB & MCP `tools/list` Audit** | **Built-in (`Ollama/vLLM/Qdrant/Chroma/Ray/MCP`)** | Partial | No | Community YAML | No |
 | **Active Read-Only Binary/Text Socket NVTs** | **50 Protocols** | Yes | Yes | Limited TCP | No |
-| **KB-Gated Declarative NVTs + Custom YAML SDK** | **1,500 Built-in (`250 Core + 1,250 KEV`) + YAML** | NASL Only | NASL Only | YAML | No |
-| **Offline Threat-Intel DB + MIT SecLists Wordlists** | **62k+ Records + 402k+ Wordlists (`SPDX Verified`)** | Proprietary Feed | Community Feed | Separate | Separate |
+| **KB-Gated Declarative NVTs + Custom YAML SDK** | **2,000 Built-in (`250 Core + 1,750 KEV`) + YAML** | NASL Only | NASL Only | YAML | No |
+| **Offline Threat-Intel DB + MIT SecLists Wordlists** | **109k+ Records + 402k+ Wordlists (`SPDX Verified`)** | Proprietary Feed | Community Feed | Separate | Separate |
 | **6-Language Multi-Line Taint-Flow SAST** | **Py / JS / TS / Go / Java / PHP / C#** | No | No | No | No |
 | **SourceMap (`.js.map`) Unpack -> White-Box SAST** | **Automatic** | No | No | No | No |
 | **Polyglot Lockfile SCA + CycloneDX 1.5 VEX SBOM** | **18 Formats (`90` Offline + OSV.dev)** | Basic | No | No | Yes |
@@ -172,7 +172,7 @@ python3 spectre_cli.py --export-project 1
 ```bash
 chmod +x build_deb.sh
 ./build_deb.sh
-sudo dpkg -i dist/spectre-recon_9.0.0_amd64.deb
+sudo dpkg -i dist/spectre-recon_9.5.0_amd64.deb
 spectre-recon
 ```
 

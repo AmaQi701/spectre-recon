@@ -419,7 +419,7 @@ class TriageAndChainSuperAgent:
 
         # Markdown Report
         md_lines = [
-            f"# SPECTRE v9.0.0 Security & Attack Surface Audit Report: {proj.get('name', '')}",
+            f"# SPECTRE v9.5.0 Security & Attack Surface Audit Report: {proj.get('name', '')}",
             f"- **Asosiy Nishon (Primary Target):** `{proj.get('primary_target', '')}`",
             f"- **In-Scope:** `{proj.get('in_scope', '')}`",
             f"- **Sana:** `{proj.get('created_at', '')}`",
@@ -586,7 +586,7 @@ class TriageAndChainSuperAgent:
             f"</div>"
         )
         html_content = f"""<!DOCTYPE html>
-<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v9.0.0 Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
+<html lang="uz"><head><meta charset="utf-8"><title>SPECTRE v9.5.0 Audit Report - {_html.escape(str(proj.get('name', '')))}</title>
 <style>
 body {{ font-family: "Inter", system-ui, sans-serif; background: #090c0a; color: #e2e8f0; padding: 32px; }}
 h1, h2 {{ color: #4ade80; border-bottom: 1px solid #1b2a21; padding-bottom: 8px; }}
@@ -600,7 +600,7 @@ code {{ color: #86efac; background: #080b09; padding: 2px 6px; border-radius: 4p
 .flt-inp {{ background: #090c0a; color: #f1f5f9; border: 1px solid #24362b; border-radius: 6px; padding: 6px 12px; min-width: 280px; font-size: 12.5px; }}
 @media print {{ body {{ background: #ffffff; color: #111827; padding: 12px; }} table, th, td {{ border-color: #d1d5db; background: #ffffff; color: #111827; }} code {{ background: #f3f4f6; color: #065f46; }} .flt-bar {{ display: none; }} }}
 </style></head><body>
-<h1>SPECTRE v9.0.0 — Enterprise Security &amp; Attack Surface Report: {_html.escape(str(proj.get('name', '')))}</h1>
+<h1>SPECTRE v9.5.0 — Enterprise Security &amp; Attack Surface Report: {_html.escape(str(proj.get('name', '')))}</h1>
 <p><b>Primary Target:</b> <code>{_html.escape(str(proj.get('primary_target', '')))}</code> | <b>In-Scope:</b> <code>{_html.escape(str(proj.get('in_scope', '')))}</code></p>
 {kpi_bar}
 <h2>Zaifliklar Zanjiri va Kill-Chain Grafikasi (Bug Chaining Scenarios — {len(chains)})</h2>

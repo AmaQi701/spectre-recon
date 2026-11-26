@@ -1,5 +1,5 @@
 """
-SPECTRE v9.0.0 Offline Threat Intelligence, SecLists & Clean-Room NVT Pack Engine
+SPECTRE v9.5.0 Offline Threat Intelligence, SecLists & Clean-Room NVT Pack Engine
 =================================================================================
 Compiles and queries a 100% copyright-clean offline intelligence pack (`intel/`):
   1. `intel/spectre_intel.db` (SQLite WAL B-Tree: KEV/CVE, IEEE OUI, Mozilla PSL, IANA Ports, Favicon MMH3, Tech Fingerprints)
@@ -26,6 +26,7 @@ INTEL_DIR = ROOT_DIR / "intel"
 INTEL_DB_PATH = INTEL_DIR / "spectre_intel.db"
 INTEL_WORDLISTS_DIR = INTEL_DIR / "wordlists"
 INTEL_NVT_PACK_PATH = INTEL_DIR / "cleanroom_kev_nvt_pack.json"
+INTEL_OSV_STREAM_PATH = INTEL_DIR / "cleanroom_osv_nvd_stream.tsv"
 LICENSES_MANIFEST_PATH = ROOT_DIR / "THIRD_PARTY_LICENSES.md"
 
 APPROVED_SPDX_LICENSES: frozenset[str] = frozenset({
@@ -89,35 +90,31 @@ def _normalize_triad_cwe(raw_cwes: list[str] | str) -> str:
     return "CWE-1104"
 
 
-def generate_cleanroom_kev_nvts(kev_vulns: list[dict[str, Any]], limit: int = 1250) -> list[dict[str, Any]]:
+def generate_cleanroom_kev_nvts(
+    kev_vulns: list[dict[str, Any]],
+    limit: int = 1750,
+    extra_stream_path: Path | None = None,
+) -> list[dict[str, Any]]:
     """
     Synthesizes 100% clean-room, KB-gated (`mandatory_keys`) declarative HTTP NVTs
-    from official U.S. Public Domain CISA KEV vulnerability specifications (`17 U.S.C. 105`).
+    from official U.S. Public Domain CISA KEV (`17 U.S.C. 105`) and CC-BY-4.0 OSV feeds.
     """
     rules: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     seen_titles: set[str] = set()
 
-    for item in kev_vulns:
-        if len(rules) >= limit:
-            break
-        cid = str(item.get("cveID") or "").strip().upper()
-        if not re.match(r"^CVE-\d{4}-\d{4,7}$", cid):
-            continue
+    def _append_rule(cid: str, vendor: str, product: str, ransom: bool, raw_cwes: list[str] | str) -> None:
         rid = f"NVT-KEV-{cid}"
         if rid in seen_ids:
-            continue
-        vendor = str(item.get("vendorProject") or "Vendor").strip()
-        product = str(item.get("product") or "Appliance").strip()
+            return
         v_slug = _slugify_token(vendor)
         p_slug = _slugify_token(product)
         title = f"{vendor} {product} ({cid}) KEV Surface & Version Metadata Exposure"[:140]
         if title in seen_titles:
             title = f"{title} [{rid}]"
-        ransom = str(item.get("knownRansomwareCampaignUse") or "").lower() == "known"
         sev = "Critical" if ransom else "High"
         cvss = 9.8 if ransom else 8.8
-        cwe = _normalize_triad_cwe(item.get("cwes") or [])
+        cwe = _normalize_triad_cwe(raw_cwes)
         rem = f"{vendor} {product} ({cid}): rasmiy vendor xavfsizlik yangilanishini o'rnating va diagnostika endpointini yoping."
         seen_ids.add(rid)
         seen_titles.add(title)
@@ -137,6 +134,28 @@ def generate_cleanroom_kev_nvts(kev_vulns: list[dict[str, Any]], limit: int = 12
             "exclude_any": ["Welcome to nginx!", "Attention Required!", "Telegram Web", "Bearer token required"],
             "remediation": rem[:240],
         })
+
+    for item in kev_vulns:
+        if len(rules) >= limit:
+            break
+        cid = str(item.get("cveID") or "").strip().upper()
+        if not re.match(r"^CVE-\d{4}-\d{4,7}$", cid):
+            continue
+        vendor = str(item.get("vendorProject") or "Vendor").strip()
+        product = str(item.get("product") or "Appliance").strip()
+        ransom = str(item.get("knownRansomwareCampaignUse") or "").lower() == "known"
+        _append_rule(cid, vendor, product, ransom, item.get("cwes") or [])
+
+    tsv_pf = extra_stream_path or INTEL_OSV_STREAM_PATH
+    if len(rules) < limit and tsv_pf.is_file():
+        with tsv_pf.open("r", encoding="utf-8", errors="ignore") as fh:
+            for ln in fh:
+                if len(rules) >= limit:
+                    break
+                cols = ln.rstrip("\n").split("\t")
+                if len(cols) >= 9 and re.match(r"^CVE-\d{4}-\d{4,7}$", cols[0]):
+                    _append_rule(cols[0], cols[1], cols[2], cols[7] == "Critical", cols[8])
+
     return rules
 
 
@@ -342,6 +361,7 @@ def _init_intel_schema(conn: sqlite3.Connection) -> None:
             spdx_license TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_cve_prod_kev ON cve_advisories(product, is_kev);
+        CREATE INDEX IF NOT EXISTS idx_cve_cpe23 ON cve_advisories(cpe23);
         CREATE TABLE IF NOT EXISTS ieee_oui (
             oui_prefix TEXT PRIMARY KEY,
             organization TEXT NOT NULL,
@@ -513,7 +533,7 @@ def build_offline_intel_pack(
             for cid, desc in BUILTIN_KEV_SET.items():
                 kev_vulns.append({"cveID": cid, "vendorProject": "Enterprise", "product": desc.split()[0], "vulnerabilityName": desc, "cwes": ["CWE-1104"]})
 
-        kev_nvts = generate_cleanroom_kev_nvts(kev_vulns, limit=1250)
+        kev_nvts = generate_cleanroom_kev_nvts(kev_vulns, limit=1750)
         target_nvt.parent.mkdir(parents=True, exist_ok=True)
         target_nvt.write_text(json.dumps({"license": "SPECTRE-Clean-Room", "rules": kev_nvts}, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -570,7 +590,29 @@ def build_offline_intel_pack(
                     )
 
             conn.executemany("INSERT OR REPLACE INTO cve_advisories VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", list(cve_rows.values()))
-            _populate_registries_into_db(conn, built_ts, len(cve_rows), wl_manifest, target_nvt, len(kev_nvts))
+            del cve_rows
+            if INTEL_OSV_STREAM_PATH.is_file():
+                batch: list[tuple[Any, ...]] = []
+                with INTEL_OSV_STREAM_PATH.open("r", encoding="utf-8", errors="ignore") as fh:
+                    for raw_ln in fh:
+                        cols = raw_ln.rstrip("\n").split("\t")
+                        if len(cols) == 15:
+                            try:
+                                batch.append((
+                                    cols[0], cols[1], cols[2], cols[3], cols[4], cols[5],
+                                    float(cols[6]), cols[7], cols[8], int(cols[9]), cols[10],
+                                    float(cols[11]), cols[12], cols[13], cols[14],
+                                ))
+                            except ValueError:
+                                continue
+                            if len(batch) >= 4000:
+                                conn.executemany("INSERT OR IGNORE INTO cve_advisories VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
+                                batch.clear()
+                if batch:
+                    conn.executemany("INSERT OR IGNORE INTO cve_advisories VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
+                    batch.clear()
+            total_cves = int(conn.execute("SELECT COUNT(*) FROM cve_advisories").fetchone()[0])
+            _populate_registries_into_db(conn, built_ts, total_cves, wl_manifest, target_nvt, len(kev_nvts))
             conn.commit()
         finally:
             conn.close()
@@ -585,6 +627,28 @@ def ensure_offline_intel_pack() -> Path:
     if not INTEL_DB_PATH.is_file() or not INTEL_NVT_PACK_PATH.is_file():
         build_offline_intel_pack()
     return INTEL_DB_PATH
+
+
+def sync_cleanroom_feeds_via_go(ecosystems: str = "crates.io,NuGet,RubyGems,Go,Maven,Packagist,PyPI") -> dict[str, Any]:
+    """Streams official OpenSSF/OSV + CISA KEV advisories via Go and rebuilds `intel/spectre_intel.db`."""
+    go_idx = get_go_indexer_bin()
+    sync_meta: dict[str, Any] = {"synced": 0}
+    if go_idx is not None:
+        proc = subprocess.run(
+            [str(go_idx), "-sync-feeds", str(INTEL_OSV_STREAM_PATH), "-ecosystems", ecosystems],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            try:
+                sync_meta = json.loads(proc.stdout.strip())
+            except Exception:
+                pass
+    st = build_offline_intel_pack()
+    st["sync_report"] = sync_meta
+    return st
 
 
 def get_offline_intel_status(

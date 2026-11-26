@@ -20,6 +20,7 @@ reports/*.txt
 
 # Local developer / AI rules & internal notes
 .clinerules
+.clineignore
 .cursorrules
 MASTER_PROMPT.md
 ARCHITECTURE_AND_RULES.md

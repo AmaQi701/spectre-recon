@@ -1,0 +1,22 @@
+id: YAML-NVT-002
+title: Unauthenticated Spring Boot Actuator Beans Graph Exposure
+category: Framework Management Exposure
+severity: High
+cvss: 7.5
+cwe: CWE-200
+method: GET
+path: /actuator/env
+status: 200
+min_bytes: 32
+mandatory_keys:
+  - tech/stack=(?:spring|java|tomcat|netty)
+content_type_any:
+  - application/json
+  - actuator
+match_all:
+  - '"propertySources"'
+  - '"systemEnvironment"'
+exclude_any:
+  - Welcome to nginx!
+  - Attention Required!
+remediation: Disable systemEnvironment exposure in Spring Boot Actuator and require Spring Security authentication.

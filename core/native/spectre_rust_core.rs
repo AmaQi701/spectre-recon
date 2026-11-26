@@ -7,17 +7,21 @@
 //   4. Official FIRST.org CVSS v3.1 Vector Base Score Engine
 //   5. HTTP/Cookie/DOM Clean-Room Technology Fingerprint Automaton & RFC-1123 DNS Validator
 
+pub mod rust_cleanroom_nvd_cpe_pack;
 pub mod rust_cpe_advisory_engine;
+pub mod rust_cpe_consolidator;
 pub mod rust_kev_cve_part1;
 pub mod rust_kev_cve_part2;
 pub mod rust_kev_cve_part3;
+pub mod rust_sast_lexer_engine;
 
 use std::collections::{HashMap, HashSet};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::slice;
 
 #[no_mangle]
 pub extern "C" fn spectre_rust_abi_version() -> u32 {
-    900
+    950
 }
 
 #[inline]
@@ -49,7 +53,7 @@ fn char_order_deb(ch: Option<u8>) -> i32 {
     }
 }
 
-fn cmp_deb_rpm_part(part_a: &[u8], part_b: &[u8]) -> i32 {
+pub(crate) fn cmp_deb_rpm_part(part_a: &[u8], part_b: &[u8]) -> i32 {
     let (mut i, mut j) = (0usize, 0usize);
     let (la, lb) = (part_a.len(), part_b.len());
     while i < la || j < lb {
@@ -106,18 +110,21 @@ pub extern "C" fn spectre_rust_compare_distro_versions(
     v2_ptr: *const u8,
     v2_len: usize,
 ) -> i32 {
-    let b1 = if v1_ptr.is_null() || v1_len == 0 { &[][..] } else { unsafe { slice::from_raw_parts(v1_ptr, v1_len) } };
-    let b2 = if v2_ptr.is_null() || v2_len == 0 { &[][..] } else { unsafe { slice::from_raw_parts(v2_ptr, v2_len) } };
-    let (ep1, up1, rev1) = parse_distro_bytes(b1);
-    let (ep2, up2, rev2) = parse_distro_bytes(b2);
-    if ep1 != ep2 {
-        return if ep1 < ep2 { -1 } else { 1 };
-    }
-    let c_up = cmp_deb_rpm_part(up1, up2);
-    if c_up != 0 {
-        return c_up;
-    }
-    cmp_deb_rpm_part(rev1, rev2)
+    catch_unwind(AssertUnwindSafe(|| {
+        let b1 = if v1_ptr.is_null() || v1_len == 0 { &[][..] } else { unsafe { slice::from_raw_parts(v1_ptr, v1_len) } };
+        let b2 = if v2_ptr.is_null() || v2_len == 0 { &[][..] } else { unsafe { slice::from_raw_parts(v2_ptr, v2_len) } };
+        let (ep1, up1, rev1) = parse_distro_bytes(b1);
+        let (ep2, up2, rev2) = parse_distro_bytes(b2);
+        if ep1 != ep2 {
+            return if ep1 < ep2 { -1 } else { 1 };
+        }
+        let c_up = cmp_deb_rpm_part(up1, up2);
+        if c_up != 0 {
+            return c_up;
+        }
+        cmp_deb_rpm_part(rev1, rev2)
+    }))
+    .unwrap_or(0)
 }
 
 fn write_c_buf(src: &[u8], out_ptr: *mut u8, out_cap: usize) -> bool {
@@ -145,11 +152,12 @@ pub extern "C" fn spectre_rust_topological_waves(
     if spec_ptr.is_null() || spec_len == 0 {
         return 0;
     }
-    let raw_bytes = unsafe { slice::from_raw_parts(spec_ptr, spec_len) };
-    let spec_str = match std::str::from_utf8(raw_bytes) {
-        Ok(s) => s,
-        Err(_) => return -2,
-    };
+    catch_unwind(AssertUnwindSafe(|| {
+        let raw_bytes = unsafe { slice::from_raw_parts(spec_ptr, spec_len) };
+        let spec_str = match std::str::from_utf8(raw_bytes) {
+            Ok(s) => s,
+            Err(_) => return -2,
+        };
 
     let mut ordered_names: Vec<&str> = Vec::new();
     let mut raw_deps: HashMap<&str, Vec<&str>> = HashMap::new();
@@ -243,11 +251,13 @@ pub extern "C" fn spectre_rust_topological_waves(
         return -1;
     }
 
-    let encoded = waves.join("\n");
-    if !write_c_buf(encoded.as_bytes(), out_ptr, out_cap) {
-        return -2;
-    }
-    waves.len() as i32
+        let encoded = waves.join("\n");
+        if !write_c_buf(encoded.as_bytes(), out_ptr, out_cap) {
+            return -2;
+        }
+        waves.len() as i32
+    }))
+    .unwrap_or(-2)
 }
 
 #[inline]
@@ -268,8 +278,9 @@ pub extern "C" fn spectre_rust_sast_prefilter_mask(data_ptr: *const u8, data_len
     if data_ptr.is_null() || data_len < 2 {
         return 0;
     }
-    let data = unsafe { slice::from_raw_parts(data_ptr, data_len) };
-    let mut mask = 0u32;
+    catch_unwind(AssertUnwindSafe(|| {
+        let data = unsafe { slice::from_raw_parts(data_ptr, data_len) };
+        let mut mask = 0u32;
     for i in 0..data_len {
         let rem = &data[i..];
         match rem[0].to_ascii_lowercase() {
@@ -339,6 +350,8 @@ pub extern "C" fn spectre_rust_sast_prefilter_mask(data_ptr: *const u8, data_len
         if mask == 0x0F { break; }
     }
     mask
+    }))
+    .unwrap_or(0)
 }
 
 #[no_mangle]
@@ -346,6 +359,7 @@ pub extern "C" fn spectre_rust_cvss31_score(vec_ptr: *const u8, vec_len: usize) 
     if vec_ptr.is_null() || vec_len == 0 {
         return 0.0;
     }
+    catch_unwind(AssertUnwindSafe(|| {
     let raw_bytes = unsafe { slice::from_raw_parts(vec_ptr, vec_len) };
     let vec_str = match std::str::from_utf8(raw_bytes) {
         Ok(s) => s.trim(),
@@ -409,6 +423,8 @@ pub extern "C" fn spectre_rust_cvss31_score(vec_ptr: *const u8, vec_len: usize) 
         (impact + exploitability).min(10.0_f64)
     };
     (((raw * 100_000.0_f64).round()) / 10_000.0_f64).ceil() / 10.0_f64
+    }))
+    .unwrap_or(0.0)
 }
 
 #[no_mangle]
@@ -416,17 +432,20 @@ pub extern "C" fn spectre_rust_is_valid_dns_label(ptr: *const u8, len: usize) ->
     if ptr.is_null() || len == 0 || len > 63 {
         return 0;
     }
-    let s = unsafe { slice::from_raw_parts(ptr, len) };
-    if s[0] == b'-' || s[len - 1] == b'-' {
-        return 0;
-    }
-    for &b in s {
-        let low = b.to_ascii_lowercase();
-        if !(low.is_ascii_lowercase() || low.is_ascii_digit() || low == b'-') {
+    catch_unwind(AssertUnwindSafe(|| {
+        let s = unsafe { slice::from_raw_parts(ptr, len) };
+        if s[0] == b'-' || s[len - 1] == b'-' {
             return 0;
         }
-    }
-    1
+        for &b in s {
+            let low = b.to_ascii_lowercase();
+            if !(low.is_ascii_lowercase() || low.is_ascii_digit() || low == b'-') {
+                return 0;
+            }
+        }
+        1
+    }))
+    .unwrap_or(0)
 }
 
 #[no_mangle]
@@ -434,6 +453,7 @@ pub extern "C" fn spectre_rust_tech_fingerprint_mask(data_ptr: *const u8, data_l
     if data_ptr.is_null() || data_len < 4 {
         return 0;
     }
+    catch_unwind(AssertUnwindSafe(|| {
     let data = unsafe { slice::from_raw_parts(data_ptr, data_len) };
     let mut mask = 0u32;
     for i in 0..data_len {
@@ -485,6 +505,8 @@ pub extern "C" fn spectre_rust_tech_fingerprint_mask(data_ptr: *const u8, data_l
         }
     }
     mask
+    }))
+    .unwrap_or(0)
 }
 
 #[no_mangle]
@@ -512,19 +534,136 @@ pub extern "C" fn spectre_rust_lookup_cve_json(
     if cve_ptr.is_null() || cve_len == 0 {
         return 0;
     }
-    let raw = unsafe { slice::from_raw_parts(cve_ptr, cve_len) };
-    let cve_str = match std::str::from_utf8(raw) {
-        Ok(s) => s,
-        Err(_) => return 0,
-    };
-    let _ = rust_cpe_advisory_engine::lookup_cpe_vendor_slug("nginx");
-    if let Some(json_s) = rust_kev_cve_part3::lookup_cve_json(cve_str) {
+    catch_unwind(AssertUnwindSafe(|| {
+        let raw = unsafe { slice::from_raw_parts(cve_ptr, cve_len) };
+        let cve_str = match std::str::from_utf8(raw) {
+            Ok(s) => s,
+            Err(_) => return 0,
+        };
+        let _ = rust_cpe_advisory_engine::lookup_cpe_vendor_slug("nginx");
+        if let Some(json_s) = rust_kev_cve_part3::lookup_cve_json(cve_str) {
+            if write_c_buf(json_s.as_bytes(), out_ptr, out_cap) {
+                return 1;
+            }
+            return -2;
+        }
+        0
+    }))
+    .unwrap_or(-2)
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_consolidate_cpe_json(
+    obs_ptr: *const u8,
+    obs_len: usize,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> i32 {
+    if out_ptr.is_null() || out_cap < 4 {
+        return -2;
+    }
+    unsafe { *out_ptr = 0; }
+    if obs_ptr.is_null() || obs_len == 0 {
+        return 0;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let raw = unsafe { slice::from_raw_parts(obs_ptr, obs_len) };
+        let obs_str = match std::str::from_utf8(raw) {
+            Ok(s) => s,
+            Err(_) => return -2,
+        };
+        let json_s = rust_cpe_consolidator::consolidate_cpe_and_audit_json(obs_str);
         if write_c_buf(json_s.as_bytes(), out_ptr, out_cap) {
             return 1;
         }
+        -2
+    }))
+    .unwrap_or(-2)
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_strip_comments(
+    src_ptr: *const u8,
+    src_len: usize,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> i32 {
+    if out_ptr.is_null() || out_cap < 2 {
         return -2;
     }
-    0
+    unsafe { *out_ptr = 0; }
+    if src_ptr.is_null() || src_len == 0 {
+        return 0;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let raw = unsafe { slice::from_raw_parts(src_ptr, src_len) };
+        let (_, _, _) = rust_sast_lexer_engine::lexical_scope_metrics(raw);
+        let cleaned = rust_sast_lexer_engine::strip_comments_preserve_lines(raw);
+        if write_c_buf(&cleaned, out_ptr, out_cap) {
+            return cleaned.len() as i32;
+        }
+        -2
+    }))
+    .unwrap_or(-2)
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_strip_comments_lang(
+    src_ptr: *const u8,
+    src_len: usize,
+    lang_ptr: *const u8,
+    lang_len: usize,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> i32 {
+    if out_ptr.is_null() || out_cap < 2 {
+        return -2;
+    }
+    unsafe { *out_ptr = 0; }
+    if src_ptr.is_null() || src_len == 0 {
+        return 0;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let raw = unsafe { slice::from_raw_parts(src_ptr, src_len) };
+        let ltag = if lang_ptr.is_null() || lang_len == 0 {
+            &[][..]
+        } else {
+            unsafe { slice::from_raw_parts(lang_ptr, lang_len) }
+        };
+        let lang = rust_sast_lexer_engine::SourceLang::from_tag_or_sniff(ltag, raw);
+        let cleaned = rust_sast_lexer_engine::strip_comments_for_lang(raw, lang);
+        if write_c_buf(&cleaned, out_ptr, out_cap) {
+            return cleaned.len() as i32;
+        }
+        -2
+    }))
+    .unwrap_or(-2)
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_triage_brocards_score(
+    tsv_ptr: *const u8,
+    tsv_len: usize,
+    qod: i32,
+) -> i32 {
+    if tsv_ptr.is_null() || tsv_len == 0 {
+        return 0;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let raw = unsafe { slice::from_raw_parts(tsv_ptr, tsv_len) };
+        let s = match std::str::from_utf8(raw) {
+            Ok(v) => v,
+            Err(_) => return 0,
+        };
+        let mut parts = s.splitn(5, '\t');
+        let sev = parts.next().unwrap_or("");
+        let cwe = parts.next().unwrap_or("");
+        let asset = parts.next().unwrap_or("");
+        let ev = parts.next().unwrap_or("");
+        let rem = parts.next().unwrap_or("");
+        rust_cpe_consolidator::evaluate_seven_triage_brocards(sev, cwe, asset, ev, rem, qod)
+    }))
+    .unwrap_or(0)
 }
 
 
