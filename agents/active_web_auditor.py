@@ -17,10 +17,20 @@ import urllib.parse
 from typing import Any
 
 import dns.resolver
+import requests
 from bs4 import BeautifulSoup
 from core.http_engine import fetch_cached_text
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
+
+_EXT_UNAUTH_SESSION = requests.Session()
+_EXT_UNAUTH_SESSION.headers.update({"User-Agent": "SPECTRE-Public-Registry-Check/9.5"})
+
+
+def _get_unauth_session(session: Any) -> requests.Session:
+    if getattr(session, "proxies", None):
+        _EXT_UNAUTH_SESSION.proxies = dict(session.proxies)
+    return _EXT_UNAUTH_SESSION
 
 KNOWN_FAVICON_HASHES: dict[int, str] = {
     116323821: "Spring Boot (Default Favicon)",
@@ -87,9 +97,13 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
         pass
 
     fav_hash, used_fav_url = None, ""
+    base_h = (urllib.parse.urlparse(base_url).hostname or "").lower()
+    ext_sess = _get_unauth_session(session)
     for fu in fav_urls[:3]:
         try:
-            rf = session.get(fu, timeout=6, verify=False)
+            fu_h = (urllib.parse.urlparse(fu).hostname or "").lower()
+            cur_s = session if fu_h == base_h else ext_sess
+            rf = cur_s.get(fu, timeout=6, verify=False, allow_redirects=False)
             ctype = rf.headers.get("Content-Type", "").lower()
             if rf.status_code == 200 and len(rf.content) > 32 and "text/html" not in ctype:
                 fav_hash = compute_shodan_favicon_hash(rf.content)
@@ -183,9 +197,10 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
     from core.native_bridge import JS_TOK_ROUTE, JS_TOK_SOURCEMAP, fast_js_token_mask
 
     unpacked_count = 0
-    seen_maps = _SEEN_SOURCEMAPS_BY_PROJ.setdefault(project_id, set())
     route_re = re.compile(r"""['"`]((?:/api/v\d+/|/api/|/v1/|/v2/|/internal/|/admin/|/graphql|/auth/)[a-zA-Z0-9_\-/\.?=&{}]+)['"`]""")
-    out_dir = BASE_DIR / "workspaces" / "sourcemaps" / f"project_{project_id}"
+    from core.models import resolve_writable_runtime_dir
+    out_dir = resolve_writable_runtime_dir(BASE_DIR) / "workspaces" / "sourcemaps" / f"project_{project_id}"
+    out_root = out_dir.resolve()
 
     vendor_skip = (
         "bootstrap", "jquery", "popper", "swiper", "lodash", "moment", "chart.", "chartjs",
@@ -214,28 +229,39 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
                 if rm.status_code == 200 and '"version"' in rm.text[:300] and '"sources"' in rm.text[:2000]:
                     map_fname = urllib.parse.urlparse(map_u).path.split("/")[-1]
                     map_sig = f"{map_fname}:{hashlib.sha256(rm.content[:65536]).hexdigest()[:16]}"
-                    if map_sig in seen_maps:
-                        break
-                    seen_maps.add(map_sig)
+                    with _DEDUP_LOCK:
+                        seen_maps = _SEEN_SOURCEMAPS_BY_PROJ.setdefault(project_id, set())
+                        if map_sig in seen_maps:
+                            break
+                        seen_maps.add(map_sig)
                     data = rm.json()
                     sources = [str(s) for s in (data.get("sources") or []) if s]
                     contents = [str(c) for c in (data.get("sourcesContent") or []) if c]
                     extracted_routes = set()
                     saved_files = 0
-                    out_dir.mkdir(parents=True, exist_ok=True)
+                    out_root.mkdir(parents=True, exist_ok=True)
 
                     for idx_s, src_code in enumerate(contents[:60]):
                         if not src_code or not isinstance(src_code, str):
                             continue
                         raw_name = sources[idx_s] if idx_s < len(sources) else f"module_{idx_s}.ts"
-                        safe_rel = re.sub(r"[^a-zA-Z0-9_\-\./]", "_", raw_name.replace("webpack://", "").replace("../", "")).lstrip("/.")
-                        if not safe_rel or safe_rel.endswith("/"):
-                            safe_rel = f"unpacked_{idx_s}.ts"
-                        dest_f = out_dir / safe_rel
+                        raw_clean = raw_name.replace("webpack://", "").replace("\\", "/")
+                        parts = [
+                            re.sub(r"[^a-zA-Z0-9_\-.]", "_", seg).strip(".")
+                            for seg in raw_clean.split("/")
+                            if seg and seg not in (".", "..")
+                        ]
+                        parts = [p for p in parts if p and p not in (".", "..")]
+                        if not parts:
+                            parts = [f"unpacked_{idx_s}.ts"]
+                        dest_f = out_root.joinpath(*parts).resolve()
+                        if not dest_f.is_relative_to(out_root) or dest_f.is_symlink():
+                            continue
                         try:
                             dest_f.parent.mkdir(parents=True, exist_ok=True)
-                            dest_f.write_text(src_code[:400000], encoding="utf-8", errors="ignore")
-                            saved_files += 1
+                            if not dest_f.parent.is_symlink() and not dest_f.is_symlink():
+                                dest_f.write_text(src_code[:400000], encoding="utf-8", errors="ignore")
+                                saved_files += 1
                         except Exception:
                             pass
                         if fast_js_token_mask(src_code) & JS_TOK_ROUTE:
@@ -461,13 +487,16 @@ def audit_websocket_endpoints_and_cswsh(db, session, project_id: int, base_url: 
         "Sec-WebSocket-Key": base64.b64encode(b"spectre-ws-key16").decode(),
         "Origin": "https://evil.spectre-audit.org",
     }
+    has_session_cookies = bool(session.cookies or "cookie" in {k.lower() for k in session.headers.keys()})
     for wt in ws_targets[:8]:
         try:
             r = session.get(wt, headers=ws_headers, timeout=5, verify=False, allow_redirects=False)
             acao = r.headers.get("Access-Control-Allow-Origin", "")
+            acac = r.headers.get("Access-Control-Allow-Credentials", "").lower() == "true"
+            has_set_cookie = "set-Cookie" in r.headers or "set-cookie" in {k.lower() for k in r.headers.keys()}
             is_sio = r.status_code == 200 and ('"sid"' in r.text[:200] or "0{" in r.text[:50])
-            is_ws101 = r.status_code == 101
-            if is_ws101 or (is_sio and acao in ("*", "https://evil.spectre-audit.org")):
+            is_ws101 = r.status_code == 101 and (has_session_cookies or has_set_cookie)
+            if is_ws101 or (is_sio and ((acao == "https://evil.spectre-audit.org" and (acac or has_session_cookies)) or (acao == "*" and has_session_cookies))):
                 found += 1
                 db.upsert_finding(
                     project_id, "SPECTRE-Web (WebSocket-CSWSH)",
@@ -475,7 +504,7 @@ def audit_websocket_endpoints_and_cswsh(db, session, project_id: int, base_url: 
                     "Cross-Site WebSocket Hijacking (CSWSH)", "High", 7.4,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:L/A:N", "CWE-1385", "A01:2021 - Broken Access Control",
                     wt, f"Status: HTTP {r.status_code} | Origin: https://evil.spectre-audit.org | ACAO: {acao or 'Accepted'}",
-                    "WebSocket yoki Socket.IO endpointi tashqi Origin sarlavhasini tekshirmasdan ulanishga ruxsat bermoqda (CSWSH xavfi).",
+                    "Autentifikatsiyali WebSocket yoki Socket.IO endpointi tashqi Origin sarlavhasini tekshirmasdan ulanishga ruxsat bermoqda (CSWSH xavfi).",
                     "WebSocket handshake vaqtida Origin sarlavhasini oq ro'yxat (allowlist) asosida tekshiring va CSRF/JWT token talab qiling.",
                 )
                 log_fn(f"  [WEBSOCKET-CSWSH] {wt} -> Cross-Origin handshake ruxsat etilgan (HTTP {r.status_code})!")
@@ -491,10 +520,11 @@ def enumerate_multicloud_and_containers(db, session, project_id: int, apex_domai
     brand = apex_domain.split(".")[0].lower()
     hits = 0
 
+    ext_sess = _get_unauth_session(session)
     for fb_name in (brand, f"{brand}-prod", f"{brand}-app"):
         fb_url = f"https://{fb_name}.firebaseio.com/.json"
         try:
-            rf = session.get(fb_url, timeout=4.5, verify=False)
+            rf = ext_sess.get(fb_url, timeout=4.5, verify=False, allow_redirects=False)
             if rf.status_code == 200 and rf.text.strip() not in ("null", "") and "Permission denied" not in rf.text:
                 hits += 1
                 db.upsert_finding(
@@ -533,6 +563,9 @@ def enumerate_multicloud_and_containers(db, session, project_id: int, apex_domai
                     )
                 continue
             r = session.get(u, timeout=4.5, verify=False, allow_redirects=False)
+            ctype_i = r.headers.get("Content-Type", "").lower()
+            if path != "/minio/login" and "text/html" in ctype_i:
+                continue
             if r.status_code == 200 and marker and marker in r.text:
                 hits += 1
                 db.upsert_finding(
@@ -665,7 +698,7 @@ def hunt_dependency_confusion_risks(db, session, project_id: int, js_urls: list[
         "@babel", "@vue", "@angular", "@react", "@emotion", "@mui", "@fortawesome",
         "@sentry", "@stripe", "@floating-ui", "@popperjs", "@radix-ui", "@tanstack",
         "@reduxjs", "@apollo", "@graphql", "@testing-library", "@types", "@vercel",
-        "@next", "@nuxt", "@vite", "@rollup", "@ tailwind", "@headlessui", "@heroicons",
+        "@next", "@nuxt", "@vite", "@rollup", "@tailwindcss", "@headlessui", "@heroicons",
     }
 
     for manifest_p in ("/package.json", "/static/package.json", "/assets/package.json"):
@@ -691,13 +724,17 @@ def hunt_dependency_confusion_risks(db, session, project_id: int, js_urls: list[
         except Exception:
             pass
 
+    ext_sess = _get_unauth_session(session)
     unclaimed = 0
     for pkg in sorted(scoped_pkgs)[:12]:
         scope_prefix = pkg.split("/")[0]
         if scope_prefix in PUBLIC_SAFE_SCOPES:
             continue
         try:
-            r_npm = session.get(f"https://registry.npmjs.org/{pkg}", timeout=5)
+            r_org = ext_sess.get(f"https://www.npmjs.com/org/{scope_prefix.lstrip('@')}", timeout=4.5, allow_redirects=False)
+            if r_org.status_code == 200:
+                continue
+            r_npm = ext_sess.get(f"https://registry.npmjs.org/{pkg}", timeout=5, allow_redirects=False)
             if r_npm.status_code == 404:
                 unclaimed += 1
                 db.upsert_finding(
@@ -944,10 +981,11 @@ def hunt_broken_external_links_and_script_hijack(db, session, project_id: int, b
         except Exception:
             pass
 
+    ext_sess = _get_unauth_session(session)
     # 2. Check GitHub org/user links for 404
     for gh_u in list(gh_links)[:6]:
         try:
-            rg = session.get(gh_u, timeout=4.5)
+            rg = ext_sess.get(gh_u, timeout=4.5, allow_redirects=False)
             if rg.status_code == 404:
                 issues += 1
                 db.upsert_finding(
@@ -966,7 +1004,7 @@ def hunt_broken_external_links_and_script_hijack(db, session, project_id: int, b
     # 3. Check Telegram t.me/<handle> links for unclaimed usernames
     for tg_h in list(tg_handles)[:6]:
         try:
-            rt = session.get(f"https://t.me/{tg_h}", timeout=4.5)
+            rt = ext_sess.get(f"https://t.me/{tg_h}", timeout=4.5, allow_redirects=False)
             if rt.status_code == 200 and "tgme_page_extra" not in rt.text and "tgme_page_title" not in rt.text:
                 issues += 1
                 db.upsert_finding(

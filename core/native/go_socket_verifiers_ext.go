@@ -145,20 +145,27 @@ func probeBinaryDbAndRpcGo(host string, disp string, port int, cp int, tms int) 
 			return &SocketProbeResult{Host: disp, Port: 5432, Service: "postgresql", Version: "PostgreSQL", Banner: fmt.Sprintf("PG AuthCode=%d", ac)}
 		}
 	case 27017:
-		bsonDoc := []byte("\x13\x00\x00\x00\x10ismaster\x00\x01\x00\x00\x00\x00")
-		opQ := make([]byte, 16+11+8+len(bsonDoc))
-		binary.LittleEndian.PutUint32(opQ[12:16], 1)
-		copy(opQ[16:27], []byte("admin.$cmd\x00"))
-		binary.LittleEndian.PutUint32(opQ[31:35], 1)
-		copy(opQ[35:], bsonDoc)
-		wire := make([]byte, 16+len(opQ))
-		binary.LittleEndian.PutUint32(wire[0:4], uint32(16+len(opQ)))
-		binary.LittleEndian.PutUint32(wire[4:8], 1)
-		binary.LittleEndian.PutUint32(wire[12:16], 2004)
-		copy(wire[16:], opQ)
-		raw, err := tcpExchangeMultiGo(host, cp, [][]byte{wire}, tms, false, false)
-		if err == nil && (bytes.Contains(raw, []byte("maxWireVersion")) || bytes.Contains(raw, []byte("ismaster"))) {
-			return &SocketProbeResult{Host: disp, Port: 27017, Service: "mongodb", Version: "MongoDB", Banner: "MongoDB Wire Handshake OK"}
+		helloBson := []byte("\x1f\x00\x00\x00\x10hello\x00\x01\x00\x00\x00\x02$db\x00\x06\x00\x00\x00admin\x00\x00")
+		binary.LittleEndian.PutUint32(helloBson[0:4], uint32(len(helloBson)))
+		opMsg := make([]byte, 16+5+len(helloBson))
+		binary.LittleEndian.PutUint32(opMsg[0:4], uint32(len(opMsg)))
+		binary.LittleEndian.PutUint32(opMsg[4:8], 1)
+		binary.LittleEndian.PutUint32(opMsg[12:16], 2013)
+		copy(opMsg[21:], helloBson)
+		raw, err := tcpExchangeMultiGo(host, cp, [][]byte{opMsg}, tms, false, false)
+		if err != nil || (!bytes.Contains(raw, []byte("maxWireVersion")) && !bytes.Contains(raw, []byte("isWritablePrimary")) && !bytes.Contains(raw, []byte("ismaster"))) {
+			legBson := []byte("\x13\x00\x00\x00\x10ismaster\x00\x01\x00\x00\x00\x00")
+			wire := make([]byte, 16+4+11+8+len(legBson))
+			binary.LittleEndian.PutUint32(wire[0:4], uint32(len(wire)))
+			binary.LittleEndian.PutUint32(wire[4:8], 2)
+			binary.LittleEndian.PutUint32(wire[12:16], 2004)
+			copy(wire[20:31], []byte("admin.$cmd\x00"))
+			binary.LittleEndian.PutUint32(wire[35:39], 1)
+			copy(wire[39:], legBson)
+			raw, err = tcpExchangeMultiGo(host, cp, [][]byte{wire}, tms, false, false)
+		}
+		if err == nil && (bytes.Contains(raw, []byte("maxWireVersion")) || bytes.Contains(raw, []byte("isWritablePrimary")) || bytes.Contains(raw, []byte("ismaster"))) {
+			return &SocketProbeResult{Host: disp, Port: 27017, Service: "mongodb", Version: "MongoDB", Banner: "MongoDB OP_MSG Handshake OK"}
 		}
 	case 389, 636:
 		lb, _ := hex.DecodeString("300c020101600702010304008000")
@@ -204,7 +211,12 @@ func probeBinaryDbAndRpcGo(host string, disp string, port int, cp int, tms int) 
 			}
 		}
 	case 1433:
-		tds, _ := hex.DecodeString("1201001d00000100000015000601001b0001ff09000000000002")
+		tds := []byte{
+			0x12, 0x01, 0x00, 0x1a, 0x00, 0x00, 0x01, 0x00,
+			0x00, 0x00, 0x0b, 0x00, 0x06, 0x01, 0x00, 0x11, 0x00, 0x01, 0xff,
+			0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+		}
+		binary.BigEndian.PutUint16(tds[2:4], uint16(len(tds)))
 		raw, err := tcpExchangeMultiGo(host, cp, [][]byte{tds}, tms, false, false)
 		if err == nil && len(raw) >= 28 && raw[0] == 0x04 {
 			pl := raw[8:]

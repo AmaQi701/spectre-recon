@@ -67,6 +67,12 @@ func searchCleanroomAdvisoryGo(query string, tsvHintPath string) []map[string]an
 	if tsvHintPath != "" {
 		if f, err := os.Open(tsvHintPath); err == nil {
 			defer f.Close()
+			hdr := make([]byte, 16)
+			nHdr, _ := f.Read(hdr)
+			if nHdr >= 15 && strings.HasPrefix(string(hdr[:nHdr]), "SQLite format 3") {
+				return out
+			}
+			_, _ = f.Seek(0, 0)
 			sc := bufio.NewScanner(f)
 			for sc.Scan() && len(out) < 10 {
 				ln := sc.Text()
@@ -132,7 +138,31 @@ func RunLocalMcpStdioServerGo(intelHintPath string) error {
 			continue
 		}
 		var req mcpRequest
-		if err := json.Unmarshal([]byte(raw), &req); err != nil || req.ID == nil {
+		if err := json.Unmarshal([]byte(raw), &req); err != nil {
+			errResp := mcpResponse{
+				JSONRPC: "2.0",
+				ID:      nil,
+				Error:   &mcpError{Code: -32700, Message: "Parse error"},
+			}
+			encE, _ := json.Marshal(errResp)
+			_, _ = bw.Write(encE)
+			_ = bw.WriteByte('\n')
+			_ = bw.Flush()
+			continue
+		}
+		if req.JSONRPC != "2.0" || req.Method == "" {
+			errResp := mcpResponse{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error:   &mcpError{Code: -32600, Message: "Invalid Request"},
+			}
+			encE, _ := json.Marshal(errResp)
+			_, _ = bw.Write(encE)
+			_ = bw.WriteByte('\n')
+			_ = bw.Flush()
+			continue
+		}
+		if req.ID == nil {
 			continue
 		}
 		var resp mcpResponse

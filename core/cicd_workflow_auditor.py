@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from core.models import walk_safe_repo_files
 from core.plugin_runner import QoD
 
 _GHA_UNTRUSTED_EXPR_RE = re.compile(
@@ -51,14 +52,15 @@ def audit_cicd_and_app_configs(filename: str, content: str) -> list[tuple[str, s
                 "High", 8.1, "CWE-829",
                 "`curl ... | bash` o'rniga skriptni yuklab olib SHA-256 nazorat yig'indisini tekshiring.",
             ))
-        if _APP_SECRET_KV_RE.search(txt):
-            val = _APP_SECRET_KV_RE.search(txt).group(1)  # type: ignore[union-attr]
+        for m_gl in _APP_SECRET_KV_RE.finditer(txt):
+            val = m_gl.group(1).strip()
             if val.lower() not in _DUMMY_SECRET_VALUES and not val.startswith(("$", "${")):
                 issues.append((
                     "Hardcoded Secret Variable in .gitlab-ci.yml",
                     "High", 8.2, "CWE-798",
                     "Maxfiy kalitlarni `.gitlab-ci.yml` ichida emas, GitLab Protected/Masked CI Variables bo'limida saqlang.",
                 ))
+                break
     elif fn == "jenkinsfile":
         if _JENKINS_PARAM_SH_RE.search(txt):
             issues.append((
@@ -90,20 +92,34 @@ def audit_github_workflow_yaml(content: str) -> list[tuple[str, str, float, str,
             "`pull_request_target` ichida tashqi fork kodini `actions/checkout` qilmang; imtiyozsiz `pull_request` triggeridan foydalaning.",
         ))
 
-    in_run = False
+    run_indent = -1
     for ln in txt.splitlines():
         s = ln.strip()
-        if re.match(r"^-?\s*run\s*:", s):
-            in_run = True
-        elif re.match(r"^[a-zA-Z0-9_\-]+\s*:", s) and not ln.startswith(" " * 8):
-            in_run = False
-        if (in_run or "run:" in s) and _GHA_UNTRUSTED_EXPR_RE.search(s):
-            issues.append((
-                "GitHub Actions Untrusted Event Context Interpolated in Shell 'run:'",
-                "High", 8.6, "CWE-78",
-                "`${{ github.event.* }}` qiymatini to'g'ridan-to'g'ri `run:` qatoriga yozmang; uni `env:` o'zgaruvchisi orqali uzating.",
-            ))
-            break
+        if not s or s.startswith("#"):
+            continue
+        ind = len(ln) - len(ln.lstrip(" "))
+        m_run = re.match(r"^(-\s*)?run\s*:\s*(.*)$", s)
+        if m_run:
+            run_indent = ind + (len(m_run.group(1)) if m_run.group(1) else 0)
+            inline_cmd = m_run.group(2).strip()
+            if inline_cmd and not inline_cmd.startswith("#") and _GHA_UNTRUSTED_EXPR_RE.search(inline_cmd):
+                issues.append((
+                    "GitHub Actions Untrusted Event Context Interpolated in Shell 'run:'",
+                    "High", 8.6, "CWE-78",
+                    "`${{ github.event.* }}` qiymatini to'g'ridan-to'g'ri `run:` qatoriga yozmang; uni `env:` o'zgaruvchisi orqali uzating.",
+                ))
+                break
+            continue
+        if run_indent >= 0:
+            if ind <= run_indent:
+                run_indent = -1
+            elif _GHA_UNTRUSTED_EXPR_RE.search(s):
+                issues.append((
+                    "GitHub Actions Untrusted Event Context Interpolated in Shell 'run:'",
+                    "High", 8.6, "CWE-78",
+                    "`${{ github.event.* }}` qiymatini to'g'ridan-to'g'ri `run:` qatoriga yozmang; uni `env:` o'zgaruvchisi orqali uzating.",
+                ))
+                break
 
     if _AI_GHA_ACTION_RE.search(txt):
         tainted_env_vars: set[str] = set()
@@ -172,16 +188,20 @@ def audit_registry_config_text(filename: str, content: str) -> list[tuple[str, s
 
 
 def run_cicd_and_registry_audit(db: Any, project_id: int, code_paths: list[str], log_fn: Any) -> int:
-    skip_parts = ("node_modules", "__pycache__", "/tests/", "/test/", ".venv", "venv")
     written = 0
     for cp in code_paths:
         if not cp:
             continue
         root = Path(cp)
-        if not root.is_dir():
+        if not root.is_dir() or root.is_symlink():
             continue
+        root_res = root.resolve()
         wf_dir = root / ".github" / "workflows"
-        wf_files = sorted(list(wf_dir.glob("*.yml")) + list(wf_dir.glob("*.yaml"))) if wf_dir.is_dir() else []
+        wf_files = (
+            [f for f in sorted(list(wf_dir.glob("*.yml")) + list(wf_dir.glob("*.yaml"))) if f.is_file() and not f.is_symlink() and f.resolve().is_relative_to(root_res) and f.stat().st_size <= 524288]
+            if wf_dir.is_dir() and not wf_dir.is_symlink()
+            else []
+        )
         for wf in wf_files[:30]:
             try:
                 txt = wf.read_text(encoding="utf-8", errors="ignore")[:150000]
@@ -200,9 +220,7 @@ def run_cicd_and_registry_audit(db: Any, project_id: int, code_paths: list[str],
                 written += 1
 
         extra_cfg_names = {".npmrc", ".pypirc", ".gitlab-ci.yml", "jenkinsfile", "application.properties", "application.yml", "application.yaml", ".env.production"}
-        for rc_file in sorted(root.rglob("*"))[:240]:
-            if not rc_file.is_file() or any(sp in str(rc_file).replace("\\", "/") for sp in skip_parts):
-                continue
+        for rc_file in walk_safe_repo_files(root, max_files=360, max_bytes=524288):
             fn_l = rc_file.name.lower()
             if fn_l in extra_cfg_names:
                 try:

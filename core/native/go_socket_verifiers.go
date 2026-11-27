@@ -12,7 +12,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 type SocketProbeSpec struct {
@@ -48,12 +50,31 @@ var SupportedSocketPorts = []int{
 	9100, 9200, 10050, 10250, 11211, 15672, 27017, 50070, 61616,
 }
 
+var defaultSniHostGo atomic.Value
+
+func setDefaultSniHostGo(disp string) {
+	d := strings.TrimSpace(disp)
+	if d != "" && net.ParseIP(d) == nil {
+		defaultSniHostGo.Store(d)
+	}
+}
+
+func resolveTlsServerNameGo(host string) string {
+	if host != "" && net.ParseIP(host) == nil {
+		return host
+	}
+	if v, ok := defaultSniHostGo.Load().(string); ok && v != "" && net.ParseIP(v) == nil {
+		return v
+	}
+	return ""
+}
+
 func dialSocketGo(host string, port int, timeoutMs int, useTLS bool) (net.Conn, error) {
 	dur := time.Duration(timeoutMs) * time.Millisecond
 	d := net.Dialer{Timeout: dur}
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	if useTLS {
-		cfg := &tls.Config{InsecureSkipVerify: true, ServerName: host}
+		cfg := &tls.Config{InsecureSkipVerify: true, ServerName: resolveTlsServerNameGo(host)}
 		conn, err := tls.DialWithDialer(&d, "tcp", addr, cfg)
 		if err != nil {
 			return nil, err
@@ -103,8 +124,9 @@ func tcpExchangeMultiGo(host string, port int, payloads [][]byte, timeoutMs int,
 
 func httpSocketProbeGo(scheme string, host string, port int, method string, path string, timeoutMs int) (int, http.Header, string, error) {
 	dur := time.Duration(timeoutMs) * time.Millisecond
+	sni := resolveTlsServerNameGo(host)
 	tr := &http.Transport{
-		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true, ServerName: sni},
 		DisableKeepAlives: true,
 	}
 	cli := &http.Client{
@@ -118,6 +140,9 @@ func httpSocketProbeGo(scheme string, host string, port int, method string, path
 	req, err := http.NewRequest(method, urlStr, nil)
 	if err != nil {
 		return 0, nil, "", err
+	}
+	if sni != "" && sni != host {
+		req.Host = net.JoinHostPort(sni, strconv.Itoa(port))
 	}
 	req.Header.Set("User-Agent", "SPECTRE-Audit/9.5")
 	resp, err := cli.Do(req)
@@ -203,7 +228,11 @@ func truncStrGo(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen]
+	cut := s[:maxLen]
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return strings.TrimSpace(cut)
 }
 
 func makeFindingGo(host string, port int, svc, ver, banner, title, cat, sev string, cvss float64, vec, cwe, owasp, asset, ev, desc, rem string, conf int) *SocketProbeResult {

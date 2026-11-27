@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -342,6 +343,9 @@ func ParseYamlPluginFileGo(path string) (*YamlPluginRule, error) {
 	if r.ID == "" || r.Path == "" {
 		return nil, fmt.Errorf("missing id or path")
 	}
+	if !strings.HasPrefix(r.Path, "/") || strings.HasPrefix(r.Path, "//") {
+		return nil, fmt.Errorf("invalid plugin path: %s", r.Path)
+	}
 	for _, pat := range r.MatchRegex {
 		re, cerr := regexp.Compile(pat)
 		if cerr != nil {
@@ -513,6 +517,30 @@ func evalRuleOnClusteredRespGo(
 	return true
 }
 
+func canonicalHeadersSigGo(hdrs map[string]string) string {
+	if len(hdrs) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(hdrs))
+	for k := range hdrs {
+		keys = append(keys, strings.ToLower(strings.TrimSpace(k)))
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, lk := range keys {
+		for origK, v := range hdrs {
+			if strings.ToLower(strings.TrimSpace(origK)) == lk {
+				b.WriteString(lk)
+				b.WriteByte('=')
+				b.WriteString(strings.TrimSpace(v))
+				b.WriteByte(';')
+				break
+			}
+		}
+	}
+	return b.String()
+}
+
 func RunClusteredYamlPluginsGo(
 	baseURL string,
 	pluginsDir string,
@@ -545,11 +573,11 @@ func RunClusteredYamlPluginsGo(
 	clusters := make(map[string][]*YamlPluginRule)
 	eligible := 0
 	for _, r := range allRules {
-		if len(kb) > 0 && !kbRuleMatchesGo(r, kb) {
+		if !kbRuleMatchesGo(r, kb) {
 			continue
 		}
 		eligible++
-		ck := r.Method + " " + r.Path
+		ck := r.Method + "\t" + r.Path + "\t" + canonicalHeadersSigGo(r.Headers)
 		clusters[ck] = append(clusters[ck], r)
 	}
 	cli := &http.Client{
@@ -607,10 +635,10 @@ func RunClusteredYamlPluginsGo(
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			sp := strings.SplitN(key, " ", 2)
+			sp := strings.SplitN(key, "\t", 3)
 			mergedHdrs := make(map[string]string)
-			for _, rl := range rules {
-				for hk, hv := range rl.Headers {
+			if len(rules) > 0 {
+				for hk, hv := range rules[0].Headers {
 					mergedHdrs[hk] = hv
 				}
 			}

@@ -114,7 +114,7 @@ def _audit_cms_paths(db: Any, http_engine: Any, project_id: int, base_url: str, 
         except Exception:
             pass
 
-    if "datalife" in tech_blob or "dle" in tech_blob:
+    if "datalife" in tech_blob or re.search(r"\bdle\b", tech_blob):
         try:
             r_dle = http_engine.request("GET", f"{base_url}/upgrade/index.php", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=16384)
             if not _is_soft_200(r_dle, cal_st, cal_ln, cal_sg, cal_sk) and "datalife engine" in r_dle.text.lower():

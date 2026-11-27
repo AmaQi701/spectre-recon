@@ -9,6 +9,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import urllib.parse
 from pathlib import Path
@@ -20,10 +21,17 @@ from core.cms_enterprise_nvts import run_cms_and_enterprise_nvts
 from core.database import DatabaseManager
 from core.feed_updater import enrich_project_findings_with_kev
 from core.http_engine import RateLimitedHttpEngine
-from core.native_bridge import fast_sast_prefilter_mask
+from core.models import resolve_writable_runtime_dir, walk_safe_repo_files
+from core.native_bridge import (
+    fast_cpp_mad_latency_us,
+    fast_rust_consolidate_cpe,
+    fast_rust_verify_access_diff,
+    fast_sast_prefilter_mask,
+)
 from core.nvt_declarative_engine import run_declarative_nvt_catalog
 from core.plugin_runner import PhaseOrchestrator, QoD, ScanContextKB, ScanPhase
 from core.protocol_verifiers import run_active_protocol_verifiers
+from core.scope_guard import ScopeGuard
 from core.cicd_workflow_auditor import run_cicd_and_registry_audit
 from core.iac_auditor import run_iac_security_audit
 from core.sast_ast_engine import (
@@ -69,7 +77,7 @@ class VulnAssessmentSuperAgent:
             "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
             "cwe": "CWE-78",
             "owasp": "A03:2021 - Injection",
-            "pattern": re.compile(r"""(?i)(os\.system|subprocess\.(?:popen|call|run).*shell\s*=\s*True|exec\s*\(|shell_exec\s*\(|child_process\.exec)"""),
+            "pattern": re.compile(r"""(?i)(os\.system|subprocess\.(?:popen|call|run).*shell\s*=\s*True|(?<!\.)\bexec\s*\(|shell_exec\s*\(|child_process\.exec)"""),
             "remediation": "shell=True ishlatmang; foydalanuvchi kiritmasini argumentlar ro'yxati sifatida uzating va oq ro'yxat (allowlist) bilan tekshiring.",
         },
         {
@@ -80,7 +88,7 @@ class VulnAssessmentSuperAgent:
             "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:L",
             "cwe": "CWE-502",
             "owasp": "A08:2021 - Software and Data Integrity Failures",
-            "pattern": re.compile(r"""(?i)(pickle\.loads|yaml\.load\s*\([^,)]*\)|unserialize\s*\(|eval\s*\()"""),
+            "pattern": re.compile(r"""(?i)(pickle\.loads|yaml\.load\s*\([^,)]*\)|unserialize\s*\(|(?<!\.)\beval\s*\()"""),
             "remediation": "yaml.safe_load() yoki JSON formatidan foydalaning; ishonchsiz ma'lumotlarda eval/pickle ishlatmang.",
         },
         {
@@ -181,6 +189,22 @@ class VulnAssessmentSuperAgent:
         self.http_engine = RateLimitedHttpEngine(self.session, max_rps_per_host=10.0, fail_threshold=4)
         self.role_a_headers: dict[str, str] = {}
         self.role_b_headers: dict[str, str] = {}
+        self.abort_flags: set[int] = set()
+        self.cancel_events: dict[int, threading.Event] = {}
+
+    def _is_aborted(self, project_id: int) -> bool:
+        if project_id in self.abort_flags:
+            return True
+        ev = self.cancel_events.get(project_id)
+        return bool(ev is not None and ev.is_set())
+
+    def abort_project(self, project_id: int, log_fn=None) -> None:
+        self.abort_flags.add(project_id)
+        ev = self.cancel_events.get(project_id)
+        if ev is not None:
+            ev.set()
+        if log_fn:
+            log_fn("[ABORT] Zaifliklar tahlili jarayoni to'xtatildi.")
 
     @staticmethod
     def _parse_auth_header(raw_auth: str) -> dict[str, str]:
@@ -702,6 +726,9 @@ class VulnAssessmentSuperAgent:
             if kb is not None:
                 for cpe_item in extract_cpe_inventory(combined):
                     kb.add_fact("CPE/inventory", cpe_item)
+                for rs_row in fast_rust_consolidate_cpe(combined):
+                    if isinstance(rs_row, dict) and rs_row.get("cpe23"):
+                        kb.add_fact("CPE/inventory", str(rs_row["cpe23"]))
             for adv in match_version_advisories(combined):
                 sig = (dedup_host, adv["cve"])
                 if sig not in grouped:
@@ -988,15 +1015,14 @@ class VulnAssessmentSuperAgent:
             return
         log_fn(f"[SAST] White-box Source Code tahlili boshlandi: {root}")
         exts = {".py", ".php", ".cs", ".js", ".ts", ".tsx", ".jsx", ".vue", ".go", ".java", ".rb", ".env"}
-        skip_dirs = ("node_modules", ".git", "__pycache__", "/tests/", "/test/", "/__tests__/", "/mocks/", ".spec.", ".test.")
         static_dom_re = re.compile(r"""\.(?:inner|outer)HTML\s*\+?=\s*(?:""|''|``|"[^"$+{]*"|'[^'$+{]*')\s*(?:[;,\)\}\n]|$)""")
         files = [
-            p for p in root.rglob("*")
-            if p.is_file() and p.suffix.lower() in exts and not any(sd in str(p).replace("\\", "/") for sd in skip_dirs)
-        ]
+            p for p in walk_safe_repo_files(root, max_files=360)
+            if p.suffix.lower() in exts and not p.name.endswith((".spec.js", ".test.js", ".spec.ts", ".test.ts"))
+        ][:180]
         hits = 0
         rule_counts: dict[str, int] = {}
-        for fpath in files[:180]:
+        for fpath in files:
             try:
                 raw_src = fpath.read_text(encoding="utf-8", errors="ignore")
                 sfx = fpath.suffix.lower()
@@ -1069,7 +1095,7 @@ class VulnAssessmentSuperAgent:
                             hits += 1
             except Exception:
                 pass
-        log_fn(f"  [+] SAST yakunlandi: {len(files[:150])} ta fayl tekshirildi, {hits} ta xavfli qator topildi.")
+        log_fn(f"  [+] SAST yakunlandi: {len(files)} ta fayl tekshirildi, {hits} ta xavfli qator topildi.")
 
     _DEBUG_TRACE_SIGNATURES: tuple[tuple[str, str, str], ...] = (
         ("Python Stack Trace", "Traceback (most recent call last):", "Medium"),
@@ -1270,12 +1296,12 @@ class VulnAssessmentSuperAgent:
                             "Barcha chiqish nuqtalarida kontekstli HTML/JS encoding qo'llang va qat'iy CSP o'rnating.",
                             confidence=QoD.ACTIVE_VERIFIED,
                         )
-                    if is_api_ep and "application/json" in r_post.headers.get("Content-Type", "").lower() and host_k not in seen_debug_hosts:
+                    if is_api_ep and "application/json" in r_post.headers.get("Content-Type", "").lower() and (host_k, "json_exc") not in seen_debug_hosts:
                         j_obj = json.loads(r_post.text or "{}")
                         if isinstance(j_obj, dict):
                             leak_keys = [k for k in ("stackTrace", "sqlState", "exceptionClass", "debugTrace") if k in j_obj and k not in base_text]
                             if leak_keys:
-                                seen_debug_hosts.add(host_k)
+                                seen_debug_hosts.add((host_k, "json_exc"))
                                 self.db.upsert_finding(
                                     project_id, "Agent-2 (Differential-Verifier)", f"Verbose JSON Diagnostic Exception Keys Exposed ({host_k})",
                                     "Information Exposure Through Error Message", "Medium", 5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
@@ -1407,7 +1433,17 @@ class VulnAssessmentSuperAgent:
         public_ignore = ("/health", "/ping", "/version", "/config", "/public", "/openapi", "/swagger", "/i18n", "/locale")
         priv_keywords = ("/admin", "/internal", "/users", "/account", "/orders", "/profile", "/me", "/settings", "/logs", "/baza/", "/sites", "/jobs", "/export", "/backup")
 
-        guest_strip_hdrs: dict[str, str | None] = {k: None for k in ("Authorization", "Cookie", "X-API-Key", *self.role_a_headers.keys())}
+        guest_sess = requests.Session()
+        guest_sess.headers.update({"User-Agent": self.session.headers.get("User-Agent", "SPECTRE-VulnAgent/3.3")})
+        guest_sess.proxies = dict(self.session.proxies)
+        guest_eng = RateLimitedHttpEngine(guest_sess, max_rps_per_host=8.0, fail_threshold=4, scope=self.http_engine.scope)
+
+        role_b_eng: RateLimitedHttpEngine | None = None
+        if self.role_b_headers:
+            rb_sess = requests.Session()
+            rb_sess.headers.update({"User-Agent": self.session.headers.get("User-Agent", "SPECTRE-VulnAgent/3.3"), **self.role_b_headers})
+            rb_sess.proxies = dict(self.session.proxies)
+            role_b_eng = RateLimitedHttpEngine(rb_sess, max_rps_per_host=8.0, fail_threshold=4, scope=self.http_engine.scope)
 
         if not self.role_a_headers:
             priv_cands = [e for e in api_cands if any(pk in e["url"].lower() for pk in priv_keywords)][:16]
@@ -1416,20 +1452,22 @@ class VulnAssessmentSuperAgent:
             log_fn(f"[Agent-2 -> Guest API Exposure Audit] {len(priv_cands)} ta ichki API yo'li autentifikatsiyasiz ochiq qolganlikka tekshirilmoqda...")
             cal_by_origin: dict[str, tuple[int, int]] = {}
             for ep in priv_cands:
+                if self._is_aborted(project_id):
+                    return
                 u = ep["url"].replace("{param}", "1")
-                if any(pi in u.lower() for pi in public_ignore) or self.http_engine.is_host_dead(u):
+                if any(pi in u.lower() for pi in public_ignore) or guest_eng.is_host_dead(u):
                     continue
                 pu = urllib.parse.urlparse(u)
                 orig = f"{pu.scheme}://{pu.netloc}"
                 if orig not in cal_by_origin:
                     try:
-                        rc = self.http_engine.request("GET", f"{orig}/api/spectre-nonexistent-authz-99182", headers=guest_strip_hdrs, allow_redirects=False)
+                        rc = guest_eng.request("GET", f"{orig}/api/spectre-nonexistent-authz-99182", allow_redirects=False)
                         cal_by_origin[orig] = (rc.status_code, len(rc.text))
                     except Exception:
                         cal_by_origin[orig] = (-1, -1)
                 cal_st, cal_ln = cal_by_origin[orig]
                 try:
-                    r_guest = self.http_engine.request("GET", u, headers=guest_strip_hdrs, allow_redirects=False)
+                    r_guest = guest_eng.request("GET", u, allow_redirects=False)
                     if r_guest.status_code != 200 or "application/json" not in r_guest.headers.get("Content-Type", "").lower() or len(r_guest.text) < 25:
                         continue
                     if cal_st == 200 and abs(len(r_guest.text) - cal_ln) < 40:
@@ -1455,12 +1493,17 @@ class VulnAssessmentSuperAgent:
             return
 
         log_fn(f"[Agent-2 -> Multi-Role Authz Matrix] {len(api_cands[:16])} ta API/IDOR route da avtorizatsiya matritsasi solishtirilmoqda...")
+        lat_samples_us: list[int] = []
         for ep in api_cands[:16]:
-            u = ep["url"].replace("{param}", "1")
+            if self._is_aborted(project_id):
+                return
+            raw_ep_url = str(ep.get("url") or "")
+            u = raw_ep_url.replace("{param}", "1")
             if any(pi in u.lower() for pi in public_ignore) or self.http_engine.is_host_dead(u):
                 continue
             try:
                 r_a = self.http_engine.request("GET", u, headers=self.role_a_headers, allow_redirects=False)
+                lat_samples_us.append(int(r_a.elapsed.total_seconds() * 1_000_000))
                 if r_a.status_code != 200 or "application/json" not in r_a.headers.get("Content-Type", "").lower() or len(r_a.text) < 25:
                     continue
                 if any(em in r_a.text.lower() for em in err_markers):
@@ -1468,41 +1511,45 @@ class VulnAssessmentSuperAgent:
                 obj_a = r_a.json()
                 keys_a = sorted(obj_a.keys()) if isinstance(obj_a, dict) else ["_list"]
 
-                r_guest = self.http_engine.request("GET", u, headers=guest_strip_hdrs, allow_redirects=False)
+                r_guest = guest_eng.request("GET", u, allow_redirects=False)
                 if r_guest.status_code == 200 and "application/json" in r_guest.headers.get("Content-Type", "").lower():
                     if abs(len(r_guest.text) - len(r_a.text)) < 40 and not any(em in r_guest.text.lower() for em in err_markers):
                         if any(priv_k in u.lower() for priv_k in ("/admin", "/internal", "/users", "/account", "/orders", "/profile", "/me")):
-                            self.db.upsert_finding(
-                                project_id, "Agent-2 (Authz-Matrix)", f"[CONFIRMED] Unauthenticated Access to Sensitive API Route ({u})",
-                                "Missing Function-Level Access Control", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
-                                "CWE-306", "A01:2021 - Broken Access Control", u,
-                                f"Role-A HTTP 200 ({len(r_a.text)}B, keys={keys_a[:6]}) == Guest HTTP 200 ({len(r_guest.text)}B)",
-                                "Sezgir API yo'li avtorizatsiya sarlavhasisiz (Guest) ham Role-A bilan bir xil JSON ma'lumot qaytarmoqda.",
-                                "Ushbu route ustiga autentifikatsiya va rol tekshiruvi (RBAC middleware) o'rnating.",
-                                confidence=QoD.ACTIVE_VERIFIED,
-                            )
-                            log_fn(f"  [CONFIRMED AUTHZ BYPASS] {u} -> Guest == Role-A (HTTP 200 JSON)")
-                            continue
+                            if fast_rust_verify_access_diff(urllib.parse.urlparse(raw_ep_url).path or "/me", r_a.text, r_guest.text) or r_guest.text.strip() == r_a.text.strip():
+                                self.db.upsert_finding(
+                                    project_id, "Agent-2 (Authz-Matrix)", f"[CONFIRMED] Unauthenticated Access to Sensitive API Route ({u})",
+                                    "Missing Function-Level Access Control", "High", 8.2, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                                    "CWE-306", "A01:2021 - Broken Access Control", u,
+                                    f"Role-A HTTP 200 ({len(r_a.text)}B, keys={keys_a[:6]}) == Guest HTTP 200 ({len(r_guest.text)}B)",
+                                    "Sezgir API yo'li avtorizatsiya sarlavhasisiz (Guest) ham Role-A bilan bir xil JSON ma'lumot qaytarmoqda.",
+                                    "Ushbu route ustiga autentifikatsiya va rol tekshiruvi (RBAC middleware) o'rnating.",
+                                    confidence=QoD.ACTIVE_VERIFIED,
+                                )
+                                log_fn(f"  [CONFIRMED AUTHZ BYPASS] {u} -> Guest == Role-A (HTTP 200 JSON)")
+                                continue
 
-                if self.role_b_headers and r_guest.status_code in (401, 403):
-                    role_b_eff = {**guest_strip_hdrs, **self.role_b_headers}
-                    r_b = self.http_engine.request("GET", u, headers=role_b_eff, allow_redirects=False)
+                if role_b_eng is not None and r_guest.status_code in (401, 403):
+                    r_b = role_b_eng.request("GET", u, allow_redirects=False)
                     if r_b.status_code == 200 and "application/json" in r_b.headers.get("Content-Type", "").lower() and not any(em in r_b.text.lower() for em in err_markers):
                         obj_b = r_b.json()
                         keys_b = sorted(obj_b.keys()) if isinstance(obj_b, dict) else ["_list"]
-                        if keys_a == keys_b and ("IDOR_Candidate" in (ep.get("risk_tags_json") or "") or any(ch.isdigit() for ch in urllib.parse.urlparse(u).path)):
+                        raw_path = urllib.parse.urlparse(raw_ep_url).path
+                        if keys_a == keys_b and fast_rust_verify_access_diff(raw_path, r_a.text, r_b.text):
                             self.db.upsert_finding(
                                 project_id, "Agent-2 (BOLA-Matrix)", f"[CONFIRMED] Cross-Role BOLA / IDOR Data Exposure ({u})",
                                 "Broken Object Level Authorization (BOLA)", "High", 8.6, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
                                 "CWE-639", "A01:2021 - Broken Access Control", u,
                                 f"Guest={r_guest.status_code} | Role-A=200 ({len(r_a.text)}B) | Role-B=200 ({len(r_b.text)}B, keys={keys_b[:6]})",
-                                "Guest uchun yopiq (401/403) bo'lgan obyekt endpointi ikkinchi foydalanuvchi (Role-B) sessiyasi orqali ham bir xil JSON strukturani qaytarmoqda.",
+                                "Guest uchun yopiq (401/403) bo'lgan obyekt endpointi ikkinchi foydalanuvchi (Role-B) sessiyasi orqali Role-A ga tegishli aynan bir xil resurs identifikatorini qaytarmoqda.",
                                 "Backendda obyekt egasini joriy foydalanuvchi identifikatori bilan qat'iy solishtiring.",
                                 confidence=QoD.ACTIVE_VERIFIED,
                             )
-                            log_fn(f"  [CONFIRMED BOLA] {u} -> Guest {r_guest.status_code}, lekin Role-B 200 JSON oldi!")
+                            log_fn(f"  [CONFIRMED BOLA] {u} -> Guest {r_guest.status_code}, Role-B matched Role-A object ID!")
             except Exception:
                 pass
+        if len(lat_samples_us) >= 2:
+            mad_us = fast_cpp_mad_latency_us(lat_samples_us)
+            log_fn(f"  [CPP-TELEMETRY] Authz Matrix MAD Latency Spread: {mad_us:.1f} us ({len(lat_samples_us)} probes)")
 
     def _run_cli_vuln_scanners(self, project_id: int, bundle: dict, log_fn, enable_cli: bool = True):
         if not enable_cli:
@@ -1527,77 +1574,84 @@ class VulnAssessmentSuperAgent:
             if len(svcs) >= 4:
                 break
         if nuc_bin and svcs:
-            nuc_file = f"/tmp/spectre_v13_nuclei_{project_id}.txt"
-            Path(nuc_file).write_text("\n".join(svcs) + "\n", encoding="utf-8")
             log_fn(f"[Agent-2 -> Nuclei Audit] {len(svcs)} ta faol veb-servisda miskonfiguratsiya va CVE shablonlari tekshirilmoqda...")
             proc = None
             timer_nuc = None
-            try:
-                proc = subprocess.Popen(
-                    [
-                        nuc_bin, "-l", nuc_file,
-                        "-tags", "exposure,panel,token",
-                        "-etags", "intrusive,fuzz,dos,headless,ssl,network,tech",
-                        "-severity", "medium,high,critical",
-                        "-duc", "-ni", "-nc", "-silent", "-jsonl",
-                        "-timeout", "3", "-retries", "0", "-max-host-error", "8",
-                        "-c", "30", "-bs", "25", "-rl", "120",
-                    ],
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                    env=env,
-                    start_new_session=True,
-                )
+            with tempfile.TemporaryDirectory(prefix=f"spectre_nuc_{project_id}_") as nuc_tmp:
+                nuc_file = str(Path(nuc_tmp) / "targets.txt")
+                Path(nuc_file).write_text("\n".join(svcs) + "\n", encoding="utf-8")
+                try:
+                    proc = subprocess.Popen(
+                        [
+                            nuc_bin, "-l", nuc_file,
+                            "-tags", "exposure,panel,token",
+                            "-etags", "intrusive,fuzz,dos,headless,ssl,network,tech",
+                            "-severity", "medium,high,critical",
+                            "-duc", "-ni", "-nc", "-silent", "-jsonl",
+                            "-timeout", "3", "-retries", "0", "-max-host-error", "8",
+                            "-c", "30", "-bs", "25", "-rl", "120",
+                        ],
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                        text=True,
+                        env=env,
+                        start_new_session=True,
+                    )
 
-                def _kill_nuc() -> None:
+                    def _kill_nuc() -> None:
+                        if proc is not None and proc.poll() is None:
+                            try:
+                                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                            except Exception:
+                                pass
+
+                    timer_nuc = threading.Timer(18.0, _kill_nuc)
+                    timer_nuc.daemon = True
+                    timer_nuc.start()
+
+                    if proc.stdout is not None:
+                        for nl in proc.stdout:
+                            if not nl.strip().startswith("{"):
+                                continue
+                            try:
+                                nobj = json.loads(nl.strip())
+                            except Exception:
+                                continue
+                            t_id = nobj.get("template-id", "nuclei-hit")
+                            info = nobj.get("info", {})
+                            n_name = info.get("name", t_id)
+                            n_sev = str(info.get("severity", "medium")).capitalize()
+                            matched_at = nobj.get("matched-at", svcs[0])
+                            cvss_map = {"Critical": 9.3, "High": 8.1, "Medium": 6.1, "Low": 3.7}
+                            if n_sev in cvss_map:
+                                self.db.upsert_finding(
+                                    project_id, "Agent-2 (Nuclei)", f"[CONFIRMED] Nuclei: {n_name} ({t_id})",
+                                    "Nuclei Template Verification", n_sev, cvss_map[n_sev], "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                                    "CWE-200", "A05:2021 - Security Misconfiguration", matched_at,
+                                    f"Template: {t_id} | Matched: {matched_at}",
+                                    info.get("description") or f"Nuclei '{t_id}' shabloni bo'yicha zaiflik tasdiqlandi.",
+                                    info.get("remediation") or "Nuclei tavsiyasiga asosan konfiguratsiya kamchiligini bartaraf eting.",
+                                    confidence=QoD.ACTIVE_VERIFIED,
+                                )
+                                log_fn(f"  [NUCLEI HIT] [{n_sev}] {n_name} -> {matched_at}")
+                    proc.wait(timeout=2)
+                    self.db.log_task(project_id, "SPECTRE-Agent2", "nuclei", "COMPLETED", f"nuclei ({len(svcs)} targets)", "Completed active template verification")
+                except Exception:
                     if proc is not None and proc.poll() is None:
                         try:
                             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
                         except Exception:
                             pass
-
-                timer_nuc = threading.Timer(18.0, _kill_nuc)
-                timer_nuc.daemon = True
-                timer_nuc.start()
-
-                if proc.stdout is not None:
-                    for nl in proc.stdout:
-                        if not nl.strip().startswith("{"):
-                            continue
+                finally:
+                    if timer_nuc is not None:
+                        timer_nuc.cancel()
+                    if proc is not None and proc.poll() is None:
                         try:
-                            nobj = json.loads(nl.strip())
+                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                            proc.wait(timeout=1)
                         except Exception:
-                            continue
-                        t_id = nobj.get("template-id", "nuclei-hit")
-                        info = nobj.get("info", {})
-                        n_name = info.get("name", t_id)
-                        n_sev = str(info.get("severity", "medium")).capitalize()
-                        matched_at = nobj.get("matched-at", svcs[0])
-                        cvss_map = {"Critical": 9.3, "High": 8.1, "Medium": 6.1, "Low": 3.7}
-                        if n_sev in cvss_map:
-                            self.db.upsert_finding(
-                                project_id, "Agent-2 (Nuclei)", f"[CONFIRMED] Nuclei: {n_name} ({t_id})",
-                                "Nuclei Template Verification", n_sev, cvss_map[n_sev], "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
-                                "CWE-200", "A05:2021 - Security Misconfiguration", matched_at,
-                                f"Template: {t_id} | Matched: {matched_at}",
-                                info.get("description") or f"Nuclei '{t_id}' shabloni bo'yicha zaiflik tasdiqlandi.",
-                                info.get("remediation") or "Nuclei tavsiyasiga asosan konfiguratsiya kamchiligini bartaraf eting.",
-                                confidence=QoD.ACTIVE_VERIFIED,
-                            )
-                            log_fn(f"  [NUCLEI HIT] [{n_sev}] {n_name} -> {matched_at}")
-                proc.wait(timeout=2)
-                self.db.log_task(project_id, "SPECTRE-Agent2", "nuclei", "COMPLETED", f"nuclei ({len(svcs)} targets)", "Completed active template verification")
-            except Exception:
-                if proc is not None and proc.poll() is None:
-                    try:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                    except Exception:
-                        pass
-            finally:
-                if timer_nuc is not None:
-                    timer_nuc.cancel()
+                            pass
 
     def _audit_cms_and_enterprise_apps(self, project_id: int, log_fn):
         b_cur = self.db.get_project_bundle(project_id)
@@ -1635,12 +1689,27 @@ class VulnAssessmentSuperAgent:
             log_fn,
         )
 
-    def run_assessment(self, project_id: int, log_fn, enable_cli: bool = True, progress_fn=None):
+    def run_assessment(
+        self,
+        project_id: int,
+        log_fn,
+        enable_cli: bool = True,
+        progress_fn=None,
+        cancel_event: threading.Event | None = None,
+    ):
         bundle = self.db.get_project_bundle(project_id)
         proj = bundle.get("project", {})
         if not proj:
             log_fn("[ERR] Loyiha topilmadi.")
             return
+        self.abort_flags.discard(project_id)
+        if cancel_event is not None:
+            self.cancel_events[project_id] = cancel_event
+        if self._is_aborted(project_id):
+            self.db.update_project_status(project_id, "ABORTED")
+            return
+        sg_cur = ScopeGuard(str(proj.get("in_scope", "")), str(proj.get("out_of_scope", "")))
+        self.http_engine.scope = sg_cur
         self.http_engine.reset()
         self.db.update_project_status(project_id, "RUNNING_VULN_AUDIT")
 
@@ -1648,9 +1717,16 @@ class VulnAssessmentSuperAgent:
         kb.hydrate_from_bundle(bundle, has_auth_a=bool(self.role_a_headers), has_auth_b=bool(self.role_b_headers))
 
         log_fn(f"--- [PHASE 2] SPECTRE v9.5.0 KB-GATED CVE, NVT, AI/MCP & BOLA AUDIT ({proj['name']}) ---")
-        http_svcs = bundle.get("http_services", [])
+        has_scope_rules = bool(str(proj.get("in_scope") or "").strip())
+        http_svcs = [
+            s for s in bundle.get("http_services", [])
+            if not has_scope_rules or sg_cur.is_in_scope(str(s.get("url") or ""))[0]
+        ]
         ports = bundle.get("ports", [])
-        eps = bundle.get("endpoints", [])
+        eps = [
+            e for e in bundle.get("endpoints", [])
+            if not has_scope_rules or sg_cur.is_in_scope(str(e.get("url") or ""))[0]
+        ]
         js_list = bundle.get("js_assets", [])
 
         orch = PhaseOrchestrator(self.db, project_id, kb, log_fn=log_fn)
@@ -1697,10 +1773,14 @@ class VulnAssessmentSuperAgent:
         orch.register("nvt_differential_verifier", ScanPhase.ACT_VERIFY, self._audit_safe_differential_verifiers, project_id, eps, log_fn, require_keys=["Endpoints/parameterized"])
         orch.register("nvt_cli_scanners", ScanPhase.ACT_VERIFY, self._run_cli_vuln_scanners, project_id, bundle, log_fn, enable_cli=enable_cli, require_keys=["Services/www"])
         orch.execute_all(progress_fn=progress_fn, start_frac=0.89, end_frac=0.95)
+        if self._is_aborted(project_id):
+            self.db.update_project_status(project_id, "ABORTED")
+            return
 
         if progress_fn:
             progress_fn(0.95, "Phase 2: SourceMap SAST, Polyglot SCA, IaC & CISA KEV Enrichment...")
-        smap_dir = Path(__file__).resolve().parent.parent / "workspaces" / "sourcemaps" / f"project_{project_id}"
+        rt_root = resolve_writable_runtime_dir(Path(__file__).resolve().parent.parent)
+        smap_dir = rt_root / "workspaces" / "sourcemaps" / f"project_{project_id}"
         if smap_dir.is_dir() and any(smap_dir.rglob("*")):
             log_fn(f"  [SOURCEMAP->SAST] Tiklangan asl manba kodlari ({smap_dir.name}) 6-tilli Taint SAST orqali tekshirilmoqda...")
             self._run_sast_scan(project_id, str(smap_dir), log_fn)

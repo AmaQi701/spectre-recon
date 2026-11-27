@@ -5,7 +5,7 @@ severity: High
 cvss: 7.5
 cwe: CWE-200
 method: GET
-path: /actuator/env
+path: /actuator/beans
 status: 200
 min_bytes: 32
 mandatory_keys:
@@ -14,9 +14,9 @@ content_type_any:
   - application/json
   - actuator
 match_all:
-  - '"propertySources"'
-  - '"systemEnvironment"'
+  - '"beans"'
+  - '"contexts"'
 exclude_any:
   - Welcome to nginx!
   - Attention Required!
-remediation: Disable systemEnvironment exposure in Spring Boot Actuator and require Spring Security authentication.
+remediation: Disable beans endpoint exposure in Spring Boot Actuator and require Spring Security authentication.

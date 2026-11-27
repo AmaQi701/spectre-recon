@@ -24,8 +24,10 @@ from agents.triage_chain_agent import TriageAndChainSuperAgent
 from agents.vuln_agent import VulnAssessmentSuperAgent
 from core.credentialed_auditor import run_credentialed_ssh_audit
 from core.database import DatabaseManager
+from core.models import resolve_writable_runtime_dir
 from core.scope_guard import ScopeGuard
 
+RUNTIME_DIR = resolve_writable_runtime_dir(BASE_DIR)
 SEV_RANK = {"none": 99, "low": 1, "medium": 2, "high": 3, "critical": 4}
 FIND_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 
@@ -35,9 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-t", "--target", default="", help="Primary target domain, host, or URL (required unless --export-project/--benchmark/--doctor/--intel-status/--rebuild-intel)")
     p.add_argument("--export-project", type=int, default=0, help="Re-generate HTML/SARIF/SBOM/JUnit/Compliance artifacts for an existing project ID without re-scanning")
     p.add_argument("--benchmark", action="store_true", help="Run live 1 MB C++17 + Rust + Go native kernel throughput benchmark and exit")
-    p.add_argument("--doctor", action="store_true", help="Verify C++17, Rust & Go kernels, Offline Threat Intel Pack, 1500-NVT/CPE catalogs, 50-port verifiers, and CLI tools")
+    p.add_argument("--doctor", action="store_true", help="Verify C++17, Rust & Go kernels, Offline Threat Intel Pack, 2000-NVT/CPE catalogs, 50-port verifiers, and CLI tools")
     p.add_argument("--intel-status", action="store_true", help="Inspect Offline Threat Intelligence, SecLists & Clean-Room NVT Pack status and SPDX compliance")
     p.add_argument("--rebuild-intel", action="store_true", help="Compile/refresh intel/spectre_intel.db, Go-indexed SecLists wordlists, and Clean-Room KEV NVTs")
+    p.add_argument("--mcp-server", action="store_true", help="Launch local read-only JSON-RPC 2.0 MCP server on stdio via Go native engine")
+    p.add_argument("--sync-feeds", default="", help="Stream clean-room OSV/NVD advisories into TSV path via Go native engine")
     p.add_argument("-n", "--name", default="", help="Project name (defaults to target host)")
     p.add_argument("--in-scope", default="", help="Comma/newline-separated in-scope rules")
     p.add_argument("--out-of-scope", default="", help="Comma/newline-separated out-of-scope rules")
@@ -49,8 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ssh-key", default="", help="Optional SSH private key path for --ssh-audit")
     p.add_argument("--mode", choices=("full", "subdomains", "ports", "web_js"), default="full")
     p.add_argument("--no-cli", action="store_true", help="Disable external CLI binaries (100%% built-in C++/Python mode)")
-    p.add_argument("--db", default=str(BASE_DIR / "workspaces" / "apex_state.db"), help="SQLite state DB path")
-    p.add_argument("--reports-dir", default=str(BASE_DIR / "reports"), help="Output directory for HTML/MD/SARIF/SBOM/JUnit")
+    p.add_argument("--db", default=str(RUNTIME_DIR / "workspaces" / "apex_state.db"), help="SQLite state DB path")
+    p.add_argument("--reports-dir", default=str(RUNTIME_DIR / "reports"), help="Output directory for HTML/MD/SARIF/SBOM/JUnit")
     p.add_argument("--diff-project", type=int, default=0, help="Compare attack-surface & finding drift against baseline project ID")
     p.add_argument("--min-qod", type=int, default=0, help="Minimum QoD %% (e.g. 90) counted toward --fail-on CI exit gate")
     p.add_argument("--fail-on-drift", action="store_true", help="Return exit code 3 if new High/Critical drift is detected vs --diff-project")
@@ -58,9 +62,14 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _extract_qod_pct(conf_str: str) -> int:
-    m = re.search(r"QoD:\s*(\d+)%", str(conf_str or ""))
-    return int(m.group(1)) if m else 80
+def _extract_qod_pct(conf_str: str, title_str: str = "") -> int:
+    s = str(conf_str or "")
+    m = re.search(r"QoD:\s*(\d+)%", s)
+    if m:
+        return int(m.group(1))
+    if "[CONFIRMED]" in str(title_str or "") or "Confirmed" in s:
+        return 95
+    return 80 if s == "High" else 65
 
 
 def _run_live_cpp_benchmark() -> int:
@@ -113,15 +122,17 @@ def _run_live_cpp_benchmark() -> int:
 
 def _run_doctor_diagnostics(db_path: str) -> int:
     from core.advisory_kb import _CPE_VENDOR_PRODUCT
-    from core.native_bridge import get_go_indexer_bin, get_native_lib, get_rust_lib
+    from core.native_bridge import fast_cpp_barrier_selftest, get_go_indexer_bin, get_native_lib, get_rust_lib
     from core.nvt_declarative_engine import load_nvt_catalog
     from core.protocol_verifiers import SUPPORTED_ACTIVE_PORTS
     from core.sca_engine import OFFLINE_SCA_RULES, SUPPORTED_MANIFEST_NAMES
     from core.threat_intel_pack import ensure_offline_intel_pack, get_offline_intel_status, verify_spdx_compliance
 
     cpp_ok = get_native_lib() is not None
-    rust_ok = get_rust_lib() is not None
+    rlib_d = get_rust_lib()
+    rust_ok = rlib_d is not None and (not hasattr(rlib_d, "spectre_rust_kernel_selftest") or int(rlib_d.spectre_rust_kernel_selftest()) == 6)
     go_ok = get_go_indexer_bin() is not None
+    bar_ok_n, _ = fast_cpp_barrier_selftest(4, 500)
     ensure_offline_intel_pack()
     intel_st = get_offline_intel_status()
     spdx_errs = verify_spdx_compliance()
@@ -129,7 +140,7 @@ def _run_doctor_diagnostics(db_path: str) -> int:
     cpes = len(_CPE_VENDOR_PRODUCT)
     ports_n = len(SUPPORTED_ACTIVE_PORTS)
     sca_n = len(OFFLINE_SCA_RULES)
-    man_n = len(SUPPORTED_MANIFEST_NAMES)
+    _ = len(SUPPORTED_MANIFEST_NAMES)
     db_chk = DatabaseManager(db_path)
     projs = len(db_chk.get_projects())
     print(
@@ -137,11 +148,27 @@ def _run_doctor_diagnostics(db_path: str) -> int:
         f"| NVTs={nvts} | CPEs={cpes} | IntelDB={intel_st['total_db_records']} | Wordlists={intel_st['total_wordlist_lines']} "
         f"| PackMB={intel_st['size_mb']} | SPDX={'OK' if not spdx_errs else 'ERR'} | ActivePorts={ports_n} | SCARules={sca_n} | DBProjects={projs}"
     )
-    return 0 if (cpp_ok and nvts >= 1000 and cpes >= 250 and ports_n >= 50 and not spdx_errs) else 1
+    return 0 if (
+        cpp_ok and rust_ok and go_ok and bool(intel_st.get("ready"))
+        and bar_ok_n == 4 and nvts >= 1000 and cpes >= 250 and ports_n >= 50 and not spdx_errs
+    ) else 1
 
 
 def main(argv: list[str] | None = None) -> int:
+    import subprocess as _sp
     args = build_parser().parse_args(argv)
+    if args.mcp_server:
+        from core.native_bridge import get_go_indexer_bin
+        gobin = get_go_indexer_bin()
+        if gobin is None:
+            print("[ERR] Go native indexer binary unavailable.", file=sys.stderr)
+            return 1
+        return _sp.call([str(gobin), "-mcp-server"])
+    if args.sync_feeds:
+        from core.native_bridge import fast_go_sync_feeds
+        rep_sf = fast_go_sync_feeds(args.sync_feeds)
+        print(json.dumps(rep_sf or {"ok": False}, indent=2, ensure_ascii=False))
+        return 0 if rep_sf else 1
     if args.rebuild_intel:
         from core.threat_intel_pack import build_offline_intel_pack
         st = build_offline_intel_pack()
@@ -186,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
             finds = db.get_project_bundle(pid).get("findings", [])
             if any(
                 FIND_RANK.get(str(f.get("severity") or ""), 0) >= thresh
-                and _extract_qod_pct(str(f.get("confidence") or "")) >= int(args.min_qod)
+                and _extract_qod_pct(str(f.get("confidence") or ""), str(f.get("title") or "")) >= int(args.min_qod)
                 for f in finds if f.get("triage_status") != "False-Positive"
             ):
                 return 2
@@ -201,7 +228,11 @@ def main(argv: list[str] | None = None) -> int:
     in_sc = args.in_scope.strip() or "\n".join(dict.fromkeys([target, apex, f"*.{apex}"]))
     pid = db.create_project(args.name or target, target, in_sc, args.out_of_scope, args.source_path)
 
-    recon = ReconSuperAgent(db, str(BASE_DIR / "config" / "tools_registry.yaml"))
+    reg_pf = RUNTIME_DIR / "config" / "tools_registry.yaml"
+    if not reg_pf.is_file():
+        reg_pf = BASE_DIR / "config" / "tools_registry.yaml"
+    recon = ReconSuperAgent(db, str(reg_pf))
+    recon.session.cookies.clear()
     if args.auth_a.strip():
         if ":" in args.auth_a:
             hk, hv = args.auth_a.split(":", 1)
@@ -210,6 +241,8 @@ def main(argv: list[str] | None = None) -> int:
             recon.session.headers["Cookie"] = args.auth_a.strip()
     if args.proxy.strip():
         recon.session.proxies.update({"http": args.proxy.strip(), "https": args.proxy.strip()})
+        if hasattr(recon, "osint_session"):
+            recon.osint_session.proxies.update({"http": args.proxy.strip(), "https": args.proxy.strip()})
 
     vuln = VulnAssessmentSuperAgent(db, shared_session=recon.session)
     vuln.configure_context(primary_auth=args.auth_a, secondary_auth=args.auth_b, proxy_url=args.proxy)
@@ -244,6 +277,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 3
     except KeyboardInterrupt:
         recon.abort_project(pid, _log)
+        vuln.abort_project(pid)
+        db.update_project_status(pid, "ABORTED")
         return 130
 
     if args.fail_on != "none":
@@ -251,7 +286,7 @@ def main(argv: list[str] | None = None) -> int:
         finds = db.get_project_bundle(pid).get("findings", [])
         if any(
             FIND_RANK.get(str(f.get("severity") or ""), 0) >= thresh
-            and _extract_qod_pct(str(f.get("confidence") or "")) >= int(args.min_qod)
+            and _extract_qod_pct(str(f.get("confidence") or ""), str(f.get("title") or "")) >= int(args.min_qod)
             for f in finds if f.get("triage_status") != "False-Positive"
         ):
             return 2

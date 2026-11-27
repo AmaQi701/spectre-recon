@@ -1,6 +1,7 @@
 import collections
 import concurrent.futures
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -10,6 +11,7 @@ import signal
 import socket
 import ssl
 import subprocess
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -22,6 +24,7 @@ import yaml
 from bs4 import BeautifulSoup, Comment
 
 from core.database import DatabaseManager
+from core.http_engine import _SENSITIVE_AUTH_HEADERS, get_project_js_cache_dir, is_unsafe_redirect_target
 from core.scope_guard import ScopeGuard
 from agents import (
     active_web_auditor,
@@ -99,6 +102,14 @@ class ReconSuperAgent:
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         })
+        self.osint_session = requests.Session()
+        osint_adapter = requests.adapters.HTTPAdapter(pool_connections=16, pool_maxsize=16)
+        self.osint_session.mount("https://", osint_adapter)
+        self.osint_session.mount("http://", osint_adapter)
+        self.osint_session.headers.update({
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        })
+        self._active_scope: ScopeGuard | None = None
         self._http_get_cache: collections.OrderedDict[tuple[str, bool], object] = collections.OrderedDict()
         self._cache_lock = threading.Lock()
         self._probe_tls = threading.local()
@@ -112,53 +123,94 @@ class ReconSuperAgent:
         self._raw_session_get = _orig_get
 
         def _guard_call(fn, url, **kwargs):
-            p_u = urllib.parse.urlparse(str(url))
-            h_only = (p_u.hostname or "").lower()
-            h_key = f"{p_u.scheme}://{p_u.netloc}".lower() if p_u.netloc else h_only
-            ip_key = self._host_to_ip.get(h_only, "")
-            with self._cache_lock:
-                if h_key and (h_key in self._dead_hosts or h_only in self._dead_hosts or (ip_key and ip_key in self._dead_hosts)):
-                    raise requests.exceptions.ConnectTimeout(f"Circuit-Breaker: {h_key} unreachable")
-            caller_stream = bool(kwargs.get("stream", False))
-            use_cap = (fn is _orig_get) and not caller_stream and hasattr(_orig_get, "__call__")
-            if use_cap:
-                kwargs["stream"] = True
-            try:
-                resp = fn(url, **kwargs)
-                if use_cap and hasattr(resp, "iter_content"):
-                    path_l = (p_u.path or "").lower()
-                    cap_b = 1800000 if path_l.endswith((".js", ".map", ".json", ".wasm", ".xml")) else 655360
-                    if getattr(resp, "status_code", 200) in (204, 301, 302, 303, 304, 307, 308):
-                        resp.close()
-                        resp._content = b""
-                    else:
-                        buf = bytearray()
-                        t_s = time.monotonic()
-                        try:
-                            for chunk in resp.iter_content(chunk_size=16384):
-                                if not chunk:
-                                    break
-                                buf.extend(chunk)
-                                if len(buf) >= cap_b or (time.monotonic() - t_s) > 7.5:
-                                    break
-                        finally:
+            want_redirects = bool(kwargs.pop("allow_redirects", True))
+            cur_url = str(url)
+            cur_fn = fn
+            init_p = urllib.parse.urlparse(cur_url)
+            init_orig = f"{init_p.scheme}://{init_p.netloc}".lower() if init_p.netloc else ""
+            max_hops = 4 if want_redirects else 0
+
+            for hop in range(max_hops + 1):
+                h_extracted = ScopeGuard.extract_host(cur_url)
+                if not h_extracted:
+                    raise requests.exceptions.InvalidURL(f"Blocked malformed URL: {cur_url}")
+                p_u = urllib.parse.urlparse(cur_url)
+                h_only = h_extracted.lower()
+                h_key = f"{p_u.scheme}://{p_u.netloc}".lower() if p_u.netloc else h_only
+                ip_key = self._host_to_ip.get(h_only, "")
+                with self._cache_lock:
+                    if h_key and (h_key in self._dead_hosts or h_only in self._dead_hosts or (ip_key and ip_key in self._dead_hosts)):
+                        raise requests.exceptions.ConnectTimeout(f"Circuit-Breaker: {h_key} unreachable")
+
+                hop_kw = dict(kwargs)
+                hop_kw["allow_redirects"] = False
+                need_strip_auth = (hop > 0 and h_key != init_orig) or (
+                    self._active_scope is not None
+                    and bool(self._active_scope.in_scope)
+                    and not self._active_scope.is_in_scope(cur_url)[0]
+                )
+                if need_strip_auth:
+                    merged_h = dict(self.session.headers)
+                    if isinstance(hop_kw.get("headers"), dict):
+                        merged_h.update(hop_kw["headers"])
+                    for hk in list(merged_h.keys()):
+                        if hk.lower() in _SENSITIVE_AUTH_HEADERS:
+                            merged_h[hk] = None
+                    hop_kw["headers"] = merged_h
+
+                caller_stream = bool(hop_kw.get("stream", False))
+                use_cap = (cur_fn is _orig_get) and not caller_stream and hasattr(_orig_get, "__call__")
+                if use_cap:
+                    hop_kw["stream"] = True
+                try:
+                    resp = cur_fn(cur_url, **hop_kw)
+                    status_c = getattr(resp, "status_code", 200)
+                    loc_hdr = (getattr(resp, "headers", {}) or {}).get("Location", "")
+                    if use_cap and hasattr(resp, "iter_content"):
+                        path_l = (p_u.path or "").lower()
+                        cap_b = 1800000 if path_l.endswith((".js", ".map", ".json", ".wasm", ".xml")) else 655360
+                        if status_c in (204, 301, 302, 303, 304, 307, 308):
                             resp.close()
-                        resp._content = bytes(buf[:cap_b])
-                if h_key:
-                    with self._cache_lock:
-                        self._host_fail_counts[h_key] = 0
-                if getattr(resp, "status_code", 0) in (429, 503):
-                    ra_h = (getattr(resp, "headers", {}) or {}).get("Retry-After", "")
-                    time.sleep(min(float(ra_h) if str(ra_h).isdigit() else 1.0, 2.5))
-                return resp
-            except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
-                if h_key:
-                    with self._cache_lock:
-                        cnt = self._host_fail_counts.get(h_key, 0) + 1
-                        self._host_fail_counts[h_key] = cnt
-                        if cnt >= 4:
-                            self._dead_hosts.add(h_key)
-                raise
+                            resp._content = b""
+                        else:
+                            buf = bytearray()
+                            t_s = time.monotonic()
+                            try:
+                                for chunk in resp.iter_content(chunk_size=16384):
+                                    if not chunk:
+                                        break
+                                    buf.extend(chunk)
+                                    if len(buf) >= cap_b or (time.monotonic() - t_s) > 7.5:
+                                        break
+                            finally:
+                                resp.close()
+                            resp._content = bytes(buf[:cap_b])
+                    if h_key:
+                        with self._cache_lock:
+                            self._host_fail_counts[h_key] = 0
+                    if status_c in (429, 503):
+                        ra_h = (getattr(resp, "headers", {}) or {}).get("Retry-After", "")
+                        time.sleep(min(float(ra_h) if str(ra_h).isdigit() else 1.0, 2.5))
+                    if want_redirects and status_c in (301, 302, 303, 307, 308) and loc_hdr and hop < max_hops:
+                        nxt_url = urllib.parse.urljoin(cur_url, loc_hdr)
+                        if is_unsafe_redirect_target(nxt_url, self._active_scope):
+                            return resp
+                        if status_c in (301, 302, 303) and cur_fn is _orig_post:
+                            cur_fn = _orig_get
+                            kwargs.pop("data", None)
+                            kwargs.pop("json", None)
+                        cur_url = nxt_url
+                        continue
+                    return resp
+                except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
+                    if h_key:
+                        with self._cache_lock:
+                            cnt = self._host_fail_counts.get(h_key, 0) + 1
+                            self._host_fail_counts[h_key] = cnt
+                            if cnt >= 4:
+                                self._dead_hosts.add(h_key)
+                    raise
+            raise requests.exceptions.TooManyRedirects(f"Redirect limit exceeded: {url}")
 
         def _cached_session_get(url, **kwargs):
             bypass_cache = bool(kwargs.pop("_bypass_cache", False))
@@ -187,12 +239,26 @@ class ReconSuperAgent:
         self.session.post = lambda url, **kw: _guard_call(_orig_post, url, **kw)
         self.session.head = lambda url, **kw: _guard_call(_orig_head, url, **kw)
         self.active_procs: dict[int, list[subprocess.Popen]] = {}
+        self._proc_lock = threading.Lock()
         self.abort_flags: set[int] = set()
+        self.cancel_events: dict[int, threading.Event] = {}
+
+    def _is_aborted(self, project_id: int) -> bool:
+        if project_id in self.abort_flags:
+            return True
+        ev = self.cancel_events.get(project_id)
+        return bool(ev is not None and ev.is_set())
 
     def abort_project(self, project_id: int, log_fn=None):
         self.abort_flags.add(project_id)
-        procs = self.active_procs.get(project_id, [])
+        ev = self.cancel_events.get(project_id)
+        if ev is not None:
+            ev.set()
+        with self._proc_lock:
+            procs = list(self.active_procs.pop(project_id, []))
         for p in procs:
+            if p.poll() is not None:
+                continue
             try:
                 os.killpg(os.getpgid(p.pid), signal.SIGTERM)
             except Exception:
@@ -200,7 +266,6 @@ class ReconSuperAgent:
                     p.kill()
                 except Exception:
                     pass
-        self.active_procs[project_id] = []
         if log_fn:
             log_fn("[ABORT] Barcha faol razvedka jarayonlari foydalanuvchi tomonidan to'xtatildi.")
 
@@ -245,19 +310,34 @@ class ReconSuperAgent:
                 t["enabled"] = bool(enabled)
         self.registry_path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
-    def _run_cli(self, cmd: str, log_fn, timeout: int = 45, project_id: int = 0) -> str:
-        if project_id in self.abort_flags:
+    def _run_cli(self, cmd: str | list[str], log_fn, timeout: int = 45, project_id: int = 0) -> str:
+        if self._is_aborted(project_id):
             return ""
         env = os.environ.copy()
         env["PATH"] = ":".join(self.EXTRA_PATHS) + ":" + env.get("PATH", "")
-        log_fn(f"[CMD] $ {cmd}")
-        proc = None
+        disp_cmd = " ".join(shlex.quote(x) for x in cmd) if isinstance(cmd, list) else cmd
+        log_fn(f"[CMD] $ {disp_cmd}")
+        proc: subprocess.Popen | None = None
         timed_out = False
+
+        if isinstance(cmd, list):
+            popen_arg: str | list[str] = [str(x) for x in cmd]
+            use_shell = False
+        elif not re.search(r"[|&;<>()$`]", cmd):
+            try:
+                popen_arg = shlex.split(cmd)
+                use_shell = False
+            except ValueError:
+                popen_arg = cmd
+                use_shell = True
+        else:
+            popen_arg = cmd
+            use_shell = True
 
         def _watchdog_kill():
             nonlocal timed_out
             timed_out = True
-            if proc and proc.poll() is None:
+            if proc is not None and proc.poll() is None:
                 try:
                     os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
                 except Exception:
@@ -267,24 +347,26 @@ class ReconSuperAgent:
                         pass
 
         timer = threading.Timer(timeout, _watchdog_kill)
+        timer.daemon = True
         try:
             proc = subprocess.Popen(
-                cmd,
-                shell=True,
+                popen_arg,
+                shell=use_shell,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 env=env,
-                preexec_fn=os.setsid,
+                start_new_session=True,
             )
             timer.start()
             if project_id:
-                self.active_procs.setdefault(project_id, []).append(proc)
+                with self._proc_lock:
+                    self.active_procs.setdefault(project_id, []).append(proc)
             output_lines = []
             if proc.stdout:
                 for line in proc.stdout:
-                    if project_id in self.abort_flags or timed_out:
+                    if self._is_aborted(project_id) or timed_out:
                         break
                     clean_line = line.rstrip()
                     if clean_line:
@@ -293,7 +375,7 @@ class ReconSuperAgent:
                             log_fn(f"  │ {clean_line[:160]}")
             proc.wait(timeout=3)
             if timed_out:
-                log_fn(f"[WARN] Command timeout ({timeout}s), davom etilmoqda: {cmd}")
+                log_fn(f"[WARN] Command timeout ({timeout}s), davom etilmoqda: {disp_cmd}")
             return "\n".join(output_lines)
         except Exception as e:
             if not timed_out:
@@ -301,6 +383,24 @@ class ReconSuperAgent:
             return ""
         finally:
             timer.cancel()
+            if proc is not None:
+                if project_id:
+                    with self._proc_lock:
+                        plist = self.active_procs.get(project_id)
+                        if plist and proc in plist:
+                            plist.remove(proc)
+                if proc.poll() is None:
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except Exception:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                    try:
+                        proc.wait(timeout=1)
+                    except Exception:
+                        pass
 
 
 
@@ -308,93 +408,103 @@ class ReconSuperAgent:
     def _stage1_crtsh(self, project_id: int, domain: str, scope: ScopeGuard, log_fn):
         log_fn(f"[SPECTRE Stage 1] 8 ta Global OSINT Baza (CRT.sh, SubdomainCenter, RapidDNS, CertSpotter, HackerTarget, URLScan, Wayback, OTX) parallel qidiruvi: {domain}")
         discovered: set[tuple[str, str, str]] = set()
+        disc_lock = threading.Lock()
+        q_dom = urllib.parse.quote(domain, safe="")
 
         def fetch_crtsh():
             try:
-                r = self.session.get(f"https://crt.sh/?q=%25.{domain}&output=json", timeout=12)
+                r = self.osint_session.get(f"https://crt.sh/?q=%25.{q_dom}&output=json", timeout=12)
                 if r.status_code == 200:
                     for item in r.json():
                         for sub in str(item.get("name_value", "")).splitlines():
-                            discovered.add((sub.strip().lower().lstrip("*."), "", "crt.sh"))
+                            with disc_lock:
+                                discovered.add((sub.strip().lower().lstrip("*."), "", "crt.sh"))
             except Exception:
                 pass
 
         def fetch_otx():
             try:
-                r = self.session.get(f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns", timeout=10)
+                r = self.osint_session.get(f"https://otx.alienvault.com/api/v1/indicators/domain/{q_dom}/passive_dns", timeout=10)
                 if r.status_code == 200:
                     for row in r.json().get("passive_dns", []):
                         h = str(row.get("hostname", "")).strip().lower()
                         addr = str(row.get("address", "")).strip()
                         ip_h = addr if re.match(r"^\d+\.\d+\.\d+\.\d+$", addr) else ""
                         if h:
-                            discovered.add((h, ip_h, "alienvault_otx"))
+                            with disc_lock:
+                                discovered.add((h, ip_h, "alienvault_otx"))
             except Exception:
                 pass
 
         def fetch_hackertarget():
             try:
-                r = self.session.get(f"https://api.hackertarget.com/hostsearch/?q={domain}", timeout=10)
+                r = self.osint_session.get(f"https://api.hackertarget.com/hostsearch/?q={q_dom}", timeout=10)
                 if r.status_code == 200 and "error" not in r.text.lower():
                     for line in r.text.splitlines():
                         parts = line.split(",")
                         if parts and "." in parts[0]:
                             ip_h = parts[1].strip() if len(parts) > 1 and re.match(r"^\d+\.\d+\.\d+\.\d+$", parts[1].strip()) else ""
-                            discovered.add((parts[0].strip().lower(), ip_h, "hackertarget"))
+                            with disc_lock:
+                                discovered.add((parts[0].strip().lower(), ip_h, "hackertarget"))
             except Exception:
                 pass
 
         def fetch_urlscan():
             try:
-                r = self.session.get(f"https://urlscan.io/api/v1/search/?q=domain:{domain}&size=100", timeout=10)
+                r = self.osint_session.get(f"https://urlscan.io/api/v1/search/?q=domain:{q_dom}&size=100", timeout=10)
                 if r.status_code == 200:
                     for res in r.json().get("results", []):
                         for sec in ("page", "task"):
                             d_val = str(res.get(sec, {}).get("domain", "")).strip().lower()
                             ip_v = str(res.get("page", {}).get("ip", "")).strip() if sec == "page" else ""
                             ip_h = ip_v if re.match(r"^\d+\.\d+\.\d+\.\d+$", ip_v) else ""
-                            if d_val and d_val.endswith(domain):
-                                discovered.add((d_val, ip_h, "urlscan.io"))
+                            if d_val and (d_val == domain or d_val.endswith("." + domain)):
+                                with disc_lock:
+                                    discovered.add((d_val, ip_h, "urlscan.io"))
             except Exception:
                 pass
 
         def fetch_subdomain_center():
             try:
-                r = self.session.get(f"https://api.subdomain.center/?domain={domain}", timeout=10)
+                r = self.osint_session.get(f"https://api.subdomain.center/?domain={q_dom}", timeout=10)
                 if r.status_code == 200 and isinstance(r.json(), list):
                     for sub in r.json():
-                        discovered.add((str(sub).strip().lower().lstrip("*."), "", "subdomain_center"))
+                        with disc_lock:
+                            discovered.add((str(sub).strip().lower().lstrip("*."), "", "subdomain_center"))
             except Exception:
                 pass
 
         def fetch_certspotter():
             try:
-                r = self.session.get(f"https://api.certspotter.com/v1/issuances?domain={domain}&include_subdomains=true&expand=dns_names", timeout=10)
+                r = self.osint_session.get(f"https://api.certspotter.com/v1/issuances?domain={q_dom}&include_subdomains=true&expand=dns_names", timeout=10)
                 if r.status_code == 200 and isinstance(r.json(), list):
                     for item in r.json():
                         for d_name in item.get("dns_names", []):
-                            discovered.add((str(d_name).strip().lower().lstrip("*."), "", "certspotter"))
+                            with disc_lock:
+                                discovered.add((str(d_name).strip().lower().lstrip("*."), "", "certspotter"))
             except Exception:
                 pass
 
         def fetch_rapiddns():
             try:
-                r = self.session.get(f"https://rapiddns.io/subdomain/{domain}?full=1", timeout=12)
+                r = self.osint_session.get(f"https://rapiddns.io/subdomain/{q_dom}?full=1", timeout=12)
                 if r.status_code == 200:
                     for m in re.findall(r"([a-zA-Z0-9_\-\.]+\." + re.escape(domain) + r")", r.text):
-                        discovered.add((m.strip().lower().lstrip("*."), "", "rapiddns"))
+                        with disc_lock:
+                            discovered.add((m.strip().lower().lstrip("*."), "", "rapiddns"))
             except Exception:
                 pass
 
         def fetch_wayback_hosts():
             try:
-                r = self.session.get(f"http://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=json&fl=original&collapse=urlkey&limit=250", timeout=12)
+                r = self.osint_session.get(f"https://web.archive.org/cdx/search/cdx?url=*.{q_dom}/*&output=json&fl=original&collapse=urlkey&limit=250", timeout=12)
                 if r.status_code == 200:
                     for row in r.json()[1:]:
                         if row:
                             h = ScopeGuard.extract_host(row[0])
-                            if h and h.endswith(domain):
-                                discovered.add((h, "", "wayback_osint"))
+                            if h and (h == domain or h.endswith("." + domain)):
+                                with disc_lock:
+                                    discovered.add((h, "", "wayback_osint"))
             except Exception:
                 pass
 
@@ -578,17 +688,21 @@ class ReconSuperAgent:
 
         # Hybrid Fast-Path: Pre-filter large candidate sets with Go dnsx before deep dnspython inspection
         dnsx_bin = self._find_binary("dnsx")
-        res_file = "/tmp/spectre_resolvers.txt"
-        if not Path(res_file).exists():
-            Path(res_file).write_text("8.8.8.8\n1.1.1.1\n9.9.9.9\n8.8.4.4\n1.0.0.1\n", encoding="utf-8")
 
         def _prefilter_with_dnsx(cand_set: set[str]) -> list[str]:
             if not dnsx_bin or len(cand_set) < 40:
                 return sorted(cand_set)
-            c_file = f"/tmp/spectre_s1_cands_{project_id}.txt"
-            Path(c_file).write_text("\n".join(sorted(cand_set)) + "\n", encoding="utf-8")
-            # Include -rcode noerror,nxdomain so Dangling CNAMEs (whose target is NXDOMAIN) are preserved for Takeover detection!
-            dx_out = self._run_cli(f"{dnsx_bin} -l {c_file} -r {res_file} -a -cname -rcode noerror,nxdomain -resp -silent", log_fn, timeout=22, project_id=project_id)
+            with tempfile.TemporaryDirectory(prefix=f"spectre_s1_dnsx_{project_id}_") as tmp_dx:
+                res_file = str(Path(tmp_dx) / "resolvers.txt")
+                c_file = str(Path(tmp_dx) / "candidates.txt")
+                Path(res_file).write_text("8.8.8.8\n1.1.1.1\n9.9.9.9\n8.8.4.4\n1.0.0.1\n", encoding="utf-8")
+                Path(c_file).write_text("\n".join(sorted(cand_set)) + "\n", encoding="utf-8")
+                dx_out = self._run_cli(
+                    [dnsx_bin, "-l", c_file, "-r", res_file, "-a", "-cname", "-rcode", "noerror,nxdomain", "-resp", "-silent"],
+                    log_fn,
+                    timeout=22,
+                    project_id=project_id,
+                )
             alive = {base_domain, apex_domain} & cand_set
             for ln in dx_out.splitlines():
                 clean_ln = re.sub(r"\x1b\[[0-9;]*m", "", ln).strip()
@@ -680,7 +794,7 @@ class ReconSuperAgent:
         def _query_one_ip(item: tuple[str, list[str]]):
             ip, hosts = item
             try:
-                r = self.session.get(f"https://internetdb.shodan.io/{ip}", timeout=7)
+                r = self.osint_session.get(f"https://internetdb.shodan.io/{urllib.parse.quote(ip, safe=':')}", timeout=7)
                 if r.status_code != 200:
                     return
                 data = r.json()
@@ -1116,7 +1230,7 @@ class ReconSuperAgent:
             if any(k in p for k in ("file", "path", "template", "include", "page", "doc", "folder", "item", "view", "tpl", "layout", "load", "read", "filename")):
                 if "LFI_PathTraversal_Candidate" not in risks:
                     risks.append("LFI_PathTraversal_Candidate")
-            if any(k in p for k in ("q", "search", "query", "filter", "sort", "order", "cmd", "exec")):
+            if p == "q" or any(k in p for k in ("search", "query", "filter", "sort", "order", "cmd", "exec")):
                 if "Injection_Candidate" not in risks:
                     risks.append("Injection_Candidate")
             if any(k in p for k in ("price", "amount", "qty", "discount", "coupon", "role", "admin", "balance")):
@@ -1388,9 +1502,9 @@ class ReconSuperAgent:
                 self._crawl_same_host_bfs(project_id, base_url, seed_links, domain, scope, live_js_list, seen_comment_hosts, log_fn)
 
         if domain not in ("127.0.0.1", "localhost") and not domain.endswith(".local"):
-            wb_url = f"http://web.archive.org/cdx/search/cdx?url={domain}/*&output=json&fl=original&collapse=urlkey&limit=60"
+            wb_url = f"https://web.archive.org/cdx/search/cdx?url={urllib.parse.quote(domain, safe='')}/*&output=json&fl=original&collapse=urlkey&limit=60"
             try:
-                r = self.session.get(wb_url, timeout=6)
+                r = self.osint_session.get(wb_url, timeout=6)
                 if r.status_code == 200:
                     rows = r.json()
                     for row in rows[1:]:
@@ -1509,8 +1623,7 @@ class ReconSuperAgent:
         method_ep_regex = re.compile(r"""(?i)\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]{3,120})['"`]""")
         discovered_chunks = set()
 
-        js_cache_dir = Path(f"/tmp/spectre_js_cache_{project_id}")
-        js_cache_dir.mkdir(parents=True, exist_ok=True)
+        js_cache_dir = get_project_js_cache_dir(project_id)
         if not hasattr(self, "_seen_js_by_proj"):
             self._seen_js_by_proj: dict[int, set[str]] = {}
         seen_js_names = self._seen_js_by_proj.setdefault(project_id, set())
@@ -1518,16 +1631,18 @@ class ReconSuperAgent:
         def analyze_one_js(js_url: str):
             try:
                 safe_jname = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", js_url.split("/")[-1].split("?")[0])[-60:] or "bundle.js"
+                url_h = hashlib.sha256(js_url.encode("utf-8", errors="ignore")).hexdigest()[:10]
+                dedup_jkey = f"{url_h}_{safe_jname}"
                 with self._cache_lock:
-                    if safe_jname in seen_js_names and safe_jname not in ("index.js", "main.js", "app.js", "bundle.js"):
+                    if dedup_jkey in seen_js_names:
                         return
-                    seen_js_names.add(safe_jname)
+                    seen_js_names.add(dedup_jkey)
                 r = self.session.get(js_url, timeout=8, verify=False)
                 if r.status_code != 200 or "html" in r.headers.get("Content-Type", "").lower():
                     return
                 content = r.text[:500000]
                 try:
-                    (js_cache_dir / safe_jname).write_text(content, encoding="utf-8", errors="ignore")
+                    (js_cache_dir / f"{url_h}_{safe_jname}").write_text(content, encoding="utf-8", errors="ignore")
                 except Exception:
                     pass
                 from core.native_bridge import JS_TOK_CHUNK, JS_TOK_ROUTE, JS_TOK_SECRET, JS_TOK_SINK, fast_js_token_mask
@@ -1661,6 +1776,9 @@ class ReconSuperAgent:
         self.db.update_project_status(project_id, "RUNNING_RECON")
         _prog(0.05, "Scope va nishon tekshirilmoqda...")
         scope = ScopeGuard(proj["in_scope"], proj["out_of_scope"])
+        self._active_scope = scope
+        if getattr(self.session, "proxies", None):
+            self.osint_session.proxies = dict(self.session.proxies)
         primary_host = ScopeGuard.extract_host(proj["primary_target"])
         ok, reason = scope.is_in_scope(primary_host)
         if not ok:
@@ -1673,6 +1791,7 @@ class ReconSuperAgent:
         active_ids = set(selected_tools) if selected_tools else {t["id"] for t in tools if t.get("enabled") and t.get("installed")}
 
         self.abort_flags.discard(project_id)
+        active_web_auditor.clear_project_dedup_state(project_id)
         with self._cache_lock:
             self._http_get_cache.clear()
             self._host_fail_counts.clear()
@@ -1680,39 +1799,51 @@ class ReconSuperAgent:
             self._host_to_ip.clear()
         if hasattr(self, "_ran_apex_suites"):
             self._ran_apex_suites.pop(project_id, None)
-        shutil.rmtree(f"/tmp/spectre_js_cache_{project_id}", ignore_errors=True)
+        shutil.rmtree(get_project_js_cache_dir(project_id), ignore_errors=True)
         before_snap = surface_prober.take_recon_snapshot(self.db, project_id)
         collected_html: list[str] = []
         apex_domain = ScopeGuard.extract_apex_domain(primary_host)
         safe_host = shlex.quote(primary_host)
         safe_apex = shlex.quote(apex_domain)
 
-        # Pre-Flight DNS Existence & Typo Guard (Fail in 1.5s if apex domain is NXDOMAIN)
-        if not re.match(r"^\d+\.\d+\.\d+\.\d+$", apex_domain):
-            pf_res = dns.resolver.Resolver(configure=False)
-            pf_res.nameservers = ["8.8.8.8", "1.1.1.1", "9.9.9.9"]
-            pf_res.timeout = 1.5
-            pf_res.lifetime = 2.5
-            apex_exists = False
-            for pf_rt in ("NS", "SOA", "A"):
-                try:
-                    pf_res.resolve(apex_domain, pf_rt)
-                    apex_exists = True
-                    break
-                except dns.resolver.NXDOMAIN:
-                    apex_exists = False
-                    break
-                except Exception:
-                    apex_exists = True
-            if not apex_exists:
-                log_fn(f"[DNS-NXDOMAIN-BLOCK] '{apex_domain}' domeni global DNS da mavjud emas (ehtimoliy imlo xatosi / typo). Domen nomini tekshiring!")
-                self.db.update_project_status(project_id, "ABORTED")
-                _prog(0.0, f"NXDOMAIN: {apex_domain} topilmadi")
-                return
+        # Pre-Flight DNS Existence & Typo Guard (System /etc/hosts & IPv4/IPv6 aware)
+        is_ip_target = False
+        try:
+            ipaddress.ip_address(primary_host)
+            is_ip_target = True
+        except ValueError:
+            pass
+        if not is_ip_target:
+            sys_resolved = False
+            try:
+                sys_resolved = bool(socket.getaddrinfo(primary_host, None))
+            except Exception:
+                sys_resolved = False
+            if not sys_resolved:
+                pf_res = dns.resolver.Resolver(configure=False)
+                pf_res.nameservers = ["8.8.8.8", "1.1.1.1", "9.9.9.9"]
+                pf_res.timeout = 1.5
+                pf_res.lifetime = 2.5
+                apex_exists = False
+                for pf_rt in ("NS", "SOA", "A", "AAAA"):
+                    try:
+                        pf_res.resolve(apex_domain, pf_rt)
+                        apex_exists = True
+                        break
+                    except dns.resolver.NXDOMAIN:
+                        apex_exists = False
+                        break
+                    except Exception:
+                        apex_exists = True
+                if not apex_exists:
+                    log_fn(f"[DNS-NXDOMAIN-BLOCK] '{apex_domain}' domeni tizim va global DNS da mavjud emas (ehtimoliy imlo xatosi / typo).")
+                    self.db.update_project_status(project_id, "ABORTED")
+                    _prog(0.0, f"NXDOMAIN: {apex_domain} topilmadi")
+                    return
 
         log_fn(f"--- [PHASE 1] SPECTRE v9.5.0 AUTONOMOUS RECON [{recon_mode.upper()}] (Target: {primary_host} | Apex: {apex_domain}) ---")
         self.db.upsert_domain(project_id, primary_host, source="primary_target")
-        if apex_domain != primary_host:
+        if apex_domain != primary_host and scope.is_in_scope(apex_domain)[0]:
             self.db.upsert_domain(project_id, apex_domain, source="apex_domain")
 
         # Stage 1: Subdomains & OSINT

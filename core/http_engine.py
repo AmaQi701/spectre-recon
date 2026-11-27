@@ -9,13 +9,51 @@ from __future__ import annotations
 
 import concurrent.futures
 import hashlib
+import ipaddress
+import os
 from pathlib import Path
+import tempfile
 import threading
 import time
 import urllib.parse
 from typing import Any
 
 import requests
+
+from core.scope_guard import ScopeGuard
+
+_SENSITIVE_AUTH_HEADERS = frozenset({
+    "authorization", "proxy-authorization", "cookie",
+    "x-api-key", "x-auth-token", "x-access-token", "api-key",
+})
+
+
+def is_unsafe_redirect_target(url: str, scope: ScopeGuard | None = None) -> bool:
+    host = ScopeGuard.extract_host(url)
+    if not host:
+        return True
+    if scope is not None and not scope.is_in_scope(url)[0]:
+        return True
+    try:
+        ip_obj = ipaddress.ip_address(host)
+        if (ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_unspecified):
+            if scope is None or not scope.is_in_scope(host)[0]:
+                return True
+    except ValueError:
+        pass
+    return False
+
+
+def get_project_js_cache_dir(project_id: int) -> Path:
+    uid = os.geteuid() if hasattr(os, "geteuid") else 0
+    cdir = Path(tempfile.gettempdir()) / f"spectre_js_cache_{uid}_{int(project_id)}"
+    if project_id > 0 and not cdir.exists():
+        cdir.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(cdir, 0o700)
+        except OSError:
+            pass
+    return cdir
 
 
 def fetch_cached_text(
@@ -26,22 +64,24 @@ def fetch_cached_text(
     max_chars: int = 350000,
 ) -> str:
     """Fetches a JS/HTML asset once per project using disk + session LRU cache."""
-    if not url:
+    if not url or not ScopeGuard.extract_host(url):
         return ""
     url_hash = hashlib.sha256(url.encode("utf-8", errors="ignore")).hexdigest()[:20]
-    cache_dir = Path(f"/tmp/spectre_js_cache_{int(project_id)}")
-    cache_file = cache_dir / f"u_{url_hash}.cache"
-    if project_id > 0 and cache_file.is_file():
+    clean_p = url.split("?", 1)[0].split("#", 1)[0].lower()
+    ext = ".js" if clean_p.endswith((".js", ".mjs")) else ".cache"
+    cache_dir = get_project_js_cache_dir(project_id)
+    cache_file = cache_dir / f"u_{url_hash}{ext}"
+    if project_id > 0 and cache_file.is_file() and not cache_file.is_symlink():
         try:
             return cache_file.read_text(encoding="utf-8", errors="ignore")[:max_chars]
         except Exception:
             pass
     try:
-        resp = session.get(url, timeout=timeout, verify=False)
+        resp = session.get(url, timeout=timeout, verify=False, allow_redirects=False)
         if getattr(resp, "status_code", 0) != 200:
             return ""
         txt = (resp.text or "")[:max_chars]
-        if project_id > 0 and txt:
+        if project_id > 0 and txt and not cache_file.is_symlink():
             try:
                 cache_dir.mkdir(parents=True, exist_ok=True)
                 cache_file.write_text(txt, encoding="utf-8", errors="ignore")
@@ -61,8 +101,10 @@ class RateLimitedHttpEngine:
         max_rps_per_host: float = 12.0,
         fail_threshold: int = 4,
         max_response_bytes: int = 524288,
+        scope: ScopeGuard | None = None,
     ) -> None:
         self.session = session or requests.Session()
+        self.scope: ScopeGuard | None = scope
         adapter = requests.adapters.HTTPAdapter(pool_connections=32, pool_maxsize=32)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
@@ -120,54 +162,85 @@ class RateLimitedHttpEngine:
             time.sleep(min(sleep_needed, 2.5))
 
     def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
-        host, orig = self._parse_keys(str(url))
-        self._pace_origin(host, orig)
-        max_bytes = int(kwargs.pop("max_bytes", self.max_response_bytes))
-        caller_stream = bool(kwargs.get("stream", False))
-        kwargs.setdefault("timeout", (3.0, 4.5))
-        kwargs.setdefault("verify", False)
-        if not caller_stream:
-            kwargs["stream"] = True
-        try:
-            resp = self.session.request(method.upper(), url, **kwargs)
+        want_redirects = bool(kwargs.pop("allow_redirects", False))
+        cur_url = str(url)
+        cur_method = method.upper()
+        init_host, init_orig = self._parse_keys(cur_url)
+        if self.scope is not None and not self.scope.is_in_scope(cur_url)[0]:
+            raise requests.exceptions.InvalidURL(f"ScopeGuard blocked request: {cur_url}")
+
+        max_hops = 4 if want_redirects else 0
+        for hop in range(max_hops + 1):
+            host, orig = self._parse_keys(cur_url)
+            self._pace_origin(host, orig)
+            hop_kw = dict(kwargs)
+            max_bytes = int(hop_kw.pop("max_bytes", self.max_response_bytes))
+            caller_stream = bool(hop_kw.get("stream", False))
+            hop_kw.setdefault("timeout", (3.0, 4.5))
+            hop_kw.setdefault("verify", False)
+            hop_kw["allow_redirects"] = False
+            if hop > 0 and orig != init_orig:
+                merged_h = dict(self.session.headers)
+                if isinstance(hop_kw.get("headers"), dict):
+                    merged_h.update(hop_kw["headers"])
+                for hk in list(merged_h.keys()):
+                    if hk.lower() in _SENSITIVE_AUTH_HEADERS:
+                        merged_h[hk] = None
+                hop_kw["headers"] = merged_h
             if not caller_stream:
-                if resp.status_code in (204, 301, 302, 303, 304, 307, 308):
-                    resp.close()
-                    resp._content = b""
-                else:
-                    buf = bytearray()
-                    t0 = time.monotonic()
-                    try:
-                        for chunk in resp.iter_content(chunk_size=16384):
-                            if not chunk:
-                                break
-                            buf.extend(chunk)
-                            if len(buf) >= max_bytes or (time.monotonic() - t0) > 7.5:
-                                break
-                    finally:
+                hop_kw["stream"] = True
+            try:
+                resp = self.session.request(cur_method, cur_url, **hop_kw)
+                is_redir = resp.status_code in (301, 302, 303, 307, 308) and bool(resp.headers.get("Location"))
+                if not caller_stream:
+                    if resp.status_code in (204, 301, 302, 303, 304, 307, 308):
                         resp.close()
-                    resp._content = bytes(buf[:max_bytes])
-                if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
-                    resp.encoding = "utf-8"
-            if orig:
-                with self._lock:
-                    self._fail_counts[orig] = 0
-                    if resp.status_code in (429, 503):
-                        ra = resp.headers.get("Retry-After", "")
-                        self._backoff_until[orig] = time.monotonic() + min(float(ra) if ra.isdigit() else 1.5, 4.0)
-            return resp
-        except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as exc:
-            if orig:
-                err_s = str(exc)
-                dns_dead = any(k in err_s for k in ("NameResolutionError", "Failed to resolve", "Errno -2", "Errno -3", "Errno -5"))
-                with self._lock:
-                    if dns_dead and host:
-                        self._dead_hosts.add(host)
-                    cnt = self.fail_threshold if dns_dead else (self._fail_counts.get(orig, 0) + 1)
-                    self._fail_counts[orig] = cnt
-                    if cnt >= self.fail_threshold:
-                        self._dead_origins.add(orig)
-            raise
+                        resp._content = b""
+                    else:
+                        buf = bytearray()
+                        t0 = time.monotonic()
+                        try:
+                            for chunk in resp.iter_content(chunk_size=16384):
+                                if not chunk:
+                                    break
+                                buf.extend(chunk)
+                                if len(buf) >= max_bytes or (time.monotonic() - t0) > 7.5:
+                                    break
+                        finally:
+                            resp.close()
+                        resp._content = bytes(buf[:max_bytes])
+                    if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
+                        resp.encoding = "utf-8"
+                if orig:
+                    with self._lock:
+                        self._fail_counts[orig] = 0
+                        if resp.status_code in (429, 503):
+                            ra = resp.headers.get("Retry-After", "")
+                            self._backoff_until[orig] = time.monotonic() + min(float(ra) if ra.isdigit() else 1.5, 4.0)
+                if want_redirects and is_redir and hop < max_hops:
+                    nxt_url = urllib.parse.urljoin(cur_url, resp.headers["Location"])
+                    if is_unsafe_redirect_target(nxt_url, self.scope):
+                        return resp
+                    if resp.status_code in (301, 302, 303) and cur_method not in ("GET", "HEAD"):
+                        cur_method = "GET"
+                        kwargs.pop("data", None)
+                        kwargs.pop("json", None)
+                    cur_url = nxt_url
+                    continue
+                return resp
+            except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as exc:
+                if orig:
+                    err_s = str(exc)
+                    dns_dead = any(k in err_s for k in ("NameResolutionError", "Failed to resolve", "Errno -2", "Errno -3", "Errno -5"))
+                    with self._lock:
+                        if dns_dead and host:
+                            self._dead_hosts.add(host)
+                        cnt = self.fail_threshold if dns_dead else (self._fail_counts.get(orig, 0) + 1)
+                        self._fail_counts[orig] = cnt
+                        if cnt >= self.fail_threshold:
+                            self._dead_origins.add(orig)
+                raise
+        raise requests.exceptions.TooManyRedirects(f"Redirect limit exceeded: {url}")
 
     def fetch_many(
         self,

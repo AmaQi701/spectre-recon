@@ -6,6 +6,8 @@ checks over an authorized `BatchMode=yes` SSH session (Nessus/OpenVAS LSC style)
 """
 from __future__ import annotations
 
+import ipaddress
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -14,9 +16,50 @@ from typing import Any
 from core.advisory_kb import evaluate_distro_lsc_inventory, match_version_advisories
 from core.plugin_runner import QoD
 
+_SSH_USER_RE = re.compile(r"^[a-zA-Z0-9._][a-zA-Z0-9._\-]{0,63}$")
+_SSH_HOST_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9.\-]{0,252}$")
+
+
+def _parse_ssh_target_strict(ssh_target: str) -> tuple[str, str, int] | None:
+    raw = (ssh_target or "").strip()
+    if not raw or any(ord(c) <= 0x20 or ord(c) == 0x7F for c in raw):
+        return None
+    user = ""
+    host_port = raw
+    if "@" in raw:
+        user, host_port = raw.rsplit("@", 1)
+        if not user or user.startswith("-") or not _SSH_USER_RE.match(user):
+            return None
+    port_num = 22
+    host_part = host_port
+    if host_port.startswith("["):
+        if "]" not in host_port:
+            return None
+        end_idx = host_port.index("]")
+        host_part = host_port[1:end_idx]
+        rem = host_port[end_idx + 1 :]
+        if rem:
+            if not rem.startswith(":") or not rem[1:].isdigit():
+                return None
+            port_num = int(rem[1:])
+    elif host_port.count(":") == 1:
+        h_cand, p_cand = host_port.rsplit(":", 1)
+        if not p_cand.isdigit():
+            return None
+        host_part = h_cand
+        port_num = int(p_cand)
+    if not (1 <= port_num <= 65535) or not host_part or host_part.startswith("-"):
+        return None
+    try:
+        ipaddress.ip_address(host_part)
+    except ValueError:
+        if not _SSH_HOST_RE.match(host_part):
+            return None
+    return user, host_part, port_num
+
 
 def parse_sshd_posture(config_text: str) -> list[tuple[str, str, float, str, str]]:
-    """Evaluates `sshd_config` text against CIS Linux SSH hardening rules."""
+    """Evaluates global `sshd_config` directives against CIS Linux SSH hardening rules."""
     issues: list[tuple[str, str, float, str, str]] = []
     directives: dict[str, str] = {}
     for raw_ln in (config_text or "").splitlines():
@@ -25,7 +68,10 @@ def parse_sshd_posture(config_text: str) -> list[tuple[str, str, float, str, str
             continue
         parts = ln.split(None, 1)
         if len(parts) == 2:
-            directives.setdefault(parts[0].lower(), parts[1].strip().lower())
+            key_l = parts[0].lower()
+            if key_l == "match":
+                break
+            directives.setdefault(key_l, parts[1].strip().lower())
 
     if directives.get("permitemptypasswords") == "yes":
         issues.append((
@@ -71,27 +117,34 @@ def run_credentialed_ssh_audit(
     if not ssh_bin or not ssh_target:
         return 0
 
-    host_part = ssh_target.split("@")[-1]
-    port_num = "22"
-    if ":" in host_part:
-        host_part, port_num = host_part.rsplit(":", 1)
-    user_host = ssh_target.rsplit(":", 1)[0] if ":" in ssh_target.split("@")[-1] else ssh_target
+    parsed_t = _parse_ssh_target_strict(ssh_target)
+    if parsed_t is None:
+        return 0
+    user_part, host_part, port_int = parsed_t
+    port_num = str(port_int)
+    dest_arg = f"{user_part}@{host_part}" if user_part else host_part
 
     cmd = [
         ssh_bin, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
         "-o", "ConnectTimeout=5", "-p", port_num,
     ]
     if ssh_key:
-        cmd.extend(["-i", ssh_key])
+        key_clean = ssh_key.strip()
+        if key_clean.startswith("-"):
+            return 0
+        key_pf = Path(key_clean).expanduser().resolve()
+        if not key_pf.is_file():
+            return 0
+        cmd.extend(["-i", str(key_pf)])
     remote_probe = (
-        "uname -sr; echo '===OS==='; cat /etc/os-release 2>/dev/null | head -n 6; "
-        "echo '===SSHD==='; grep -Ev '^[[:space:]]*(#|$)' /etc/ssh/sshd_config 2>/dev/null; "
+        "uname -sr; echo '===OS==='; cat /etc/os-release 2>/dev/null | head -n 12; "
+        "echo '===SSHD==='; grep -hEv '^[[:space:]]*(#|$)' /etc/ssh/sshd_config.d/*.conf /etc/ssh/sshd_config 2>/dev/null; "
         "echo '===PKGS==='; dpkg-query -W -f='${Package} ${Version}\\n' 2>/dev/null | "
         "grep -Ei '^(openssh-server|sudo|libc6|nginx|apache2|mysql-server|mariadb-server|postgresql|redis-server|php|exim4|postfix|squid|bind9|dnsmasq)' || "
         "rpm -qa --qf '%{NAME} %{VERSION}-%{RELEASE}\\n' 2>/dev/null | "
         "grep -Ei '^(openssh-server|sudo|glibc|nginx|httpd|mariadb-server|postgresql-server|redis|php|postfix|squid|bind|dnsmasq)'"
     )
-    cmd.extend([user_host, remote_probe])
+    cmd.extend(["--", dest_arg, remote_probe])
 
     try:
         proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=12)
@@ -136,7 +189,14 @@ def run_credentialed_ssh_audit(
         )
         written += 1
 
-    norm_pkgs = pkgs_txt.replace("openssh-server", "openssh").replace("apache2", "apache").replace("httpd", "apache").replace("-server", "")
+    norm_lines: list[str] = []
+    for pln in pkgs_txt.splitlines():
+        ps = pln.strip().split(None, 1)
+        if len(ps) == 2:
+            pkg_n = ps[0].replace("openssh-server", "openssh").replace("apache2", "apache").replace("httpd", "apache").replace("-server", "")
+            ver_no_epoch = ps[1].split(":", 1)[-1] if re.match(r"^\d+:", ps[1]) else ps[1]
+            norm_lines.append(f"{pkg_n} {ver_no_epoch}")
+    norm_pkgs = "\n".join(norm_lines)
     for adv in match_version_advisories(f"{os_name}\n{norm_pkgs}"):
         if adv.get("product") in covered_prods or adv.get("distro_backport_likely"):
             continue

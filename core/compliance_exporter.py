@@ -7,6 +7,7 @@ Bill of Materials (SBOM) from discovered NIST CPE 2.3 components.
 """
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import math
@@ -15,7 +16,16 @@ from pathlib import Path
 from typing import Any
 
 from core.advisory_kb import extract_cpe_inventory
-from core.native_bridge import fast_cvss31_score
+from core.native_bridge import fast_cvss31_score, fast_rust_triage_brocards_score
+
+_XML_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _xml_clean(val: object, max_len: int = 0) -> str:
+    s = _XML_CTRL_RE.sub("", str(val or ""))
+    if max_len > 0:
+        s = s[:max_len]
+    return html.escape(s, quote=True)
 
 
 _CVSS31_WEIGHTS: dict[str, dict[str, float]] = {
@@ -33,11 +43,19 @@ def calculate_cvss31_base_score(vector: str) -> float:
     rs_score = fast_cvss31_score(vector)
     if rs_score is not None:
         return rs_score
+    v_trim = (vector or "").strip()
+    if not v_trim.upper().startswith(("CVSS:3.1/", "CVSS:3.0/")):
+        return 0.0
     metrics: dict[str, str] = {}
-    for tok in (vector or "").strip().split("/"):
-        if ":" in tok and not tok.upper().startswith("CVSS"):
-            k, v = tok.split(":", 1)
-            metrics[k.upper()] = v.upper()
+    for idx, tok in enumerate(v_trim.split("/")):
+        if idx == 0:
+            continue
+        if ":" not in tok:
+            return 0.0
+        k, v = tok.split(":", 1)
+        if len(v.strip()) != 1:
+            return 0.0
+        metrics[k.strip().upper()] = v.strip().upper()
     if not {"AV", "AC", "PR", "UI", "S", "C", "I", "A"}.issubset(metrics):
         return 0.0
     scope_changed = metrics["S"] == "C"
@@ -73,7 +91,11 @@ def build_sarif_report(bundle: dict[str, Any]) -> dict[str, Any]:
     for f in findings:
         cwe = str(f.get("cwe") or "CWE-200")
         title = str(f.get("title") or "Security Finding")
-        rule_id = re.sub(r"[^A-Za-z0-9._\-]", "_", f"{cwe}_{title[:48]}").strip("_")
+        slug_t = re.sub(r"[^A-Za-z0-9._\-]", "_", title).strip("_")
+        if len(slug_t) > 64:
+            th = hashlib.sha256(title.encode("utf-8", errors="ignore")).hexdigest()[:8]
+            slug_t = f"{slug_t[:54]}_{th}"
+        rule_id = f"{cwe}_{slug_t}"
         if rule_id not in rules_map:
             rules_map[rule_id] = {
                 "id": rule_id,
@@ -85,16 +107,36 @@ def build_sarif_report(bundle: dict[str, Any]) -> dict[str, Any]:
                     "security-severity": str(f.get("cvss_score") or 5.0),
                 },
             }
-        asset = str(f.get("asset") or "target")
+        asset = str(f.get("asset") or "target").strip()
+        phys_loc: dict[str, Any] = {"artifactLocation": {"uri": asset}}
+        if not asset.startswith(("http://", "https://", "ssh://")) and ":" in asset:
+            u_part, ln_part = asset.rsplit(":", 1)
+            if u_part and ln_part.isdigit() and int(ln_part) >= 1 and "." in u_part.split("/")[-1]:
+                phys_loc = {
+                    "artifactLocation": {"uri": u_part},
+                    "region": {"startLine": int(ln_part)},
+                }
+        conf_s = str(f.get("confidence") or "")
+        m_q = re.search(r"QoD:\s*(\d+)%", conf_s)
+        qod_v = int(m_q.group(1)) if m_q else 80
+        broc_score = fast_rust_triage_brocards_score(
+            str(f.get("severity") or "Medium"),
+            cwe,
+            asset,
+            str(f.get("evidence") or ""),
+            str(f.get("remediation") or ""),
+            qod=qod_v,
+        )
         results.append({
             "ruleId": rule_id,
             "level": sev_to_level.get(str(f.get("severity") or "Medium"), "warning"),
             "message": {"text": f"{title} | Evidence: {f.get('evidence', '')}"},
-            "locations": [{"physicalLocation": {"artifactLocation": {"uri": asset}}}],
+            "locations": [{"physicalLocation": phys_loc}],
             "properties": {
                 "cvss": f.get("cvss_score"),
-                "confidence": f.get("confidence", ""),
+                "confidence": conf_s,
                 "agent": f.get("agent", ""),
+                "triageBrocardsScore": broc_score,
             },
         })
 
@@ -165,8 +207,10 @@ def build_cyclonedx_sbom(bundle: dict[str, Any]) -> dict[str, Any]:
                     "version": p_ver,
                     "purl": purl_full,
                 })
-        ref_candidates = [m[0] for m in purl_re.findall(ev)] + extract_cpe_inventory(ev)
-        target_ref = ref_candidates[0] if ref_candidates else str(proj.get("primary_target") or "target")
+        root_app_name = str(proj.get("primary_target") or proj.get("name") or "target")
+        root_bom_ref = f"app:{root_app_name}"
+        ref_candidates = [m[0] for m in purl_re.findall(ev)] + [c for c in extract_cpe_inventory(ev) if c in seen_refs]
+        target_ref = ref_candidates[0] if ref_candidates else root_bom_ref
         for vid in cve_re.findall(f"{title} {ev}"):
             vid_u = vid.upper()
             if (vid_u, target_ref) not in seen_vulns:
@@ -178,14 +222,16 @@ def build_cyclonedx_sbom(bundle: dict[str, Any]) -> dict[str, Any]:
                     "description": title,
                 })
 
+    root_app_lbl = str(proj.get("primary_target") or proj.get("name") or "target")
     return {
         "bomFormat": "CycloneDX",
         "specVersion": "1.5",
         "version": 1,
         "metadata": {
             "component": {
+                "bom-ref": f"app:{root_app_lbl}",
                 "type": "application",
-                "name": str(proj.get("primary_target") or proj.get("name") or "target"),
+                "name": root_app_lbl,
             }
         },
         "components": components,
@@ -348,12 +394,12 @@ def build_junit_xml(bundle: dict[str, Any]) -> str:
         lines.append('    <testcase classname="spectre.baseline" name="Zero Verified Vulnerabilities"/>')
     else:
         for f in findings:
-            sev = str(f.get("severity") or "Low")
-            cwe = html.escape(str(f.get("cwe") or "CWE-200"), quote=True)
-            title = html.escape(str(f.get("title") or "Finding"), quote=True)
-            asset = html.escape(str(f.get("asset") or ""), quote=True)
-            ev = html.escape(str(f.get("evidence") or "")[:400], quote=True)
-            rem = html.escape(str(f.get("remediation") or "")[:300], quote=True)
+            sev = _xml_clean(f.get("severity") or "Low")
+            cwe = _xml_clean(f.get("cwe") or "CWE-200")
+            title = _xml_clean(f.get("title") or "Finding")
+            asset = _xml_clean(f.get("asset") or "")
+            ev = _xml_clean(f.get("evidence") or "", 400)
+            rem = _xml_clean(f.get("remediation") or "", 300)
             lines.append(f'    <testcase classname="spectre.{cwe}" name="[{sev}] {title}">')
             if sev in fail_sevs:
                 lines.append(f'      <failure type="{sev}" message="{title}">Asset: {asset} | Evidence: {ev} | Remediation: {rem}</failure>')

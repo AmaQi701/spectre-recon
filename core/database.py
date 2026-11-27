@@ -1,10 +1,13 @@
 import contextlib
+import copy
 import ipaddress
 import json
 import sqlite3
 import threading
 from datetime import datetime
 from pathlib import Path
+
+from core.models import resolve_writable_runtime_dir
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -154,11 +157,12 @@ CREATE INDEX IF NOT EXISTS idx_snaps_proj ON scan_snapshots(project_id, id DESC)
 
 class DatabaseManager:
     def __init__(self, db_path: str | Path | None = None):
-        default_db = Path(__file__).resolve().parent.parent / "workspaces" / "apex_state.db"
+        rt_dir = resolve_writable_runtime_dir(Path(__file__).resolve().parent.parent)
+        default_db = rt_dir / "workspaces" / "apex_state.db"
         self.db_path = Path(db_path) if db_path else default_db
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._bundle_cache: dict[int, tuple[int, dict]] = {}
+        self._bundle_cache: dict[int, tuple[tuple[int, int], dict]] = {}
         self._conn = sqlite3.connect(str(self.db_path), timeout=60, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL;")
@@ -315,12 +319,14 @@ class DatabaseManager:
                 title = CASE WHEN excluded.title != '' THEN excluded.title ELSE http_services.title END,
                 server = CASE WHEN excluded.server != '' THEN excluded.server ELSE http_services.server END,
                 tech_stack = CASE WHEN excluded.tech_stack != '[]' THEN excluded.tech_stack ELSE http_services.tech_stack END,
+                content_length = CASE WHEN excluded.content_length > 0 THEN excluded.content_length ELSE http_services.content_length END,
                 headers_json = CASE WHEN excluded.headers_json != '{}' THEN excluded.headers_json ELSE http_services.headers_json END,
                 security_headers_json = CASE WHEN excluded.security_headers_json != '{}' THEN excluded.security_headers_json ELSE http_services.security_headers_json END,
                 cookies_json = CASE WHEN excluded.cookies_json != '[]' THEN excluded.cookies_json ELSE http_services.cookies_json END,
                 tls_json = CASE WHEN excluded.tls_json != '{}' THEN excluded.tls_json ELSE http_services.tls_json END,
                 waf = CASE WHEN excluded.waf != '' THEN excluded.waf ELSE http_services.waf END,
-                priority_score = MAX(http_services.priority_score, excluded.priority_score)""",
+                priority_score = MAX(http_services.priority_score, excluded.priority_score),
+                source = CASE WHEN excluded.source != '' THEN excluded.source ELSE http_services.source END""",
                 (project_id, url, int(status_code or 0), title or "", server or "", json.dumps(merged_tech), int(content_length or 0), json.dumps(headers or {}), json.dumps(security_headers or {}), json.dumps(cookies or []), json.dumps(tls_info or {}), waf or "", int(priority_score or 0), source or "http_probe", self.now()),
             )
 
@@ -338,10 +344,18 @@ class DatabaseManager:
                 conn.execute("UPDATE http_services SET tech_stack = ? WHERE project_id = ? AND url = ?", (json.dumps(merged), project_id, url))
 
     def upsert_endpoint(self, project_id: int, url: str, method: str = "GET", params: list | None = None, category: str = "general", risk_tags: list | None = None, status_code: int = 0, source: str = "crawler"):
-        m_up = method.upper()
-        merged_params = [str(x) for x in (params or []) if x]
-        merged_tags = [str(x) for x in (risk_tags or []) if x]
+        if not url:
+            return
         with self._lock, self._get_conn() as conn:
+            proj_sc = conn.execute("SELECT in_scope, out_of_scope FROM projects WHERE id = ?", (project_id,)).fetchone()
+            if proj_sc and str(proj_sc["in_scope"] or "").strip():
+                from core.scope_guard import ScopeGuard
+                sg = ScopeGuard(str(proj_sc["in_scope"] or ""), str(proj_sc["out_of_scope"] or ""))
+                if not sg.is_in_scope(str(url))[0]:
+                    return
+            m_up = method.upper()
+            merged_params = [str(x) for x in (params or []) if x]
+            merged_tags = [str(x) for x in (risk_tags or []) if x]
             if merged_params or merged_tags:
                 existing = conn.execute(
                     "SELECT params_json, risk_tags_json FROM endpoints WHERE project_id = ? AND url = ? AND method = ?",
@@ -451,21 +465,12 @@ class DatabaseManager:
 
     def get_project_bundle(self, project_id: int) -> dict:
         with self._lock:
-            cur_changes = self._conn.total_changes
+            row_dv = self._conn.execute("PRAGMA data_version").fetchone()
+            data_ver = int(row_dv[0]) if row_dv else 0
+            cache_sig = (self._conn.total_changes, data_ver)
             cached = self._bundle_cache.get(project_id)
-            if cached is not None and cached[0] == cur_changes:
-                b_c = cached[1]
-                return {
-                    "project": dict(b_c["project"]),
-                    "domains": list(b_c["domains"]),
-                    "ports": list(b_c["ports"]),
-                    "http_services": list(b_c["http_services"]),
-                    "endpoints": list(b_c["endpoints"]),
-                    "js_assets": list(b_c["js_assets"]),
-                    "findings": list(b_c["findings"]),
-                    "bug_chains": list(b_c["bug_chains"]),
-                    "task_logs": list(b_c["task_logs"]),
-                }
+            if cached is not None and cached[0] == cache_sig:
+                return copy.deepcopy(cached[1])
             proj = self._conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
             domains = [dict(r) for r in self._conn.execute("SELECT * FROM domains WHERE project_id = ? ORDER BY id DESC", (project_id,)).fetchall()]
             ports = [dict(r) for r in self._conn.execute("SELECT * FROM ports WHERE project_id = ? ORDER BY port ASC", (project_id,)).fetchall()]
@@ -488,6 +493,6 @@ class DatabaseManager:
             }
             if len(self._bundle_cache) > 16:
                 self._bundle_cache.clear()
-            self._bundle_cache[project_id] = (self._conn.total_changes, res)
+            self._bundle_cache[project_id] = (cache_sig, copy.deepcopy(res))
             return res
 

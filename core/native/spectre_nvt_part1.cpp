@@ -1,7 +1,9 @@
 // SPECTRE C++17 v9.0 Static .rodata Shard 1
 #include "spectre_nvt_rodata.hpp"
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
+#include <string>
 namespace {
 using spectre_rodata::FaviconSpec;
 using spectre_rodata::NativeNvtSpec;
@@ -6595,6 +6597,43 @@ extern "C" {
 uint32_t spectre_cpp_nvt_rodata_count() {
     const auto c1 = static_cast<uint32_t>(sizeof(kNativeNvtPart1) / sizeof(kNativeNvtPart1[0]));
     return c1 + spectre_rodata::nvt_part2_count();
+}
+static std::string json_esc_nvt(const char* s) {
+    if (!s) return "";
+    std::string out;
+    for (const char* p = s; *p; ++p) {
+        if (*p == '"' || *p == '\\') out.push_back('\\');
+        if (static_cast<unsigned char>(*p) >= 0x20) out.push_back(*p);
+    }
+    return out;
+}
+int spectre_cpp_lookup_nvt_json(const char* id_ptr, size_t id_len, char* out_buf, size_t out_cap) {
+    if (!out_buf || out_cap < 4) return -2;
+    out_buf[0] = '\0';
+    if (!id_ptr || id_len == 0 || id_len > 128) return 0;
+    std::string key(id_ptr, id_len);
+    const NativeNvtSpec* hit = nullptr;
+    const size_t n1 = sizeof(kNativeNvtPart1) / sizeof(kNativeNvtPart1[0]);
+    for (size_t i = 0; i < n1; ++i) {
+        if (key == kNativeNvtPart1[i].id) { hit = &kNativeNvtPart1[i]; break; }
+    }
+    if (!hit) hit = spectre_rodata::lookup_nvt_part2(key.c_str());
+    if (!hit) return 0;
+    char cvss_s[16];
+    std::snprintf(cvss_s, sizeof(cvss_s), "%u.%u", hit->cvss_x10 / 10U, hit->cvss_x10 % 10U);
+    std::string js = "{\"id\":\"" + json_esc_nvt(hit->id)
+        + "\",\"title\":\"" + json_esc_nvt(hit->title)
+        + "\",\"category\":\"" + json_esc_nvt(hit->category)
+        + "\",\"severity\":\"" + json_esc_nvt(hit->severity)
+        + "\",\"cvss\":" + cvss_s
+        + ",\"cwe\":\"" + json_esc_nvt(hit->cwe)
+        + "\",\"path\":\"" + json_esc_nvt(hit->path)
+        + "\",\"status\":" + std::to_string(hit->status)
+        + ",\"mandatory_gate\":\"" + json_esc_nvt(hit->mandatory_gate) + "\"}";
+    if (js.size() + 1 > out_cap) return -2;
+    std::memcpy(out_buf, js.data(), js.size());
+    out_buf[js.size()] = '\0';
+    return 1;
 }
 int spectre_cpp_lookup_favicon_mmh3(int32_t hash_val, char* out_buf, size_t out_cap) {
     if (!out_buf || out_cap < 2) return 0;

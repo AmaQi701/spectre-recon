@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PKG_DIR="/tmp/apex_deb_build"
+PKG_DIR="$(mktemp -d -t spectre_deb_build.XXXXXX)"
+trap 'rm -rf "${PKG_DIR}"' EXIT
 DIST_DIR="${ROOT_DIR}/dist"
 
-rm -rf "${PKG_DIR}"
 mkdir -p "${PKG_DIR}/DEBIAN"
 mkdir -p "${PKG_DIR}/opt/apex-asm-studio"
 mkdir -p "${PKG_DIR}/usr/local/bin"
@@ -18,7 +18,7 @@ Version: 9.5.0
 Section: utils
 Priority: optional
 Architecture: amd64
-Depends: python3, python3-gi, gir1.2-gtk-3.0, python3-requests, python3-yaml, python3-dnspython, python3-bs4, libssl3 | libssl1.1
+Depends: python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-gdkpixbuf-2.0, python3-requests, python3-yaml, python3-dnspython, python3-bs4, libssl3t64 | libssl3 | libssl1.1
 Recommends: g++, rustc, golang-go, libssl-dev, nmap, whois, dnsutils
 Maintainer: AmaQi701 <67887617+AmaQi701@users.noreply.github.com>
 Description: SPECTRE Polyglot C++17/Rust/Go/Python ASM & Offline Threat Intelligence Studio
@@ -27,29 +27,27 @@ Description: SPECTRE Polyglot C++17/Rust/Go/Python ASM & Offline Threat Intellig
  402k+ MIT SecLists discovery wordlists, 50 socket verifiers, 6-lang SAST, and 7-Framework Compliance.
 EOF
 
-if command -v g++ >/dev/null 2>&1; then
-    g++ -O3 -Wall -Wextra -D_FORTIFY_SOURCE=2 -fstack-protector-strong -std=c++17 -shared -fPIC -pthread "${ROOT_DIR}"/core/native/*.cpp -o "${ROOT_DIR}/core/native/libspectre_accel.so" -lssl -lcrypto
-fi
+g++ -O3 -Wall -Wextra -D_FORTIFY_SOURCE=2 -fstack-protector-strong -std=c++17 -shared -fPIC -pthread "${ROOT_DIR}"/core/native/*.cpp -o "${ROOT_DIR}/core/native/libspectre_accel.so" -lssl -lcrypto
 
 RUSTC_BIN="$(command -v rustc || true)"
 if [ -z "${RUSTC_BIN}" ] && [ -x "${HOME}/.cargo/bin/rustc" ]; then
     RUSTC_BIN="${HOME}/.cargo/bin/rustc"
 fi
-if [ -n "${RUSTC_BIN}" ]; then
-    "${RUSTC_BIN}" -C opt-level=3 -C strip=debuginfo --crate-type cdylib "${ROOT_DIR}/core/native/spectre_rust_core.rs" -o "${ROOT_DIR}/core/native/libspectre_rust_core.so"
-fi
+[ -n "${RUSTC_BIN}" ]
+"${RUSTC_BIN}" -C opt-level=3 -C strip=debuginfo --crate-type cdylib "${ROOT_DIR}/core/native/spectre_rust_core.rs" -o "${ROOT_DIR}/core/native/libspectre_rust_core.so"
 
 GO_BIN="$(command -v go || true)"
-if [ -n "${GO_BIN}" ]; then
-    (cd "${ROOT_DIR}/core/native" && "${GO_BIN}" build -ldflags="-s -w" -o "${ROOT_DIR}/core/native/spectre-intel-indexer" *.go)
-fi
+[ -n "${GO_BIN}" ]
+(cd "${ROOT_DIR}/core/native" && "${GO_BIN}" build -ldflags="-s -w" -o "${ROOT_DIR}/core/native/spectre-intel-indexer" *.go)
 
 python3 "${ROOT_DIR}/spectre_cli.py" --rebuild-intel >/dev/null
 
-cp -r "${ROOT_DIR}/agents" "${ROOT_DIR}/config" "${ROOT_DIR}/core" "${ROOT_DIR}/intel" "${ROOT_DIR}/plugins" "${ROOT_DIR}/ui" "${ROOT_DIR}/THIRD_PARTY_LICENSES.md" "${ROOT_DIR}/apex_gtk_app.py" "${ROOT_DIR}/spectre_cli.py" "${ROOT_DIR}/launch_apex.sh" "${PKG_DIR}/opt/apex-asm-studio/"
+cp -r "${ROOT_DIR}/agents" "${ROOT_DIR}/config" "${ROOT_DIR}/core" "${ROOT_DIR}/intel" "${ROOT_DIR}/plugins" "${ROOT_DIR}/ui" "${ROOT_DIR}/LICENSE" "${ROOT_DIR}/THIRD_PARTY_LICENSES.md" "${ROOT_DIR}/apex_gtk_app.py" "${ROOT_DIR}/spectre_cli.py" "${ROOT_DIR}/launch_apex.sh" "${PKG_DIR}/opt/apex-asm-studio/"
 find "${PKG_DIR}/opt/apex-asm-studio" -name "__pycache__" -exec rm -rf {} +
+find "${PKG_DIR}/opt/apex-asm-studio" -type d -exec chmod 755 {} +
+find "${PKG_DIR}/opt/apex-asm-studio" -type f -exec chmod 644 {} +
 mkdir -p "${PKG_DIR}/opt/apex-asm-studio/workspaces" "${PKG_DIR}/opt/apex-asm-studio/reports"
-chmod 755 "${PKG_DIR}/opt/apex-asm-studio/launch_apex.sh" "${PKG_DIR}/opt/apex-asm-studio/apex_gtk_app.py" "${PKG_DIR}/opt/apex-asm-studio/spectre_cli.py"
+chmod 755 "${PKG_DIR}/opt/apex-asm-studio/launch_apex.sh" "${PKG_DIR}/opt/apex-asm-studio/apex_gtk_app.py" "${PKG_DIR}/opt/apex-asm-studio/spectre_cli.py" "${PKG_DIR}/opt/apex-asm-studio/core/native/spectre-intel-indexer"
 
 ln -sf /opt/apex-asm-studio/launch_apex.sh "${PKG_DIR}/usr/local/bin/spectre-recon"
 ln -sf /opt/apex-asm-studio/spectre_cli.py "${PKG_DIR}/usr/local/bin/spectre-cli"

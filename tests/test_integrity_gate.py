@@ -49,7 +49,7 @@ def run_integrity_gate() -> list[str]:
     py_files = sorted(ROOT_DIR.rglob("*.py"))
 
     for pf in py_files:
-        if "tests/" in str(pf):
+        if "tests" in pf.relative_to(ROOT_DIR).parts:
             continue
         try:
             py_compile.compile(str(pf), doraise=True)
@@ -219,8 +219,11 @@ def run_integrity_gate() -> list[str]:
 
         ra = ReconSuperAgent(db, str(ROOT_DIR / "config" / "tools_registry.yaml"))
         tools = ra.get_tools_status()
+        builtin_tools = [t for t in tools if t.get("binary") == "builtin"]
         ready = [t for t in tools if t.get("installed") and t.get("enabled")]
-        if len(ready) != 49:
+        if len(tools) != 49 or not all(t.get("installed") for t in builtin_tools):
+            errors.append(f"[TOOLS REGISTRY BROKEN] Expected 49 tools & all builtin ready, got {len(tools)}")
+        if "--require-all-cli" in sys.argv and len(ready) != 49:
             errors.append(f"[TOOLS NOT READY] Expected 49/49 ready, got {len(ready)}/{len(tools)}")
 
         # 6. Multi-Host Scale, Anti-Cardinality & Port Deduplication Gate

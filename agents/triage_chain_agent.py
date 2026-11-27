@@ -31,8 +31,9 @@ class TriageAndChainSuperAgent:
             return ip_to_host[first]
         if first in known_hosts:
             return first
-        for kh in known_hosts:
-            if kh in s.lower():
+        low_s = s.lower()
+        for kh in sorted(known_hosts, key=lambda x: (-len(x), x)):
+            if re.search(r"(?<![a-z0-9.\-])" + re.escape(kh) + r"(?![a-z0-9\-])", low_s):
                 return kh
         return ""
 

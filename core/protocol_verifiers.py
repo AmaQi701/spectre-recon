@@ -65,31 +65,44 @@ def parse_ssh_kexinit_packet(raw_stream: bytes) -> dict[str, list[str]]:
     return {}
 
 
+def _fmt_url_host(host: str) -> str:
+    h = (host or "").strip()
+    if ":" in h and not h.startswith("["):
+        return f"[{h}]"
+    return h
+
+
 def _tcp_exchange(host: str, port: int, payloads: list[bytes], timeout: float = 2.6, read_initial: bool = False, use_tls: bool = False) -> str:
     chunks: list[bytes] = []
     with socket.create_connection((host, port), timeout=timeout) as raw_sock:
         raw_sock.settimeout(timeout)
+        sock: socket.socket = raw_sock
         if use_tls:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            sock: socket.socket = ctx.wrap_socket(raw_sock, server_hostname=host)
-        else:
-            sock = raw_sock
-        sock.settimeout(timeout)
-        if read_initial:
-            try:
-                chunks.append(sock.recv(2048))
-            except Exception:
-                pass
-        for pl in payloads:
-            sock.sendall(pl)
-            try:
-                data = sock.recv(4096)
-                if data:
-                    chunks.append(data)
-            except Exception:
-                break
+            sock = ctx.wrap_socket(raw_sock, server_hostname=host)
+        try:
+            sock.settimeout(timeout)
+            if read_initial:
+                try:
+                    chunks.append(sock.recv(2048))
+                except Exception:
+                    pass
+            for pl in payloads:
+                sock.sendall(pl)
+                try:
+                    data = sock.recv(4096)
+                    if data:
+                        chunks.append(data)
+                except Exception:
+                    break
+        finally:
+            if sock is not raw_sock:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
     return b"\n".join(chunks).decode("utf-8", errors="ignore")
 
 
@@ -110,7 +123,8 @@ def _probe_data_and_metrics(db: Any, http_engine: Any, project_id: int, connect_
                 "redis.conf ichida `bind 127.0.0.1` va kuchli `requirepass` / ACL o'rnating.",
                 confidence=QoD.ACTIVE_VERIFIED,
             )
-            log_fn(f"  [SOCKET-NVT] {disp_host}:{port} -> Unauthenticated {ver_s} tasdiqlandi!")
+            if log_fn:
+                log_fn(f"  [SOCKET-NVT] {disp_host}:{port} -> Unauthenticated {ver_s} tasdiqlandi!")
             hits += 1
     elif port == 11211:
         out = _tcp_exchange(connect_target, 11211, [b"stats\r\n", b"quit\r\n"], timeout=2.5)
@@ -129,9 +143,10 @@ def _probe_data_and_metrics(db: Any, http_engine: Any, project_id: int, connect_
             )
             hits += 1
     elif port == 9200:
+        uh = _fmt_url_host(connect_target)
         for sch in ("http", "https"):
             try:
-                r = http_engine.request("GET", f"{sch}://{connect_target}:9200/", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=32768)
+                r = http_engine.request("GET", f"{sch}://{uh}:9200/", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=32768)
                 if r.status_code == 200 and '"cluster_name"' in r.text and '"version"' in r.text:
                     j = json.loads(r.text)
                     es_ver = str((j.get("version") or {}).get("number") or "")
@@ -140,7 +155,7 @@ def _probe_data_and_metrics(db: Any, http_engine: Any, project_id: int, connect_
                     db.upsert_finding(
                         project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated Backend Data Store Access (Elasticsearch on {disp_host}:9200)",
                         "Database / Cache Exposure", "Critical", 9.4, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
-                        "CWE-306", "A05:2021 - Security Misconfiguration", f"{sch}://{disp_host}:9200/",
+                        "CWE-306", "A05:2021 - Security Misconfiguration", f"{sch}://{_fmt_url_host(disp_host)}:9200/",
                         f"Cluster: {j.get('cluster_name')} | Version: {es_ver}",
                         "Elasticsearch REST API autentifikatsiyasiz tashqi tarmoq uchun ochiq qoldirilgan.",
                         "`xpack.security.enabled: true` va `network.host: 127.0.0.1` sozlamalarini yoqing.",
@@ -151,7 +166,7 @@ def _probe_data_and_metrics(db: Any, http_engine: Any, project_id: int, connect_
             except Exception:
                 continue
     elif port == 9100:
-        r = http_engine.request("GET", f"http://{connect_target}:9100/metrics", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=49152)
+        r = http_engine.request("GET", f"http://{_fmt_url_host(connect_target)}:9100/metrics", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=49152)
         if r.status_code == 200 and ("node_uname_info" in r.text or "process_cpu_seconds_total" in r.text or "go_goroutines" in r.text):
             m_u = re.search(r"node_uname_info\{([^}]+)\}", r.text)
             uname_s = m_u.group(1)[:120] if m_u else "Prometheus /metrics active"
@@ -159,7 +174,7 @@ def _probe_data_and_metrics(db: Any, http_engine: Any, project_id: int, connect_
             db.upsert_finding(
                 project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Exposed Prometheus Node Exporter Metrics ({disp_host}:9100)",
                 "Information Disclosure / Monitoring Exposure", "Medium", 6.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
-                "CWE-200", "A05:2021 - Security Misconfiguration", f"http://{disp_host}:9100/metrics",
+                "CWE-200", "A05:2021 - Security Misconfiguration", f"http://{_fmt_url_host(disp_host)}:9100/metrics",
                 f"HTTP 200 /metrics | {uname_s}",
                 "Prometheus Node Exporter serverning ichki yadro, tarmoq va jarayon metrikalarini parolsiz oshkor qilmoqda.",
                 "9100-portni tashqi interfeysdan Firewall orqali yoping va faqat monitoring serveriga ruxsat bering.",
@@ -168,13 +183,13 @@ def _probe_data_and_metrics(db: Any, http_engine: Any, project_id: int, connect_
             hits += 1
     elif port in (2375, 2376):
         sch = "https" if port == 2376 else "http"
-        r = http_engine.request("GET", f"{sch}://{connect_target}:{port}/version", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=16384)
+        r = http_engine.request("GET", f"{sch}://{_fmt_url_host(connect_target)}:{port}/version", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=16384)
         if r.status_code == 200 and '"ApiVersion"' in r.text and '"Version"' in r.text:
             j = json.loads(r.text)
             db.upsert_finding(
                 project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated Docker Daemon API Exposure ({disp_host}:{port})",
                 "Container / Infrastructure Exposure", "Critical", 9.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
-                "CWE-306", "A05:2021 - Security Misconfiguration", f"{sch}://{disp_host}:{port}/version",
+                "CWE-306", "A05:2021 - Security Misconfiguration", f"{sch}://{_fmt_url_host(disp_host)}:{port}/version",
                 f"Docker Version: {j.get('Version')} | ApiVersion: {j.get('ApiVersion')} | OS: {j.get('Os')}",
                 "Docker Engine API TLS mijoz sertifikatisiz tashqi tarmoqqa ochiq qoldirilgan.",
                 "Docker TCP soketini o'chiring (`unix:///var/run/docker.sock`) yoki o'zaro mTLS (`--tlsverify`) yoqing.",
@@ -183,12 +198,16 @@ def _probe_data_and_metrics(db: Any, http_engine: Any, project_id: int, connect_
             hits += 1
     elif port in (6443, 10250):
         ep_path = "/pods" if port == 10250 else "/version"
-        r = http_engine.request("GET", f"https://{connect_target}:{port}{ep_path}", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=32768)
-        if port == 10250 and r.status_code == 200 and '"items"' in r.text and '"metadata"' in r.text:
+        r = http_engine.request("GET", f"https://{_fmt_url_host(connect_target)}:{port}{ep_path}", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=32768)
+        if port == 6443 and r.status_code == 200 and '"gitVersion"' in r.text:
+            j_k = json.loads(r.text)
+            kv_s = str(j_k.get("gitVersion") or "Kubernetes")
+            db.upsert_port(project_id, disp_host, 6443, "tcp", ip=target_ip, service="kubernetes-api", version=f"Kubernetes {kv_s}", banner=r.text[:160], source="socket_nvt")
+        elif port == 10250 and r.status_code == 200 and '"items"' in r.text and '"metadata"' in r.text:
             db.upsert_finding(
                 project_id, "Agent-2 (Socket-NVT)", f"[CONFIRMED] Unauthenticated Kubernetes Kubelet API ({disp_host}:10250)",
                 "Container / Cluster Exposure", "Critical", 9.6, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N",
-                "CWE-306", "A05:2021 - Security Misconfiguration", f"https://{disp_host}:10250/pods",
+                "CWE-306", "A05:2021 - Security Misconfiguration", f"https://{_fmt_url_host(disp_host)}:10250/pods",
                 f"HTTP 200 on Kubelet /pods ({len(r.text)}B)",
                 "Kubernetes Kubelet API anonim so'rovlarga (`--anonymous-auth=true`) ruxsat bermoqda.",
                 "Kubelet konfiguratsiyasida `--anonymous-auth=false` va `--authorization-mode=Webhook` yoqing.",
@@ -196,7 +215,7 @@ def _probe_data_and_metrics(db: Any, http_engine: Any, project_id: int, connect_
             )
             hits += 1
     elif port == 2379:
-        r = http_engine.request("GET", f"http://{connect_target}:2379/version", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=16384)
+        r = http_engine.request("GET", f"http://{_fmt_url_host(connect_target)}:2379/version", timeout=(2.2, 3.0), allow_redirects=False, max_bytes=16384)
         if r.status_code == 200 and '"etcdserver"' in r.text:
             j = json.loads(r.text)
             et_v = str(j.get("etcdserver") or "")
@@ -1048,7 +1067,7 @@ def run_active_protocol_verifiers(
                 total_hits += int(fut.result() or 0)
             except Exception:
                 pass
-    if total_hits:
+    if total_hits and log_fn:
         log_fn(f"  [SOCKET-NVT] Jonli protokol tekshiruvi: {total_hits} ta tasdiqlangan xizmat zaifligi/metrikasi aniqlandi.")
     return total_hits
 

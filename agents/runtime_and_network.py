@@ -32,17 +32,38 @@ def headless_chrome_dom_and_route_renderer(db, session, project_id: int, base_ur
     if not chrome_bin:
         return 0
 
-    cmd = (
-        f"{shlex.quote(chrome_bin)} --headless=new --no-sandbox --disable-gpu "
-        f"--ignore-certificate-errors --disable-dev-shm-usage --virtual-time-budget=4000 "
-        f"--dump-dom {shlex.quote(base_url)}"
-    )
+    from core.scope_guard import ScopeGuard
+    proj = (db.get_project_bundle(project_id) or {}).get("project") or {}
+    scope = ScopeGuard(proj.get("in_scope") or "", proj.get("out_of_scope") or "")
+    target_h = ScopeGuard.extract_host(base_url)
+    if not target_h or (scope.in_scope and not scope.is_in_scope(base_url)[0]):
+        return 0
+
+    resolver_rules = ["MAP 169.254.169.254 0.0.0.0"]
+    if target_h not in ("127.0.0.1", "localhost", "::1"):
+        resolver_rules.extend(["MAP localhost 0.0.0.0", "MAP 127.0.0.1 0.0.0.0", "MAP [::1] 0.0.0.0"])
+
+    cmd_args = [
+        chrome_bin,
+        "--headless=new",
+        "--disable-gpu",
+        "--disable-dev-shm-usage",
+        "--disable-extensions",
+        "--disable-background-networking",
+        "--virtual-time-budget=4000",
+        f"--host-resolver-rules={', '.join(resolver_rules)}",
+        "--dump-dom",
+    ]
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        cmd_args.append("--no-sandbox")
+    cmd_args.extend(["--", base_url])
+
     proc = None
     rendered_html = ""
     try:
         proc = subprocess.Popen(
-            cmd,
-            shell=True,
+            cmd_args,
+            shell=False,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -52,23 +73,22 @@ def headless_chrome_dom_and_route_renderer(db, session, project_id: int, base_ur
         out_s, _ = proc.communicate(timeout=12)
         rendered_html = out_s or ""
     except subprocess.TimeoutExpired:
+        return 0
+    except Exception:
+        return 0
+    finally:
         if proc is not None and proc.poll() is None:
             try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                proc.wait(timeout=2)
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
             except Exception:
                 try:
                     proc.kill()
                 except Exception:
                     pass
-        return 0
-    except Exception:
-        if proc is not None and proc.poll() is None:
             try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                proc.wait(timeout=2)
             except Exception:
                 pass
-        return 0
 
     if len(rendered_html) < 50:
         return 0
@@ -78,21 +98,25 @@ def headless_chrome_dom_and_route_renderer(db, session, project_id: int, base_ur
     for sc in soup.find_all("script", src=True):
         full_js = urllib.parse.urljoin(base_url, sc["src"].strip())
         if full_js.endswith(".js") and full_js not in js_urls:
-            js_urls.append(full_js)
-            db.upsert_endpoint(project_id, full_js, method="GET", params=[], category="javascript", source="headless_v8_dom")
-            new_discoveries += 1
+            if not scope.in_scope or scope.is_in_scope(full_js)[0]:
+                js_urls.append(full_js)
+                db.upsert_endpoint(project_id, full_js, method="GET", params=[], category="javascript", source="headless_v8_dom")
+                new_discoveries += 1
 
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
         if href.startswith("/") and len(href) > 2 and not href.startswith("//"):
             full_ep = urllib.parse.urljoin(base_url, href.split("?")[0])
-            db.upsert_endpoint(project_id, full_ep, method="GET", params=[], category="web_page", source="headless_v8_dom")
-            new_discoveries += 1
+            if not scope.in_scope or scope.is_in_scope(full_ep)[0]:
+                db.upsert_endpoint(project_id, full_ep, method="GET", params=[], category="web_page", source="headless_v8_dom")
+                new_discoveries += 1
 
     api_re = re.compile(r"""['"`]((?:/api/v\d+/|/api/|/v1/|/v2/|/graphql)[a-zA-Z0-9_\-/\.?=&{}]+)['"`]""")
     for rt in set(api_re.findall(rendered_html[:200000])):
-        db.upsert_endpoint(project_id, urllib.parse.urljoin(base_url, rt), method="GET", params=[], category="api_endpoint", source="headless_v8_dom")
-        new_discoveries += 1
+        full_rt = urllib.parse.urljoin(base_url, rt)
+        if not scope.in_scope or scope.is_in_scope(full_rt)[0]:
+            db.upsert_endpoint(project_id, full_rt, method="GET", params=[], category="api_endpoint", source="headless_v8_dom")
+            new_discoveries += 1
 
     if new_discoveries:
         log_fn(f"  [HEADLESS-V8-DOM] {base_url} -> Chromium V8 ijrosidan so'ng {new_discoveries} ta dinamik JS/route ushlandi!")
@@ -173,12 +197,17 @@ def audit_csp_deep_and_static_nonce(db, session, project_id: int, base_url: str,
         csp1 = r1.headers.get("Content-Security-Policy") or r1.headers.get("Content-Security-Policy-Report-Only") or ""
         if not csp1:
             return 0
-        r2 = session.get(base_url, headers={"Cache-Control": "no-cache"}, timeout=5, verify=False)
+        r2 = session.get(base_url, headers={"Cache-Control": "no-cache", "Pragma": "no-cache"}, timeout=5, verify=False, _bypass_cache=True)
         csp2 = r2.headers.get("Content-Security-Policy") or r2.headers.get("Content-Security-Policy-Report-Only") or ""
+        cache_hdr_blob = " ".join(
+            str(r2.headers.get(hk) or "")
+            for hk in ("CF-Cache-Status", "X-Cache", "X-Cache-Hits", "Age")
+        ).upper()
+        is_cdn_cached = "HIT" in cache_hdr_blob or (str(r2.headers.get("Age") or "0").isdigit() and int(r2.headers.get("Age") or "0") > 0)
 
         nonces1 = set(nonce_re.findall(csp1))
         nonces2 = set(nonce_re.findall(csp2))
-        reused_nonces = sorted(nonces1 & nonces2)
+        reused_nonces = [] if is_cdn_cached else sorted(nonces1 & nonces2)
 
         if reused_nonces:
             issues += 1
@@ -193,21 +222,27 @@ def audit_csp_deep_and_static_nonce(db, session, project_id: int, base_url: str,
             )
             log_fn(f"  [STATIC-CSP-NONCE] {base_url} -> Statik CSP nonce aniqlandi: {reused_nonces[0][:16]}!")
 
+        from core.scope_guard import ScopeGuard
+        proj_c = (db.get_project_bundle(project_id) or {}).get("project") or {}
+        scope_c = ScopeGuard(proj_c.get("in_scope") or "", proj_c.get("out_of_scope") or "")
         csp_subs = set()
         ws_eps = set()
         for raw_match in host_re.findall(csp1):
             h_only = raw_match.split("/")[0].split(":")[0].lower().lstrip("*.")
-            if h_only.endswith(apex_domain):
+            if (h_only == apex_domain or h_only.endswith("." + apex_domain)) and (not scope_c.in_scope or scope_c.is_in_scope(h_only)[0]):
                 csp_subs.add(h_only)
                 db.upsert_domain(project_id, h_only, source="csp_directive")
         for ws_m in re.findall(r"(wss?://[a-zA-Z0-9.\-_:/]+)", csp1):
-            ws_eps.add(ws_m)
-            db.upsert_endpoint(project_id, ws_m, method="GET", params=[], category="api_endpoint", risk_tags=["csp_websocket"], source="csp_connect_src")
+            ws_http = "https://" + ws_m.split("://", 1)[1]
+            if not scope_c.in_scope or scope_c.is_in_scope(ws_http)[0]:
+                ws_eps.add(ws_m)
+                db.upsert_endpoint(project_id, ws_m, method="GET", params=[], category="api_endpoint", risk_tags=["csp_websocket"], source="csp_connect_src")
 
         for rep_m in re.findall(r"(?:report-uri|report-to)\s+([^\s;]+)", csp1):
             if rep_m.startswith("/") or rep_m.startswith("http"):
                 full_rep = urllib.parse.urljoin(base_url, rep_m)
-                db.upsert_endpoint(project_id, full_rep, method="POST", params=[], category="api_endpoint", risk_tags=["csp_collector"], source="csp_report_uri")
+                if not scope_c.in_scope or scope_c.is_in_scope(full_rep)[0]:
+                    db.upsert_endpoint(project_id, full_rep, method="POST", params=[], category="api_endpoint", risk_tags=["csp_collector"], source="csp_report_uri")
 
         if csp_subs or ws_eps:
             log_fn(f"  [CSP-MINER] {base_url} -> {len(csp_subs)} ta subdomen va {len(ws_eps)} ta WebSocket CSP ichidan ajratib olindi!")
@@ -333,20 +368,22 @@ def probe_udp_services_safe(db, project_id: int, log_fn) -> int:
                 s_udp.settimeout(1.8)
                 s_udp.sendto(SNMP_PUBLIC_SYSDESCR_PKT, (ip, 161))
                 data, _ = s_udp.recvfrom(2048)
-                if data and len(data) > 20 and b"public" in data:
-                    hits += 1
+                has_snmp_exc = any(tag in data for tag in (b"\x80\x00", b"\x81\x00", b"\x82\x00"))
+                if data and len(data) > 28 and b"public" in data and b"\xa2" in data and not has_snmp_exc:
                     ascii_sys = "".join(chr(b) if 32 <= b < 127 else " " for b in data[24:]).strip()
-                    db.upsert_port(project_id, ip, 161, "udp", ip=ip, service="snmp", version=ascii_sys[:120], source="udp_prober")
-                    db.upsert_finding(
-                        project_id, "SPECTRE-Runtime (UDP-Inspector)",
-                        f"[CONFIRMED] Exposed SNMP Service with Default 'public' Community ({ip}:161/udp)",
-                        "Network Service Exposure", "Critical", 9.1,
-                        "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-287", "A05:2021 - Security Misconfiguration",
-                        f"{ip}:161/udp", f"SNMPv2c community 'public' sysDescr.0: {ascii_sys[:180]}",
-                        "Serverda UDP 161 (SNMP) porti standart 'public' kaliti bilan tashqi internet uchun ochiq qoldirilgan.",
-                        "SNMP xizmatini tashqi interfeysdan Firewall orqali yoping va SNMPv3 autentifikatsiyasiga o'ting.",
-                    )
-                    log_fn(f"  [UDP-SNMP-HIT] {ip}:161/udp -> 'public' sysDescr: {ascii_sys[:80]}!")
+                    if len(ascii_sys) >= 4:
+                        hits += 1
+                        db.upsert_port(project_id, ip, 161, "udp", ip=ip, service="snmp", version=ascii_sys[:120], source="udp_prober")
+                        db.upsert_finding(
+                            project_id, "SPECTRE-Runtime (UDP-Inspector)",
+                            f"[CONFIRMED] Exposed SNMP Service with Default 'public' Community ({ip}:161/udp)",
+                            "Network Service Exposure", "Critical", 9.1,
+                            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-287", "A05:2021 - Security Misconfiguration",
+                            f"{ip}:161/udp", f"SNMPv2c community 'public' sysDescr.0: {ascii_sys[:180]}",
+                            "Serverda UDP 161 (SNMP) porti standart 'public' kaliti bilan tashqi internet uchun ochiq qoldirilgan.",
+                            "SNMP xizmatini tashqi interfeysdan Firewall orqali yoping va SNMPv3 autentifikatsiyasiga o'ting.",
+                        )
+                        log_fn(f"  [UDP-SNMP-HIT] {ip}:161/udp -> 'public' sysDescr: {ascii_sys[:80]}!")
         except Exception:
             pass
 

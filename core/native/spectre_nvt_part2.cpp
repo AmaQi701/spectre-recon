@@ -1,5 +1,6 @@
-// SPECTRE C++17 v9.0 Static .rodata Shard 2
+// SPECTRE C++17 v9.5 Static .rodata Shard 2
 #include "spectre_nvt_rodata.hpp"
+#include <cstring>
 namespace spectre_rodata {
 static const NativeNvtSpec kNativeNvtPart2[] = {
     {
@@ -6667,5 +6668,15 @@ static const NativeNvtSpec kNativeNvtPart2[] = {
 };
 uint32_t nvt_part2_count() {
     return static_cast<uint32_t>(sizeof(kNativeNvtPart2) / sizeof(kNativeNvtPart2[0]));
+}
+const NativeNvtSpec* lookup_nvt_part2(const char* nvt_id) {
+    if (!nvt_id || !*nvt_id) return nullptr;
+    const size_t n = sizeof(kNativeNvtPart2) / sizeof(kNativeNvtPart2[0]);
+    for (size_t i = 0; i < n; ++i) {
+        if (std::strcmp(kNativeNvtPart2[i].id, nvt_id) == 0) {
+            return &kNativeNvtPart2[i];
+        }
+    }
+    return nullptr;
 }
 } // namespace spectre_rodata

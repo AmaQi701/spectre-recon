@@ -68,7 +68,8 @@ func probeBrokersAndRpcGo(host string, disp string, port int, cp int, tms int) *
 			return &SocketProbeResult{Host: disp, Port: 5672, Service: "amqp", Version: "AMQP 0-9-1 Broker", Banner: "AMQP Connection.Start"}
 		}
 	case 9092:
-		kb := []byte{0x00, 0x00, 0x00, 0x0e, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x1e, 0x3e, 0x00, 0x02, 's', 'p', 0x00, 0x00, 0x00, 0x00}
+		kb := []byte{0x00, 0x00, 0x00, 0x10, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x1e, 0x3e, 0x00, 0x02, 's', 'p', 0x00, 0x00, 0x00, 0x00}
+		binary.BigEndian.PutUint32(kb[0:4], uint32(len(kb)-4))
 		conn, err := dialSocketGo(host, cp, tms, false)
 		if err == nil {
 			defer conn.Close()
@@ -285,6 +286,7 @@ func ProbeSingleSocketPortEx(host string, dispHost string, logicalPort int, conn
 	if dispHost == "" {
 		dispHost = host
 	}
+	setDefaultSniHostGo(dispHost)
 	if timeoutMs <= 0 {
 		timeoutMs = 2400
 	}

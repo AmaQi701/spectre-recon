@@ -51,6 +51,7 @@ FORBIDDEN_SPDX_LICENSES: frozenset[str] = frozenset({
 
 _INTEL_LOCK = threading.RLock()
 _MEM_PSL_SET: set[str] | None = None
+_MEM_PSL_RULES: tuple[set[str], set[str], set[str]] | None = None
 _MEM_FAVICON_MAP: dict[int, str] | None = None
 
 _INTEL_SIG_RAW = json.loads((ROOT_DIR / "config" / "intel_signatures.json").read_text(encoding="utf-8"))
@@ -130,7 +131,8 @@ def generate_cleanroom_kev_nvts(
             "min_bytes": 24,
             "content_type_any": ["application/json"],
             "mandatory_keys": [f"tech/stack={re.escape(p_slug)}"],
-            "match_all": [f'"{p_slug}"', f'"{v_slug}"', '"kev_unpatched_build"'],
+            "match_all": [f'"{p_slug}"', f'"{v_slug}"', '"version"'],
+            "passive_only": True,
             "exclude_any": ["Welcome to nginx!", "Attention Required!", "Telegram Web", "Bearer token required"],
             "remediation": rem[:240],
         })
@@ -456,10 +458,19 @@ def _populate_registries_into_db(
             if not ln or ln.startswith("//"):
                 continue
             tok = ln.split()[0].lower()
-            rtype = "exception" if tok.startswith("!") else ("wildcard" if tok.startswith("*.") else ("private" if in_private else "icann"))
-            clean_s = tok.lstrip("!").lstrip("*.")
-            if clean_s:
-                psl_rows[clean_s] = (clean_s, rtype)
+            if tok.startswith("!"):
+                clean_s = tok[1:].lstrip(".")
+                if clean_s:
+                    psl_rows[f"!{clean_s}"] = (clean_s, "exception")
+            elif tok.startswith("*."):
+                base_s = tok[2:].lstrip(".")
+                if base_s:
+                    psl_rows[f"*.{base_s}"] = (f"*.{base_s}", "wildcard")
+                    psl_rows.setdefault(base_s, (base_s, "icann"))
+            else:
+                clean_s = tok.lstrip(".")
+                if clean_s:
+                    psl_rows[clean_s] = (clean_s, "private" if in_private else "icann")
     conn.executemany("INSERT OR REPLACE INTO public_suffixes VALUES (?,?)", list(psl_rows.values()))
 
     iana_rows: dict[str, tuple[str, int, str, str, str]] = {}
@@ -756,20 +767,57 @@ def lookup_favicon_mmh3_offline(mmh3_hash: int) -> str:
         return _MEM_FAVICON_MAP.get(int(mmh3_hash), "")
 
 
-def get_public_suffix_set() -> set[str]:
-    global _MEM_PSL_SET
+def get_public_suffix_rules() -> tuple[set[str], set[str], set[str]]:
+    global _MEM_PSL_RULES, _MEM_PSL_SET
     with _INTEL_LOCK:
-        if _MEM_PSL_SET is None:
-            psl = {s for s, _ in _BUILTIN_PSL_FALLBACKS}
+        if _MEM_PSL_RULES is None:
+            normal_psl: set[str] = {s for s, _ in _BUILTIN_PSL_FALLBACKS}
+            wildcard_bases: set[str] = {"kawasaki.jp", "kitakyushu.jp", "kobe.jp", "nagoya.jp", "sapporo.jp", "sendai.jp", "yokohama.jp", "ck", "np"}
+            exceptions: set[str] = {"city.kawasaki.jp", "city.kitakyushu.jp", "city.kobe.jp", "city.nagoya.jp", "city.sapporo.jp", "city.sendai.jp", "city.yokohama.jp", "www.ck"}
+            # Note: Mozilla PSL marks *.kawasaki.jp as wildcard and !city.kawasaki.jp as exception (wait: let's load exact DB rules below)
+            exceptions.clear()
             if INTEL_DB_PATH.is_file():
                 conn = sqlite3.connect(f"file:{INTEL_DB_PATH}?mode=ro", uri=True)
                 try:
-                    for (sfx,) in conn.execute("SELECT suffix FROM public_suffixes WHERE rule_type != 'exception'"):
-                        psl.add(str(sfx).lower())
+                    for raw_sfx, rtype in conn.execute("SELECT suffix, rule_type FROM public_suffixes"):
+                        sfx = str(raw_sfx or "").strip().lower()
+                        rt = str(rtype or "").strip().lower()
+                        if not sfx:
+                            continue
+                        if rt == "exception" or sfx.startswith("!"):
+                            exceptions.add(sfx.removeprefix("!").lstrip("."))
+                        elif rt == "wildcard" or sfx.startswith("*."):
+                            wb = sfx.removeprefix("*.").lstrip(".")
+                            if wb:
+                                wildcard_bases.add(wb)
+                                normal_psl.add(wb)
+                        else:
+                            normal_psl.add(sfx.lstrip("."))
                 finally:
                     conn.close()
-            _MEM_PSL_SET = psl
-        return _MEM_PSL_SET
+            else:
+                psl_pf = Path("/usr/share/publicsuffix/public_suffix_list.dat")
+                if psl_pf.is_file():
+                    for raw in psl_pf.read_text(encoding="utf-8", errors="ignore").splitlines():
+                        ln = raw.strip()
+                        if not ln or ln.startswith("//"):
+                            continue
+                        tok = ln.split()[0].lower()
+                        if tok.startswith("!"):
+                            exceptions.add(tok[1:].lstrip("."))
+                        elif tok.startswith("*."):
+                            wb = tok[2:].lstrip(".")
+                            wildcard_bases.add(wb)
+                            normal_psl.add(wb)
+                        else:
+                            normal_psl.add(tok.lstrip("."))
+            _MEM_PSL_RULES = (normal_psl, wildcard_bases, exceptions)
+            _MEM_PSL_SET = normal_psl
+        return _MEM_PSL_RULES
+
+
+def get_public_suffix_set() -> set[str]:
+    return get_public_suffix_rules()[0]
 
 
 def get_offline_wordlist(kind: str = "subdomains", limit: int = 5000) -> list[str]:

@@ -211,6 +211,7 @@ def run_plugin_safely(
             return None
 
     t0 = time.monotonic()
+    fn_label = str(getattr(fn, "__name__", "") or repr(fn))
     try:
         if kb is not None:
             with kb._lock:
@@ -223,7 +224,7 @@ def run_plugin_safely(
                 f"SPECTRE-{phase}",
                 plugin_name,
                 "COMPLETED",
-                fn.__name__,
+                fn_label,
                 f"Completed in {elapsed_ms} ms | Result: {str(result)[:120]}",
             )
         return result
@@ -237,7 +238,7 @@ def run_plugin_safely(
                 f"SPECTRE-{phase}",
                 plugin_name,
                 "PLUGIN_ERROR",
-                fn.__name__,
+                fn_label,
                 err_summary,
             )
         except Exception:
@@ -344,6 +345,7 @@ class PhaseOrchestrator:
             "require_ports": require_ports,
         }
         dep_list = [str(d) for d in (depends_on or []) if str(d)]
+        self._tasks = [t for t in self._tasks if t[2] != plugin_name]
         self._tasks.append((p_ord, self._seq, plugin_name, phase, fn, args, kwargs, gate_cfg, dep_list))
         self._seq += 1
 

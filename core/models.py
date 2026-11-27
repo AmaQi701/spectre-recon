@@ -120,3 +120,80 @@ FORBIDDEN_HALLUCINATED_KEYS = frozenset({
     "cdn_provider", "ip_address", "tech_stack_json", "params_list",
     "headers_dict", "cookies_list", "sinks_list", "risk_tags_list",
 })
+
+
+def resolve_writable_runtime_dir(base_dir: "os.PathLike[str] | str") -> "Path":
+    import os
+    from pathlib import Path
+    import shutil
+
+    root = Path(base_dir).resolve()
+    ws_dir = root / "workspaces"
+    if os.access(root, os.W_OK) and (not ws_dir.exists() or os.access(ws_dir, os.W_OK)):
+        return root
+
+    xdg_base = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+    runtime_root = xdg_base / "spectre-recon"
+    for sub in ("workspaces", "reports", "config"):
+        sub_pf = runtime_root / sub
+        sub_pf.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(sub_pf, 0o700)
+        except OSError:
+            pass
+    src_reg = root / "config" / "tools_registry.yaml"
+    dst_reg = runtime_root / "config" / "tools_registry.yaml"
+    if src_reg.is_file() and not dst_reg.exists():
+        try:
+            shutil.copy2(src_reg, dst_reg)
+        except OSError:
+            pass
+    return runtime_root
+
+
+def walk_safe_repo_files(
+    root_dir: "os.PathLike[str] | str",
+    max_files: int = 240,
+    max_bytes: int = 524288,
+    skip_dirs: tuple[str, ...] = (
+        ".git", "node_modules", "__pycache__", ".venv", "venv",
+        ".terraform", "tests", "test", "__tests__", "mocks",
+    ),
+) -> list["Path"]:
+    """Walks `root_dir` with `followlinks=False`, pruning `.git`/vendor dirs first and rejecting symlinks (`HIGH-11`)."""
+    import os
+    from pathlib import Path
+
+    root = Path(root_dir)
+    if not root.exists() or root.is_symlink():
+        return []
+    root_res = root.resolve()
+    if root.is_file():
+        try:
+            return [root] if root.stat().st_size <= max_bytes else []
+        except OSError:
+            return []
+    skip_low = {d.lower() for d in skip_dirs}
+    out: list[Path] = []
+    for cur_dir, dirs, fnames in os.walk(root, topdown=True, followlinks=False):
+        dirs[:] = sorted(
+            d for d in dirs
+            if d.lower() not in skip_low and not (Path(cur_dir) / d).is_symlink()
+        )
+        for fn in sorted(fnames):
+            fp = Path(cur_dir) / fn
+            if fp.is_symlink():
+                continue
+            try:
+                resolved = fp.resolve()
+                if not resolved.is_relative_to(root_res):
+                    continue
+                if resolved.stat().st_size > max_bytes:
+                    continue
+            except OSError:
+                continue
+            out.append(fp)
+            if len(out) >= max_files:
+                return out
+    return out
+

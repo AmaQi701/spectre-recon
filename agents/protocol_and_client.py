@@ -320,13 +320,21 @@ def validate_spf_dmarc_recursive(db, project_id: int, apex_domain: str, log_fn) 
         if dangling_includes:
             issues.append(f"Unregistered SPF Include Domain (NXDOMAIN): {', '.join(dangling_includes)}")
 
+    dmarc_p_none = False
     if not dmarc_txt:
         issues.append("Missing DMARC Record (_dmarc)")
-    elif "p=none" in dmarc_txt.lower():
-        issues.append("DMARC Policy set to 'p=none' (Monitoring only)")
+    else:
+        dmarc_tags = {}
+        for part in dmarc_txt.lower().split(";"):
+            if "=" in part:
+                dk, dv = part.split("=", 1)
+                dmarc_tags[dk.strip()] = dv.strip()
+        if dmarc_tags.get("p") == "none":
+            dmarc_p_none = True
+            issues.append("DMARC Policy set to 'p=none' (Monitoring only)")
 
     if issues:
-        sev = "High" if (dangling_includes or "+all" in root_spf.lower()) else "Medium" if (not dmarc_txt or "p=none" in dmarc_txt.lower() or total_lookups > 10) else "Low"
+        sev = "High" if (dangling_includes or "+all" in root_spf.lower()) else "Medium" if (not dmarc_txt or dmarc_p_none or total_lookups > 10) else "Low"
         cvss = 7.5 if sev == "High" else 5.3 if sev == "Medium" else 3.7
         db.upsert_finding(
             project_id, "SPECTRE-Protocol (Mail-DNS-Auditor)",
@@ -417,16 +425,21 @@ def audit_oauth_oidc_parameters(db, project_id: int, base_url: str, log_fn) -> i
     issues = 0
     for ep in bundle.get("endpoints", []):
         u = ep.get("url", "")
-        if not any(k in u.lower() for k in ("/oauth", "/authorize", "/connect/authorize", "client_id=", "redirect_uri=")):
+        try:
+            stored_params = {str(p).strip() for p in json.loads(ep.get("params_json") or "[]") if p}
+        except Exception:
+            stored_params = set()
+        if not any(k in u.lower() for k in ("/oauth", "/authorize", "/connect/authorize", "client_id=", "redirect_uri=")) and not ({"client_id", "redirect_uri"} & stored_params):
             continue
         parsed = urllib.parse.urlparse(u)
         qs = urllib.parse.parse_qs(parsed.query)
-        if not qs.get("client_id") and not qs.get("redirect_uri"):
+        all_pkeys = set(qs.keys()) | stored_params
+        if "client_id" not in all_pkeys and "redirect_uri" not in all_pkeys:
             continue
         flaws = []
-        if "state" not in qs:
+        if "state" not in all_pkeys:
             flaws.append("Missing 'state' parameter (OAuth CSRF risk)")
-        if "code_challenge" not in qs:
+        if "code_challenge" not in all_pkeys:
             flaws.append("Missing PKCE 'code_challenge' parameter")
         rtype = " ".join(qs.get("response_type", [])).lower()
         if "token" in rtype:
@@ -437,7 +450,7 @@ def audit_oauth_oidc_parameters(db, project_id: int, base_url: str, log_fn) -> i
 
         if flaws:
             issues += 1
-            sev = "High" if ("state" not in qs or "token" in rtype) else "Medium"
+            sev = "High" if ("state" not in all_pkeys or "token" in rtype) else "Medium"
             cvss = 7.4 if sev == "High" else 5.3
             db.upsert_finding(
                 project_id, "SPECTRE-Protocol (OAuth-Auditor)",
@@ -520,15 +533,24 @@ def verify_archive_magic_bytes_range(db, session, project_id: int, apex_domain: 
     for path, exp_sig, fmt_name in candidates:
         u = urllib.parse.urljoin(base_url, path)
         try:
-            # Accept-Encoding: identity majburiy — aks holda Nginx oddiy HTML sahifani gzip (\x1f\x8b\x08) qilib yuboradi!
-            r = session.get(u, headers={"Range": "bytes=0-63", "Accept-Encoding": "identity"}, timeout=4, verify=False, allow_redirects=False)
-            if r.status_code not in (200, 206) or len(r.content) < 8:
+            # Accept-Encoding: identity majburiy + stream=True (OOM himoyasi, HIGH-21)
+            with session.get(
+                u,
+                headers={"Range": "bytes=0-63", "Accept-Encoding": "identity"},
+                timeout=4,
+                verify=False,
+                allow_redirects=False,
+                stream=True,
+            ) as r:
+                status_c = r.status_code
+                ctype = r.headers.get("Content-Type", "").lower()
+                cenc = r.headers.get("Content-Encoding", "").lower()
+                head_bytes = next(r.iter_content(chunk_size=64), b"") if status_c in (200, 206) else b""
+            if status_c not in (200, 206) or len(head_bytes) < 8:
                 continue
-            ctype = r.headers.get("Content-Type", "").lower()
-            cenc = r.headers.get("Content-Encoding", "").lower()
             if "text/html" in ctype or "application/json" in ctype or cenc == "gzip":
                 continue
-            head_bytes = r.content[:64]
+            head_bytes = head_bytes[:64]
             if head_bytes.lstrip()[:15].lower().startswith((b"<!doctype", b"<html", b"<head", b"<body", b"<script", b"{")):
                 continue
             if head_bytes.startswith(exp_sig) or (exp_sig.startswith(b"--") and exp_sig in head_bytes[:48]):
@@ -538,7 +560,7 @@ def verify_archive_magic_bytes_range(db, session, project_id: int, apex_domain: 
                     f"[CONFIRMED] Binary-Verified Exposed Archive / DB ({path} — {fmt_name})",
                     "Sensitive Backup Exposure", "Critical", 9.1,
                     "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-530", "A05:2021 - Security Misconfiguration",
-                    u, f"HTTP {r.status_code} | Content-Type: {ctype} | Verified Magic Bytes: {head_bytes[:16]!r} ({fmt_name})",
+                    u, f"HTTP {status_c} | Content-Type: {ctype} | Verified Magic Bytes: {head_bytes[:16]!r} ({fmt_name})",
                     "HTTP Range (0-63 bayt, identity encoding) tekshiruvi orqali veb-serverda haqiqiy arxiv yoki ma'lumotlar bazasi fayli ochiq qolgani matematik tasdiqlandi.",
                     "Zaxira nusxalarini (.zip, .sql, .gz, .sqlite) veb-serverning ommaviy katalogidan darhol o'chiring.",
                 )

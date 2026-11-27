@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+import html
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import threading
@@ -31,8 +33,10 @@ from agents.triage_chain_agent import TriageAndChainSuperAgent
 from agents.vuln_agent import VulnAssessmentSuperAgent
 from agents import active_web_auditor, cli_orchestrator, surface_prober
 from core.database import DatabaseManager
+from core.models import resolve_writable_runtime_dir
 from core.scope_guard import ScopeGuard
 
+RUNTIME_DIR = resolve_writable_runtime_dir(BASE_DIR)
 DARK_CSS = (BASE_DIR / "ui" / "gtk_dark.css").read_bytes()
 
 
@@ -60,11 +64,14 @@ class ApexNativeWindow(Gtk.Window):
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
-        self.db = DatabaseManager(str(BASE_DIR / "workspaces" / "apex_state.db"))
+        self.db = DatabaseManager(str(RUNTIME_DIR / "workspaces" / "apex_state.db"))
         self.db.reset_stale_running_projects()
-        self.recon_agent = ReconSuperAgent(self.db, str(BASE_DIR / "config" / "tools_registry.yaml"))
+        reg_pf = RUNTIME_DIR / "config" / "tools_registry.yaml"
+        if not reg_pf.is_file():
+            reg_pf = BASE_DIR / "config" / "tools_registry.yaml"
+        self.recon_agent = ReconSuperAgent(self.db, str(reg_pf))
         self.vuln_agent = VulnAssessmentSuperAgent(self.db, shared_session=self.recon_agent.session)
-        self.triage_agent = TriageAndChainSuperAgent(self.db, str(BASE_DIR / "reports"))
+        self.triage_agent = TriageAndChainSuperAgent(self.db, str(RUNTIME_DIR / "reports"))
         self.current_project_id = None
 
         self.is_running_job = False
@@ -164,31 +171,38 @@ class ApexNativeWindow(Gtk.Window):
             tv.grab_focus()
             tv.set_cursor(path, col, 0)
             model = tv.get_model()
-            raw_val = re.sub(r"<[^>]+>", "", str(model[path][target_col] or "")).strip()
+            raw_val = self._plain_cell(model[path][target_col])
             if not raw_val:
                 return False
-            full_url = raw_val if raw_val.startswith("http") else f"https://{raw_val.lstrip('/')}"
-            host_only = re.sub(r"^https?://", "", full_url).split("/")[0].split(":")[0]
+            is_local_ref = (
+                not raw_val.startswith(("http://", "https://"))
+                and ("/" in raw_val or re.search(r"\.(?:py|js|ts|go|java|php|cs|ya?ml|json|tf|dockerfile)(?::\d+)?$", raw_val, re.I))
+                and "." not in raw_val.split("/")[0]
+            )
+            full_url = raw_val if raw_val.startswith(("http://", "https://")) else ("" if is_local_ref else f"https://{raw_val.lstrip('/')}")
+            host_only = re.sub(r"^https?://", "", full_url).split("/")[0].split(":")[0] if full_url else ""
 
             menu = Gtk.Menu()
-            it_open = Gtk.MenuItem(label=f"Open in Browser ({raw_val[:38]})")
-            it_open.connect("activate", lambda _: subprocess.Popen(["xdg-open", full_url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-            menu.append(it_open)
+            if full_url:
+                it_open = Gtk.MenuItem(label=f"Open in Browser ({raw_val[:38]})")
+                it_open.connect("activate", lambda _: subprocess.Popen(["xdg-open", full_url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+                menu.append(it_open)
 
-            it_rep = Gtk.MenuItem(label="Send to HTTP Repeater")
-            def _send_rep(_):
-                self.rep_url_entry.set_text(full_url)
-                self._switch_page("p_endpoints", self.nav_buttons[2])
-                self.log_msg(f"[REPEATER] Loaded target URL: {full_url}")
-            it_rep.connect("activate", _send_rep)
-            menu.append(it_rep)
+                it_rep = Gtk.MenuItem(label="Send to HTTP Repeater")
+                def _send_rep(_):
+                    self.rep_url_entry.set_text(full_url)
+                    self._switch_page("p_endpoints", self.nav_buttons[2])
+                    self.log_msg(f"[REPEATER] Loaded target URL: {full_url}")
+                it_rep.connect("activate", _send_rep)
+                menu.append(it_rep)
 
-            it_deep = Gtk.MenuItem(label=f"Deep Scan Host ({host_only})")
-            def _deep_host(_):
-                self._selected_domain = host_only
-                self.on_deep_scan_selected_subdomain(None, explicit_host=host_only)
-            it_deep.connect("activate", _deep_host)
-            menu.append(it_deep)
+            if host_only and "." in host_only:
+                it_deep = Gtk.MenuItem(label=f"Deep Scan Host ({host_only})")
+                def _deep_host(_):
+                    self._selected_domain = host_only
+                    self.on_deep_scan_selected_subdomain(None, explicit_host=host_only)
+                it_deep.connect("activate", _deep_host)
+                menu.append(it_deep)
 
             it_copy = Gtk.MenuItem(label="Copy Target Value")
             it_copy.connect("activate", lambda _: Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(raw_val, -1))
@@ -674,11 +688,15 @@ class ApexNativeWindow(Gtk.Window):
     def on_delete_project(self, _btn):
         if not self.current_project_id:
             return
+        if self.is_running_job:
+            self.log_msg("[!] Faol skan vaqtida loyihani o'chirib bo'lmaydi. Avval Stop tugmasini bosing.")
+            return
         old_id = self.current_project_id
         self.db.delete_project(old_id)
         active_web_auditor.clear_project_dedup_state(old_id)
         self.current_project_id = None
         self._last_data_sig = None
+        self._cached_graph_bundle = None
         self.refresh_projects()
         self.load_bundle()
         self.log_msg(f"[DELETE] Loyiha #{old_id} bazadan o'chirildi.")
@@ -687,6 +705,10 @@ class ApexNativeWindow(Gtk.Window):
     @staticmethod
     def _esc(val: str) -> str:
         return GLib.markup_escape_text(str(val or ""))
+
+    @staticmethod
+    def _plain_cell(val: object) -> str:
+        return html.unescape(re.sub(r"<[^>]+>", "", str(val or ""))).strip()
 
     @classmethod
     def _color_sev(cls, sev: str) -> str:
@@ -703,8 +725,7 @@ class ApexNativeWindow(Gtk.Window):
         sel = tree.get_selection()
         model, treeiter = sel.get_selected()
         if treeiter is not None:
-            import re as _re
-            dom_name = _re.sub(r"<[^>]+>", "", model[treeiter][0])
+            dom_name = self._plain_cell(model[treeiter][0])
             self._selected_domain = dom_name
             dossier_txt = surface_prober.build_target_dossier(self.db, self.current_project_id, dom_name)
             self._set_styled_text(self.dossier_view, dossier_txt)
@@ -935,7 +956,7 @@ class ApexNativeWindow(Gtk.Window):
                 self.store_find.append([
                     f["id"],
                     self._color_sev(sev),
-                    f"<b>{f['cvss_score']}</b>",
+                    f"<b>{self._esc(f['cvss_score'])}</b>",
                     f"<b>{self._esc(title_str)}</b>",
                     self._esc(f"{f['cwe']} | {f['owasp']}"),
                     f"<span foreground='#38bdf8'>{self._esc(f['asset'])}</span>",
@@ -949,13 +970,14 @@ class ApexNativeWindow(Gtk.Window):
             nodes = " -> ".join(json.loads(c.get("nodes_json") or "[]"))
             self.store_chain.append([
                 self._color_sev(c["severity"]),
-                f"<b>{c['cvss_score']}</b>",
+                f"<b>{self._esc(c['cvss_score'])}</b>",
                 f"<b>{self._esc(c['chain_title'])}</b>",
                 f"<span foreground='#38bdf8'>{self._esc(nodes)}</span>",
                 self._esc(f"{c['attack_scenario']} | Impact: {c['impact']}"),
                 self._esc(c["remediation"]),
             ])
 
+        self._cached_graph_bundle = b
         if sorted_doms and hasattr(self, "dossier_view") and not preserve_if_unchanged:
             primary_dom = sorted_doms[0]["domain"]
             self._selected_domain = primary_dom
@@ -980,11 +1002,21 @@ class ApexNativeWindow(Gtk.Window):
 
         if not self.current_project_id:
             return False
-        b = self.db.get_project_bundle(self.current_project_id)
+        b = getattr(self, "_cached_graph_bundle", None)
+        if not isinstance(b, dict) or (b.get("project") or {}).get("id") != self.current_project_id:
+            b = self.db.get_project_bundle(self.current_project_id)
+            self._cached_graph_bundle = b
         proj = b.get("project") or {}
         target = proj.get("primary_target", "Target")
-        doms = b.get("domains", [])
+        doms = list(b.get("domains", []))
         ports = b.get("ports", [])
+        if not doms and ports:
+            seen_p_hosts: set[str] = set()
+            for pt in ports:
+                ph = str(pt.get("host") or pt.get("ip") or "").strip()
+                if ph and ph not in seen_p_hosts:
+                    seen_p_hosts.add(ph)
+                    doms.append({"domain": ph, "ip": str(pt.get("ip") or ph), "cdn_waf": ""})
         finds = b.get("findings", [])
         chains = b.get("bug_chains", [])
 
@@ -1143,14 +1175,24 @@ class ApexNativeWindow(Gtk.Window):
         if not self.current_project_id:
             self.log_msg("[ERR] Avval loyiha yarating yoki tanlang!")
             return
+        if self.is_running_job:
+            self.log_msg("[!] Joriy skan yakunlanishini kuting yoki Stop tugmasini bosing.")
+            return
         pid = self.current_project_id
         self.is_running_job = True
+        cancel_event = threading.Event()
+        self._active_cancel_event = cancel_event
+        self.recon_agent.cancel_events[pid] = cancel_event
+        self.vuln_agent.cancel_events[pid] = cancel_event
         self._switch_page("p_recon", self.nav_buttons[1])
         self.recon_agent.session.headers.clear()
+        self.recon_agent.session.cookies.clear()
         self.recon_agent.session.headers.update({
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         })
         self.recon_agent.session.proxies.clear()
+        if hasattr(self.recon_agent, "osint_session"):
+            self.recon_agent.osint_session.proxies.clear()
 
         auth = self.auth_entry.get_text().strip()
         auth_b = self.auth_b_entry.get_text().strip() if hasattr(self, "auth_b_entry") else ""
@@ -1164,6 +1206,8 @@ class ApexNativeWindow(Gtk.Window):
         proxy_val = self.proxy_entry.get_text().strip() if hasattr(self, "proxy_entry") else ""
         if proxy_val:
             self.recon_agent.session.proxies.update({"http": proxy_val, "https": proxy_val})
+            if hasattr(self.recon_agent, "osint_session"):
+                self.recon_agent.osint_session.proxies.update({"http": proxy_val, "https": proxy_val})
             self.log_msg(f"[PROXY] Outbound Proxy ulandi: {proxy_val}")
         self.vuln_agent.configure_context(primary_auth=auth, secondary_auth=auth_b, proxy_url=proxy_val)
 
@@ -1179,12 +1223,12 @@ class ApexNativeWindow(Gtk.Window):
 
         def worker():
             try:
-                if agent_type in ("recon", "all"):
+                if agent_type in ("recon", "all") and not cancel_event.is_set():
                     self.recon_agent.run_full_recon(pid, None, self.log_msg, recon_mode=rec_mode or "full", progress_fn=update_prog)
-                if agent_type in ("vuln", "all"):
+                if agent_type in ("vuln", "all") and not cancel_event.is_set():
                     update_prog(0.89, "Phase 2: Vulnerability, NVT, AI/MCP, SCA & SAST Audit...")
-                    self.vuln_agent.run_assessment(pid, self.log_msg, progress_fn=update_prog)
-                if agent_type in ("triage", "all"):
+                    self.vuln_agent.run_assessment(pid, self.log_msg, progress_fn=update_prog, cancel_event=cancel_event)
+                if agent_type in ("triage", "all") and not cancel_event.is_set():
                     update_prog(0.96, "Phase 3: Triage, Attack-Graph Chaining & Report Generation...")
                     self.triage_agent.run_triage_and_chaining(pid, self.log_msg)
                     rep_res = self.triage_agent.generate_reports(pid)
@@ -1194,7 +1238,11 @@ class ApexNativeWindow(Gtk.Window):
                     )
                     GLib.idle_add(lambda t=rep_txt: self.rep_view.get_buffer().set_text(t) or False)
                     self.log_msg(f"[REPORT] Avtomatik hisobot yaratildi: {rep_res['html_path']}")
-                update_prog(1.0, "Barcha tanlangan jarayonlar yakunlandi.")
+                if cancel_event.is_set():
+                    self.db.update_project_status(pid, "ABORTED")
+                    update_prog(0.0, "Jarayon foydalanuvchi tomonidan to'xtatildi.")
+                else:
+                    update_prog(1.0, "Barcha tanlangan jarayonlar yakunlandi.")
             finally:
                 self.is_running_job = False
                 self._last_data_sig = None
@@ -1203,11 +1251,13 @@ class ApexNativeWindow(Gtk.Window):
 
         threading.Thread(target=worker, daemon=True).start()
 
-
-
     def on_abort(self):
+        ev = getattr(self, "_active_cancel_event", None)
+        if ev is not None:
+            ev.set()
         if self.current_project_id:
             self.recon_agent.abort_project(self.current_project_id, self.log_msg)
+            self.vuln_agent.abort_project(self.current_project_id)
             self.db.update_project_status(self.current_project_id, "ABORTED")
             self.refresh_projects()
 
@@ -1217,12 +1267,13 @@ class ApexNativeWindow(Gtk.Window):
         if treeiter is None and len(model) > 0:
             treeiter = model.get_iter_first()
         if treeiter is not None:
-            import re as _re
-            method = _re.sub(r"<[^>]+>", "", model[treeiter][0])
-            url = _re.sub(r"<[^>]+>", "", model[treeiter][1])
+            raw_m = self._plain_cell(model[treeiter][0]).upper()
+            method = raw_m if raw_m in ("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD") else "GET"
+            url = self._plain_cell(model[treeiter][1])
             auth = self.auth_entry.get_text().strip()
-            h_flag = f' -H "{auth if ":" in auth else "Cookie: " + auth}"' if auth else ""
-            cmd = f'curl -i -s -k -X {method}{h_flag} "{url}"'
+            h_val = (auth if ":" in auth else f"Cookie: {auth}").replace("\r", "").replace("\n", "")
+            h_flag = f" -H {shlex.quote(h_val)}" if auth else ""
+            cmd = f"curl -i -s -k -X {shlex.quote(method)}{h_flag} -- {shlex.quote(url)}"
             clip = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
             clip.set_text(cmd, -1)
             self.log_msg(f"[CLIPBOARD] cURL nusxalandi: {cmd}")
@@ -1233,9 +1284,8 @@ class ApexNativeWindow(Gtk.Window):
         sel = tree.get_selection()
         model, treeiter = sel.get_selected()
         if treeiter is not None:
-            import re as _re
-            method = _re.sub(r"<[^>]+>", "", model[treeiter][0]).strip()
-            url = _re.sub(r"<[^>]+>", "", model[treeiter][1]).strip()
+            method = self._plain_cell(model[treeiter][0]).upper()
+            url = self._plain_cell(model[treeiter][1])
             self.rep_method_combo.set_active_id(method if method in ("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD") else "GET")
             self.rep_url_entry.set_text(url)
 
@@ -1253,8 +1303,14 @@ class ApexNativeWindow(Gtk.Window):
         proxy_val = self.proxy_entry.get_text().strip() if hasattr(self, "proxy_entry") else ""
         self.repeater_view.get_buffer().set_text(f"So'rov yuborilmoqda: {method} {url} ...")
 
+        rep_scope = None
+        if self.current_project_id:
+            proj_r = (self.db.get_project_bundle(self.current_project_id) or {}).get("project") or {}
+            if proj_r:
+                rep_scope = ScopeGuard(proj_r.get("in_scope") or "", proj_r.get("out_of_scope") or "")
+
         def _req_worker():
-            out = cli_orchestrator.send_repeater_request(method, url, auth, proxy_val, req_body=req_body)
+            out = cli_orchestrator.send_repeater_request(method, url, auth, proxy_val, req_body=req_body, scope=rep_scope)
             GLib.idle_add(lambda: self.repeater_view.get_buffer().set_text(out) or False)
 
         threading.Thread(target=_req_worker, daemon=True).start()
@@ -1338,9 +1394,10 @@ class ApexNativeWindow(Gtk.Window):
         if treeiter is None:
             self.log_msg("[!] Avval Topilmalar jadvalidan qatorni tanlang.")
             return
-        raw_asset = str(model[treeiter][5] or "").strip()
+        raw_asset = self._plain_cell(model[treeiter][5])
         m_u = re.search(r"(https?://[^\s)]+)", raw_asset)
-        target_u = m_u.group(1) if m_u else (f"https://{raw_asset.split()[0]}" if raw_asset else "")
+        first_tok = raw_asset.split()[0] if raw_asset else ""
+        target_u = m_u.group(1) if m_u else (f"https://{first_tok}" if first_tok and "." in first_tok.split("/")[0] else "")
         if target_u:
             self.rep_url_entry.set_text(target_u)
             self._switch_page("p_endpoints", self.nav_buttons[2])
@@ -1365,19 +1422,21 @@ class ApexNativeWindow(Gtk.Window):
         if not self.current_project_id:
             return
         title = self.ent_mtitle.get_text().strip() or "Manual PoC Finding"
-        sev = self.ent_msev.get_text().strip() or "High"
+        raw_sev = self.ent_msev.get_text().strip().capitalize()
+        sev = raw_sev if raw_sev in ("Critical", "High", "Medium", "Low") else "High"
         try:
-            cvss = float(self.ent_mcvss.get_text().strip() or 7.5)
+            cvss = max(0.0, min(10.0, float(self.ent_mcvss.get_text().strip() or 7.5)))
         except ValueError:
             cvss = 7.5
         asset = self.ent_masset.get_text().strip()
         evid = self.ent_mevid.get_text().strip()
         rem = self.ent_mrem.get_text().strip()
         self.db.upsert_finding(
-            self.current_project_id, "Agent-5 (Manual PoC)", title, "Manual Pentester PoC",
+            self.current_project_id, "SPECTRE-Manual-PoC", title, "Manual Verification",
             sev, cvss, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N", "CWE-284", "A01:2021 - Broken Access Control",
-            asset, evid, "Manual verification by pentester", rem, confidence="Confirmed-PoC (QoD: 99%)", triage_status="Verified"
+            asset, evid, "Manual verification by security auditor", rem, confidence="Confirmed-PoC (QoD: 99%)", triage_status="Verified"
         )
+        self._last_data_sig = None
         self.load_bundle()
         self.log_msg(f"[MANUAL PoC] Qo'shildi: {title} ({sev})")
 

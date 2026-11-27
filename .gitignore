@@ -13,6 +13,7 @@ reports/*.pdf
 reports/*.json
 reports/*.csv
 reports/*.txt
+reports/*.xml
 
 # Keep empty directories
 !workspaces/.gitkeep

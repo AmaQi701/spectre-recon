@@ -16,6 +16,8 @@ from typing import Any
 import requests
 
 from core.advisory_kb import version_in_range
+from core.http_engine import get_project_js_cache_dir
+from core.models import walk_safe_repo_files
 from core.plugin_runner import QoD
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -311,13 +313,11 @@ def run_sca_dependency_audit(
         if not cp:
             continue
         root = Path(cp)
-        if not root.is_dir():
+        if not root.is_dir() or root.is_symlink():
             continue
-        for mf in sorted(root.rglob("*")):
+        for mf in walk_safe_repo_files(root, max_files=400, max_bytes=1048576):
             fn_low = mf.name.lower()
-            if (fn_low not in manifest_names and not fn_low.endswith(".csproj")) or not mf.is_file():
-                continue
-            if any(sp in str(mf) for sp in skip_parts):
+            if fn_low not in manifest_names and not fn_low.endswith(".csproj"):
                 continue
             try:
                 raw_txt = mf.read_text(encoding="utf-8", errors="ignore")[:300000]
@@ -409,10 +409,13 @@ def run_web_and_js_sca_audit(
     allow_online_osv: bool = True,
 ) -> int:
     written = 0
-    js_cache = Path(f"/tmp/spectre_js_cache_{project_id}")
+    js_cache = get_project_js_cache_dir(project_id)
     js_deps: list[tuple[str, str, str]] = []
-    if js_cache.is_dir():
-        for jf in sorted(js_cache.glob("*.js"))[:35]:
+    if js_cache.is_dir() and not js_cache.is_symlink():
+        js_files = sorted(list(js_cache.glob("*.js")) + list(js_cache.glob("*.cache")))
+        for jf in js_files[:35]:
+            if jf.is_symlink():
+                continue
             try:
                 js_deps.extend(extract_js_bundle_libraries(jf.read_text(encoding="utf-8", errors="ignore")[:16384]))
             except Exception:

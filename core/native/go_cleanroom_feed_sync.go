@@ -10,10 +10,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
+)
+
+const (
+	maxZipDownloadBytes = 256 << 20 // 256 MiB max OSV archive stream
+	maxEntryJsonBytes   = 2 << 20   // 2 MiB max decompressed OSV JSON entry
 )
 
 type osvEvent struct {
@@ -56,10 +63,14 @@ type SyncFeedsReport struct {
 func cleanTsvFieldGo(s string, maxLen int) string {
 	r := strings.NewReplacer("\t", " ", "\r", " ", "\n", " ")
 	out := strings.TrimSpace(r.Replace(s))
-	if len(out) > maxLen {
-		return out[:maxLen]
+	if len(out) <= maxLen {
+		return out
 	}
-	return out
+	cut := out[:maxLen]
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return strings.TrimSpace(cut)
 }
 
 func slugCpeTokenGo(s string) string {
@@ -113,23 +124,34 @@ func mapOsvSeverityGo(dbSpec map[string]any) (string, float64, string) {
 	return sev, cvss, cwe
 }
 
-func downloadTempZipGo(urlStr string, dstPath string) error {
+func downloadTempZipFileGo(urlStr string) (*os.File, int64, error) {
 	cli := &http.Client{Timeout: 45 * time.Second}
 	resp, err := cli.Get(urlStr)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("status %d", resp.StatusCode)
+		return nil, 0, fmt.Errorf("status %d", resp.StatusCode)
 	}
-	outF, err := os.Create(dstPath)
+	tmpF, err := os.CreateTemp("", "spectre_osv_*.zip")
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
-	_, cerr := io.Copy(outF, resp.Body)
-	_ = outF.Close()
-	return cerr
+	written, cerr := io.Copy(tmpF, io.LimitReader(resp.Body, maxZipDownloadBytes+1))
+	if cerr != nil {
+		name := tmpF.Name()
+		_ = tmpF.Close()
+		_ = os.Remove(name)
+		return nil, 0, cerr
+	}
+	if written > maxZipDownloadBytes {
+		name := tmpF.Name()
+		_ = tmpF.Close()
+		_ = os.Remove(name)
+		return nil, 0, fmt.Errorf("archive exceeds %d bytes cap", maxZipDownloadBytes)
+	}
+	return tmpF, written, nil
 }
 
 func resolvePrimaryAdvIDGo(ent *osvEntry) string {
@@ -221,10 +243,11 @@ func StreamSyncCleanroomFeedsGo(outTsvPath string, ecosystems []string) (*SyncFe
 	total := 0
 
 	for _, r := range CompiledCleanroomAdvisories {
-		if _, dup := seen[r.ID]; dup {
+		dedupKey := r.ID + "|" + r.Vendor + "|" + r.Product + "|" + r.MinVer + "|" + r.MaxVer
+		if _, dup := seen[dedupKey]; dup {
 			continue
 		}
-		seen[r.ID] = struct{}{}
+		seen[dedupKey] = struct{}{}
 		_, _ = fmt.Fprintf(bw, "%s\t%s\t%s\t%s\t%s\t%s\t%.1f\t%s\t%s\t%d\tUnknown\t0.65\t%s\t%s\t%s\n",
 			r.ID, r.Vendor, r.Product, r.CPE23, r.MinVer, r.MaxVer, r.CVSS, r.Severity, r.CWE, r.IsKEV,
 			cleanTsvFieldGo(r.Summary, 240), cleanTsvFieldGo(r.Remediation, 200), r.SPDX)
@@ -233,28 +256,42 @@ func StreamSyncCleanroomFeedsGo(outTsvPath string, ecosystems []string) (*SyncFe
 	}
 
 	for _, eco := range ecosystems {
-		tmpZip := filepath.Join(os.TempDir(), fmt.Sprintf("spectre_osv_%s.zip", slugCpeTokenGo(eco)))
-		urlStr := fmt.Sprintf("https://osv-vulnerabilities.storage.googleapis.com/%s/all.zip", eco)
-		if err := downloadTempZipGo(urlStr, tmpZip); err != nil {
-			_ = os.Remove(tmpZip)
+		escEco := url.PathEscape(strings.TrimSpace(eco))
+		if escEco == "" {
 			continue
 		}
-		zr, zerr := zip.OpenReader(tmpZip)
+		urlStr := fmt.Sprintf("https://osv-vulnerabilities.storage.googleapis.com/%s/all.zip", escEco)
+		tmpF, zipSz, derr := downloadTempZipFileGo(urlStr)
+		if derr != nil {
+			continue
+		}
+		tmpName := tmpF.Name()
+		zr, zerr := zip.NewReader(tmpF, zipSz)
 		if zerr == nil {
 			for _, zf := range zr.File {
-				if !strings.HasSuffix(zf.Name, ".json") || zf.UncompressedSize64 > 2*1024*1024 {
+				if !strings.HasSuffix(zf.Name, ".json") || zf.UncompressedSize64 > maxEntryJsonBytes {
 					continue
 				}
 				rc, oerr := zf.Open()
 				if oerr != nil {
 					continue
 				}
+				rawJSON, rerr := io.ReadAll(io.LimitReader(rc, maxEntryJsonBytes+1))
+				_ = rc.Close()
+				if rerr != nil || int64(len(rawJSON)) > maxEntryJsonBytes {
+					continue
+				}
 				var ent osvEntry
-				if json.NewDecoder(rc).Decode(&ent) == nil {
+				if json.Unmarshal(rawJSON, &ent) == nil {
 					advID := resolvePrimaryAdvIDGo(&ent)
-					if _, dup := seen[advID]; !dup {
+					pkgName := ""
+					if len(ent.Affected) > 0 {
+						pkgName = strings.TrimSpace(ent.Affected[0].Package.Name)
+					}
+					dedupKey := advID + "|" + eco + "|" + pkgName
+					if _, dup := seen[dedupKey]; !dup {
 						if row, ok := extractOsvRowGo(&ent); ok {
-							seen[advID] = struct{}{}
+							seen[dedupKey] = struct{}{}
 							_, _ = bw.WriteString(row)
 							_ = bw.WriteByte('\n')
 							ecoCounts[eco]++
@@ -262,11 +299,10 @@ func StreamSyncCleanroomFeedsGo(outTsvPath string, ecosystems []string) (*SyncFe
 						}
 					}
 				}
-				_ = rc.Close()
 			}
-			_ = zr.Close()
 		}
-		_ = os.Remove(tmpZip)
+		_ = tmpF.Close()
+		_ = os.Remove(tmpName)
 	}
 	if err := bw.Flush(); err != nil {
 		return nil, err

@@ -37,5 +37,5 @@ progressbar progress { min-height: 22px; background-image: none; background-colo
 .btn-amber:hover { background-color: #302717; }
 .btn-red { background-image: none; background-color: #241417; color: #f87171; font-weight: 600; font-size: 12px; border-radius: 8px; padding: 6px 13px; border: 1px solid #991b1b; box-shadow: none; }
 .btn-red:hover { background-color: #331b1f; border-color: #ef4444; }
-.btn-purple { background-image: none; background-color: #22c55e; color: #052e16; font-weight: 800; font-size: 12px; border-radius: 8px; padding: 6px 15px; border: 1px solid #4ade80; box-shadow: none; }
-.btn-purple:hover { background-color: #4ade80; color: #022c22; }
+.btn-purple { background-image: none; background-color: #2e1065; color: #e9d5ff; font-weight: 800; font-size: 12px; border-radius: 8px; padding: 6px 15px; border: 1px solid #8b5cf6; box-shadow: none; }
+.btn-purple:hover { background-color: #4c1d95; color: #f3e8ff; border-color: #a78bfa; }

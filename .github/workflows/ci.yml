@@ -1,0 +1,42 @@
+name: SPECTRE Polyglot Security CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  polyglot-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install native and Python dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            g++ libssl-dev rustc golang-go \
+            python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-gdkpixbuf-2.0 \
+            python3-requests python3-bs4 python3-dnspython python3-yaml
+
+      - name: Compile C++17, Rust, and Go native engines (ABI 950)
+        run: |
+          g++ -O3 -Werror -Wall -Wextra -D_FORTIFY_SOURCE=2 -fstack-protector-strong \
+            -std=c++17 -shared -fPIC -pthread core/native/*.cpp \
+            -lssl -lcrypto -o core/native/libspectre_accel.so
+          rustc -C opt-level=3 -C strip=debuginfo --crate-type cdylib \
+            core/native/spectre_rust_core.rs -o core/native/libspectre_rust_core.so
+          (cd core/native && go build -ldflags="-s -w" -o spectre-intel-indexer .)
+
+      - name: Run SPECTRE doctor, integrity, and loopback benchmark gates
+        run: |
+          python3 spectre_cli.py --doctor
+          python3 spectre_cli.py --benchmark
+          python3 tests/test_integrity_gate.py
+          python3 tests/test_local_benchmark.py

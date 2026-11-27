@@ -79,11 +79,35 @@ pub fn fnv1a64_ascii_lower(tok: &[u8]) -> u64 {
 }
 
 #[inline]
-fn can_start_js_regex(prev_non_ws: u8) -> bool {
+fn is_js_regex_keyword(ident: &[u8]) -> bool {
     matches!(
-        prev_non_ws,
-        0 | b'(' | b',' | b'=' | b':' | b'[' | b'!' | b'&' | b'|' | b'?' | b'{' | b'}' | b';' | b'\n'
+        ident,
+        b"return"
+            | b"case"
+            | b"throw"
+            | b"typeof"
+            | b"delete"
+            | b"void"
+            | b"in"
+            | b"of"
+            | b"instanceof"
+            | b"new"
+            | b"await"
+            | b"yield"
+            | b"else"
+            | b"do"
     )
+}
+
+#[inline]
+fn can_start_js_regex(prev_non_ws: u8, last_ident: &[u8]) -> bool {
+    if matches!(
+        prev_non_ws,
+        0 | b'(' | b',' | b'=' | b':' | b'[' | b'!' | b'&' | b'|' | b'?' | b'{' | b'}' | b';' | b'\n' | b'+' | b'-' | b'*' | b'%' | b'~' | b'^' | b'<' | b'>'
+    ) {
+        return true;
+    }
+    is_js_regex_keyword(last_ident)
 }
 
 fn strip_python(src: &[u8]) -> Vec<u8> {
@@ -119,6 +143,11 @@ fn strip_python(src: &[u8]) -> Vec<u8> {
             i += 1;
             while i < n && src[i] != b'\n' {
                 if src[i] == b'\\' && i + 1 < n {
+                    if src[i + 1] == b'\r' && i + 2 < n && src[i + 2] == b'\n' {
+                        out.extend_from_slice(&src[i..i + 3]);
+                        i += 3;
+                        continue;
+                    }
                     out.push(src[i]);
                     out.push(src[i + 1]);
                     i += 2;
@@ -151,6 +180,7 @@ fn strip_c_like(src: &[u8], lang: SourceLang) -> Vec<u8> {
     let mut out = Vec::with_capacity(n);
     let mut i = 0usize;
     let mut prev_non_ws: u8 = 0;
+    let mut last_ident: Vec<u8> = Vec::with_capacity(16);
     let mut tpl_brace_stack: Vec<u32> = Vec::new();
 
     if i + 1 < n && src[0] == b'#' && src[1] == b'!' {
@@ -224,6 +254,11 @@ fn strip_c_like(src: &[u8], lang: SourceLang) -> Vec<u8> {
             i += 1;
             while i < n {
                 if src[i] == b'\\' && i + 1 < n {
+                    if src[i + 1] == b'\r' && i + 2 < n && src[i + 2] == b'\n' {
+                        out.extend_from_slice(&src[i..i + 3]);
+                        i += 3;
+                        continue;
+                    }
                     out.push(src[i]);
                     out.push(src[i + 1]);
                     i += 2;
@@ -240,6 +275,7 @@ fn strip_c_like(src: &[u8], lang: SourceLang) -> Vec<u8> {
                 i += 1;
             }
             prev_non_ws = q;
+            last_ident.clear();
             continue;
         }
 
@@ -289,7 +325,7 @@ fn strip_c_like(src: &[u8], lang: SourceLang) -> Vec<u8> {
             }
         }
 
-        if lang == SourceLang::JsTs && b == b'/' && can_start_js_regex(prev_non_ws) {
+        if lang == SourceLang::JsTs && b == b'/' && can_start_js_regex(prev_non_ws, &last_ident) {
             out.push(b'/');
             i += 1;
             let mut in_class = false;
@@ -307,18 +343,37 @@ fn strip_c_like(src: &[u8], lang: SourceLang) -> Vec<u8> {
                 } else if src[i] == b'/' && !in_class {
                     out.push(b'/');
                     i += 1;
+                    while i < n && src[i].is_ascii_alphabetic() {
+                        out.push(src[i]);
+                        i += 1;
+                    }
                     break;
                 }
                 out.push(src[i]);
                 i += 1;
             }
             prev_non_ws = b'/';
+            last_ident.clear();
+            continue;
+        }
+
+        if b.is_ascii_alphabetic() || b == b'_' || b == b'$' {
+            last_ident.clear();
+            while i < n && (src[i].is_ascii_alphanumeric() || src[i] == b'_' || src[i] == b'$') {
+                out.push(src[i]);
+                if last_ident.len() < 16 {
+                    last_ident.push(src[i]);
+                }
+                prev_non_ws = src[i];
+                i += 1;
+            }
             continue;
         }
 
         out.push(b);
         if !b.is_ascii_whitespace() {
             prev_non_ws = b;
+            last_ident.clear();
         }
         i += 1;
     }

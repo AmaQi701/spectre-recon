@@ -2,16 +2,19 @@ import concurrent.futures
 import csv
 import datetime
 import json
+import re
 import socket
 import ssl
 import subprocess
+import tempfile
+import time
 import urllib.parse
 from pathlib import Path
 import requests
 
 
 # --- , ISP, SUBNET (/24) & GEOLOCATION MAPPER ---
-def enrich_asn_and_isp_intel(db, project_id: int, log_fn):
+def enrich_asn_and_isp_intel(db, project_id: int, log_fn, session: requests.Session | None = None):
     import ipaddress
 
     bundle = db.get_project_bundle(project_id)
@@ -32,8 +35,9 @@ def enrich_asn_and_isp_intel(db, project_id: int, log_fn):
 
     log_fn(f"[SPECTRE ASN/ISP Mapper] {len(unique_ips)} ta server IP manzili bo'yicha ASN, Provayder va /24 Subnet aniqlanmoqda...")
     ip_info_map = {}
+    http_c = session or requests
     try:
-        r = requests.post("http://ip-api.com/batch?fields=status,query,country,city,isp,org,as", json=unique_ips[:90], timeout=8)
+        r = http_c.post("http://ip-api.com/batch?fields=status,query,country,city,isp,org,as", json=unique_ips[:90], timeout=8)
         if r.status_code == 200:
             for item in r.json():
                 if item.get("status") == "success":
@@ -97,9 +101,8 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
                     c_name, _, c_bits = cipher_info[0], cipher_info[1], int(cipher_info[2] or 256)
                     not_after_str = cert.get("notAfter", "")
                     if not_after_str:
-                        exp_dt = datetime.datetime.strptime(not_after_str, "%b %d %H:%M:%S %Y %Z")
-                        now_utc = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
-                        days_left = (exp_dt - now_utc).days
+                        exp_epoch = ssl.cert_time_to_seconds(not_after_str)
+                        days_left = int((exp_epoch - time.time()) // 86400)
                         if days_left < 0:
                             with tls_lock:
                                 expired_items.append((f"{host}:{port}", url, f"Expired on {not_after_str} ({abs(days_left)}d ago)"))
@@ -165,58 +168,6 @@ def audit_ssl_certificates_deep(db, project_id: int, log_fn):
         )
 
 
-# --- BACKUP & ARCHIVE EXPOSURE AUDITOR ---
-def audit_domain_backup_exposure(db, project_id: int, apex_domain: str, log_fn, session: requests.Session | None = None):
-    base_word = apex_domain.split(".")[0]
-    candidates = [
-        f"/{base_word}.zip", f"/{base_word}.tar.gz", f"/{base_word}.sql",
-        "/backup.zip", "/backup.tar.gz", "/db.sql", "/www.zip",
-    ]
-    base_url = f"https://www.{apex_domain}"
-    http_client = session or requests
-    probe_hdrs = {
-        "Range": "bytes=0-63",
-        "Accept-Encoding": "identity",
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    }
-    log_fn(f"[SPECTRE Backup Auditor] Domen nomiga mos arxiv/backup fayllar ({base_word}.zip/.sql) tekshirilmoqda...")
-
-    def check_archive(path: str):
-        url = urllib.parse.urljoin(base_url, path)
-        try:
-            with http_client.get(url, headers=probe_hdrs, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True) as r:
-                magic = next(r.iter_content(chunk_size=64), b"")
-                ctype = r.headers.get("Content-Type", "").lower()
-                cenc = r.headers.get("Content-Encoding", "").lower()
-                code = r.status_code
-            if code not in (200, 206) or len(magic) < 8 or cenc == "gzip":
-                return
-            if "text/html" in ctype or "application/json" in ctype:
-                return
-            if magic.lstrip()[:15].lower().startswith((b"<!doctype", b"<html", b"<head", b"<body", b"<script", b"{")):
-                return
-            is_zip_or_gzip = magic.startswith(b"PK\x03\x04") or magic.startswith(b"\x1f\x8b\x08")
-            is_sql = b"CREATE TABLE" in magic or b"-- MySQL dump" in magic or b"-- PostgreSQL" in magic
-            if is_zip_or_gzip or is_sql:
-                db.upsert_finding(
-                    project_id, "SPECTRE-Backup-Audit", f"[CONFIRMED] Exposed Backup / Database Archive ({url})",
-                    "Critical Backup Exposure", "Critical", 9.1, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
-                    "CWE-530", "A05:2021 - Security Misconfiguration", url,
-                    f"HTTP {code} | Content-Type: {ctype} | Magic Bytes Verified ({magic[:12]!r})",
-                    "Veb-server ildiz katalogida ochiq arxiv yoki ma'lumotlar bazasi nusxasi qolib ketgan.",
-                    "Arxiv va .sql fayllarni veb-server katalogidan darhol o'chiring.",
-                    confidence="Confirmed-PoC (QoD: 99%)",
-                )
-                log_fn(f"  [BACKUP-LEAK] Tasdiqlangan arxiv topildi: {url}")
-        except Exception:
-            pass
-
-    ex = concurrent.futures.ThreadPoolExecutor(max_workers=6)
-    futs = [ex.submit(check_archive, c) for c in candidates]
-    concurrent.futures.wait(futs, timeout=5.0)
-    ex.shutdown(wait=False, cancel_futures=True)
-
-
 # Multi-format artifact exporter (Burp Scope, Live URLs, CSV, Full JSON)
 def export_project_artifacts(db, project_id: int, reports_dir: str | Path | None = None) -> dict:
     default_out = Path(__file__).resolve().parent.parent / "reports"
@@ -233,17 +184,38 @@ def export_project_artifacts(db, project_id: int, reports_dir: str | Path | None
     urls_path = out_dir / f"project_{project_id}_live_urls.txt"
     urls_path.write_text("\n".join(sorted({s["url"] for s in http_svcs})), encoding="utf-8")
 
-    burp_inc = [{"enabled": True, "file": "^/.*", "host": "^" + d["domain"].replace(".", "\\.") + "$", "protocol": "any"} for d in domains]
+    burp_inc = [{"enabled": True, "file": "^/.*", "host": "^" + re.escape(str(d["domain"])) + "$", "protocol": "any"} for d in domains]
     burp_scope = {"target": {"scope": {"advanced_mode": True, "exclude": [], "include": burp_inc}}}
     burp_path = out_dir / f"project_{project_id}_burp_scope.json"
     burp_path.write_text(json.dumps(burp_scope, indent=2), encoding="utf-8")
+
+    def _csv_cell(val: object) -> object:
+        if isinstance(val, (int, float)):
+            return val
+        s = str(val if val is not None else "")
+        if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
+            return "'" + s
+        return s
 
     csv_path = out_dir / f"project_{project_id}_findings.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as f_csv:
         writer = csv.writer(f_csv)
         writer.writerow(["ID", "Severity", "CVSS", "Confidence_QoD", "Title", "Category", "CWE", "OWASP", "Asset", "Evidence", "Remediation", "Triage"])
         for f in findings:
-            writer.writerow([f["id"], f["severity"], f["cvss_score"], f.get("confidence", ""), f["title"], f["category"], f["cwe"], f["owasp"], f["asset"], f["evidence"], f["remediation"], f["triage_status"]])
+            writer.writerow([
+                f["id"],
+                _csv_cell(f["severity"]),
+                f["cvss_score"],
+                _csv_cell(f.get("confidence", "")),
+                _csv_cell(f["title"]),
+                _csv_cell(f["category"]),
+                _csv_cell(f["cwe"]),
+                _csv_cell(f["owasp"]),
+                _csv_cell(f["asset"]),
+                _csv_cell(f["evidence"]),
+                _csv_cell(f["remediation"]),
+                _csv_cell(f["triage_status"]),
+            ])
 
     json_path = out_dir / f"project_{project_id}_full_export.json"
     json_path.write_text(json.dumps(b, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -265,8 +237,29 @@ def export_project_artifacts(db, project_id: int, reports_dir: str | Path | None
 
 
 # --- -APP HTTP REQUEST/RESPONSE INSPECTOR (FULL INTERACTIVE REPEATER) ---
-def send_repeater_request(method: str, url: str, auth_header: str = "", proxy_url: str = "", custom_headers_raw: str = "", req_body: str = "") -> str:
-    headers = {"User-Agent": "SPECTRE-Studio-Repeater/6.0", "Accept": "*/*"}
+def send_repeater_request(
+    method: str,
+    url: str,
+    auth_header: str = "",
+    proxy_url: str = "",
+    custom_headers_raw: str = "",
+    req_body: str = "",
+    scope=None,
+    verify_tls: bool = True,
+) -> str:
+    from core.http_engine import is_unsafe_redirect_target
+    from core.scope_guard import ScopeGuard
+
+    clean_url = (url or "").strip()
+    host = ScopeGuard.extract_host(clean_url)
+    if not host or not clean_url.lower().startswith(("http://", "https://")):
+        return "[HTTP REPEATER BLOCKED] Noto'g'ri yoki xavfsizlik talablariga zid URL manzili."
+    if scope is not None and scope.in_scope and not scope.is_in_scope(clean_url)[0]:
+        return f"[HTTP REPEATER SCOPE BLOCK] '{host}' joriy loyiha In-Scope ro'yxatiga kirmaydi."
+    if is_unsafe_redirect_target(clean_url, scope):
+        return f"[HTTP REPEATER BLOCKED] Ichki/loopback/metadata manziliga ({host}) ruxsatsiz ulanish bloklandi."
+
+    headers = {"User-Agent": "SPECTRE-Studio-Repeater/9.5", "Accept": "*/*"}
     if auth_header.strip():
         if ":" in auth_header:
             k, v = auth_header.split(":", 1)
@@ -286,7 +279,17 @@ def send_repeater_request(method: str, url: str, auth_header: str = "", proxy_ur
     proxies = {"http": proxy_url.strip(), "https": proxy_url.strip()} if proxy_url.strip() else None
     try:
         t0 = datetime.datetime.now()
-        r = requests.request(method.upper(), url.strip(), headers=headers, data=body_data, proxies=proxies, timeout=10, verify=False, allow_redirects=False, stream=True)
+        r = requests.request(
+            method.upper(),
+            clean_url,
+            headers=headers,
+            data=body_data,
+            proxies=proxies,
+            timeout=10,
+            verify=verify_tls,
+            allow_redirects=False,
+            stream=True,
+        )
         body_bytes = next(r.iter_content(chunk_size=24576), b"")
         r.close()
         elapsed_ms = int((datetime.datetime.now() - t0).total_seconds() * 1000)
@@ -298,7 +301,7 @@ def send_repeater_request(method: str, url: str, auth_header: str = "", proxy_ur
             pass
         return (
             f"--- SPECTRE INTERACTIVE REPEATER ({elapsed_ms} ms) ---\n"
-            f"> REQUEST: {method.upper()} {url.strip()}\n"
+            f"> REQUEST: {method.upper()} {clean_url}\n"
             f"< STATUS : HTTP/1.1 {r.status_code} {r.reason}\n"
             f"{hdr_lines}\n\n"
             f"--- RESPONSE BODY ({len(body_bytes)} bytes) ---\n"
@@ -366,20 +369,18 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
     import os
     import re
     import shlex
+    import tempfile
 
     safe_apex = shlex.quote(apex_domain)
-    log_fn(f"[SPECTRE Parallel Subdomain Engine] 6 ta subdomen vositasi (Subfinder, Sublist3r, Amass, Assetfinder, Cero, Findomain) parallel ishga tushirilmoqda...")
+    tmp_dir_obj = tempfile.TemporaryDirectory(prefix=f"spectre_sub_{project_id}_")
+    tmp_root = tmp_dir_obj.name
+    log_fn("[SPECTRE Parallel Subdomain Engine] 6 ta subdomen vositasi (Subfinder, Sublist3r, Amass, Assetfinder, Cero, Findomain) parallel ishga tushirilmoqda...")
 
     def _task_subfinder():
         if "subfinder" in active_ids and agent._find_binary("subfinder"):
-            out_file = f"/tmp/spectre_subfinder_{project_id}.txt"
-            try:
-                if os.path.exists(out_file):
-                    os.remove(out_file)
-            except Exception:
-                pass
-            out = agent._run_cli(f"subfinder -d {safe_apex} -all -es commoncrawl,waybackarchive,riddler -timeout 5 -silent -o {out_file}", log_fn, timeout=25, project_id=project_id)
-            lines = open(out_file, "r", errors="ignore").read().splitlines() if os.path.exists(out_file) else out.splitlines()
+            out_file = os.path.join(tmp_root, "subfinder.txt")
+            out = agent._run_cli(f"subfinder -d {safe_apex} -all -es commoncrawl,waybackarchive,riddler -timeout 5 -silent -o {shlex.quote(out_file)}", log_fn, timeout=25, project_id=project_id)
+            lines = Path(out_file).read_text(encoding="utf-8", errors="ignore").splitlines() if os.path.exists(out_file) else out.splitlines()
             cnt = 0
             for line in lines:
                 h = line.strip().lower().rstrip(".")
@@ -391,20 +392,15 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
     def _task_sublist3r():
         if "sublist3r" in active_ids and agent._find_binary("sublist3r"):
             local_subl = Path.home() / ".local" / "bin" / "sublist3r"
-            subl_bin = str(local_subl) if local_subl.exists() else "sublist3r"
-            out_file = f"/tmp/spectre_sublist3r_{project_id}.txt"
-            try:
-                if os.path.exists(out_file):
-                    os.remove(out_file)
-            except Exception:
-                pass
-            agent._run_cli(f"{subl_bin} -d {safe_apex} -n -e crtsh,threatcrowd,netcraft -o {out_file}", log_fn, timeout=30, project_id=project_id)
+            subl_bin = shlex.quote(str(local_subl) if local_subl.exists() else "sublist3r")
+            out_file = os.path.join(tmp_root, "sublist3r.txt")
+            agent._run_cli(f"{subl_bin} -d {safe_apex} -n -e crtsh,threatcrowd,netcraft -o {shlex.quote(out_file)}", log_fn, timeout=30, project_id=project_id)
             cnt = 0
             if os.path.exists(out_file):
                 try:
-                    for line in open(out_file, "r", errors="ignore"):
+                    for line in Path(out_file).read_text(encoding="utf-8", errors="ignore").splitlines():
                         h = line.strip().lower().rstrip(".")
-                        if h and h.endswith(apex_domain) and scope.is_in_scope(h)[0]:
+                        if h and (h == apex_domain or h.endswith("." + apex_domain)) and scope.is_in_scope(h)[0]:
                             agent.db.upsert_domain(project_id, h, source="sublist3r")
                             cnt += 1
                 except Exception:
@@ -483,86 +479,83 @@ def run_deep_subdomain_tools(agent, project_id: int, apex_domain: str, scope, ac
     concurrent.futures.wait(futs, timeout=28)
     ex.shutdown(wait=False, cancel_futures=True)
 
-    res_file = "/tmp/spectre_resolvers.txt"
-    open(res_file, "w").write("8.8.8.8\n1.1.1.1\n9.9.9.9\n8.8.4.4\n1.0.0.1\n208.67.222.222\n")
+    with tempfile.TemporaryDirectory(prefix=f"spectre_dns_{project_id}_") as dns_tmp:
+        res_file = os.path.join(dns_tmp, "resolvers.txt")
+        Path(res_file).write_text("8.8.8.8\n1.1.1.1\n9.9.9.9\n8.8.4.4\n1.0.0.1\n208.67.222.222\n", encoding="utf-8")
 
-    # Detect Wildcard DNS IPs BEFORE running puredns / dnsx so dead historical subdomains never get wildcard IPs
-    wildcard_ips_s1 = set()
-    try:
-        import dns.resolver as _dres
-        _r = _dres.Resolver(configure=False)
-        _r.nameservers = ["8.8.8.8", "1.1.1.1"]
-        _r.lifetime = 2.0
-        for _rd in _r.resolve(f"spectre-wildcard-check-99182.{apex_domain}", "A"):
-            wildcard_ips_s1.add(str(_rd).rstrip("."))
-    except Exception:
-        pass
+        wildcard_ips_s1 = set()
+        try:
+            import dns.resolver as _dres
+            _r = _dres.Resolver(configure=False)
+            _r.nameservers = ["8.8.8.8", "1.1.1.1"]
+            _r.lifetime = 2.0
+            for _rd in _r.resolve(f"spectre-wildcard-check-99182.{apex_domain}", "A"):
+                wildcard_ips_s1.add(str(_rd).rstrip("."))
+        except Exception:
+            pass
 
-    # 2.2A DNSGen / Gotator + PureDNS / ShuffleDNS Permutation & Wildcard Resolution
-    seed_doms = [d["domain"] for d in agent.db.get_project_bundle(project_id).get("domains", []) if not d["domain"].startswith(("www.ns", "ns1.", "ns2."))][:35]
-    if seed_doms and any(k in active_ids for k in ("dnsgen", "gotator", "puredns", "shuffledns")):
-        seed_file = f"/tmp/spectre_seeds_{project_id}.txt"
-        perm_file = f"/tmp/spectre_perms_{project_id}.txt"
-        open(seed_file, "w").write("\n".join(seed_doms) + "\n")
-        perm_lines = []
-        if "dnsgen" in active_ids and agent._find_binary("dnsgen"):
-            dg_out = agent._run_cli(f"dnsgen {seed_file}", log_fn, timeout=15, project_id=project_id)
-            dg_all = dg_out.splitlines()
-            step_dg = max(1, len(dg_all) // 350)
-            perm_lines.extend(dg_all[::step_dg][:350])
-        if "gotator" in active_ids and agent._find_binary("gotator"):
-            gt_out = agent._run_cli(f"gotator -sub {seed_file} -depth 1 -numbers 3 -mindup -adv=false -silent", log_fn, timeout=15, project_id=project_id)
-            gt_all = gt_out.splitlines()
-            step_gt = max(1, len(gt_all) // 350)
-            perm_lines.extend(gt_all[::step_gt][:350])
-        if perm_lines:
-            valid_perms = sorted({p.strip().lower().rstrip(".") for p in perm_lines if p.strip().lower().rstrip(".").endswith("." + apex_domain)})[:600]
-            open(perm_file, "w").write("\n".join(valid_perms) + "\n")
-            resolved_by_pd = False
-            if "puredns" in active_ids and agent._find_binary("puredns"):
-                pd_out = agent._run_cli(f"puredns resolve {perm_file} -r {res_file} -q", log_fn, timeout=25, project_id=project_id)
-                for ph in pd_out.splitlines():
-                    ph = ph.strip().lower().rstrip(".")
-                    if ph and scope.is_in_scope(ph)[0]:
-                        agent.db.upsert_domain(project_id, ph, source="puredns_perm")
-                        resolved_by_pd = True
-            if not resolved_by_pd and "shuffledns" in active_ids and agent._find_binary("shuffledns"):
-                sd_out = agent._run_cli(f"shuffledns -d {safe_apex} -list {perm_file} -r {res_file} -mode resolve -silent", log_fn, timeout=25, project_id=project_id)
-                for sh in sd_out.splitlines():
-                    sh = sh.strip().lower().rstrip(".")
-                    if sh and scope.is_in_scope(sh)[0]:
-                        agent.db.upsert_domain(project_id, sh, source="shuffledns_perm")
+        seed_doms = [d["domain"] for d in agent.db.get_project_bundle(project_id).get("domains", []) if not d["domain"].startswith(("www.ns", "ns1.", "ns2."))][:35]
+        if seed_doms and any(k in active_ids for k in ("dnsgen", "gotator", "puredns", "shuffledns")):
+            seed_file = os.path.join(dns_tmp, "seeds.txt")
+            perm_file = os.path.join(dns_tmp, "perms.txt")
+            Path(seed_file).write_text("\n".join(seed_doms) + "\n", encoding="utf-8")
+            perm_lines = []
+            if "dnsgen" in active_ids and agent._find_binary("dnsgen"):
+                dg_out = agent._run_cli(f"dnsgen {shlex.quote(seed_file)}", log_fn, timeout=15, project_id=project_id)
+                dg_all = dg_out.splitlines()
+                step_dg = max(1, len(dg_all) // 350)
+                perm_lines.extend(dg_all[::step_dg][:350])
+            if "gotator" in active_ids and agent._find_binary("gotator"):
+                gt_out = agent._run_cli(f"gotator -sub {shlex.quote(seed_file)} -depth 1 -numbers 3 -mindup -adv=false -silent", log_fn, timeout=15, project_id=project_id)
+                gt_all = gt_out.splitlines()
+                step_gt = max(1, len(gt_all) // 350)
+                perm_lines.extend(gt_all[::step_gt][:350])
+            if perm_lines:
+                valid_perms = sorted({p.strip().lower().rstrip(".") for p in perm_lines if p.strip().lower().rstrip(".").endswith("." + apex_domain)})[:600]
+                Path(perm_file).write_text("\n".join(valid_perms) + "\n", encoding="utf-8")
+                resolved_by_pd = False
+                if "puredns" in active_ids and agent._find_binary("puredns"):
+                    pd_out = agent._run_cli(f"puredns resolve {shlex.quote(perm_file)} -r {shlex.quote(res_file)} -q", log_fn, timeout=25, project_id=project_id)
+                    for ph in pd_out.splitlines():
+                        ph = ph.strip().lower().rstrip(".")
+                        if ph and scope.is_in_scope(ph)[0]:
+                            agent.db.upsert_domain(project_id, ph, source="puredns_perm")
+                            resolved_by_pd = True
+                if not resolved_by_pd and "shuffledns" in active_ids and agent._find_binary("shuffledns"):
+                    sd_out = agent._run_cli(f"shuffledns -d {safe_apex} -list {shlex.quote(perm_file)} -r {shlex.quote(res_file)} -mode resolve -silent", log_fn, timeout=25, project_id=project_id)
+                    for sh in sd_out.splitlines():
+                        sh = sh.strip().lower().rstrip(".")
+                        if sh and scope.is_in_scope(sh)[0]:
+                            agent.db.upsert_domain(project_id, sh, source="shuffledns_perm")
 
-    # 2.2 ProjectDiscovery DNSX Multi-Record Verification (Up to 500 hosts + Wildcard & Cloudflare Tagging)
-    if "dnsx" in active_ids and agent._find_binary("dnsx"):
-        doms_now = [d["domain"] for d in agent.db.get_project_bundle(project_id).get("domains", [])]
-        if doms_now:
-            dom_file = f"/tmp/spectre_dnsx_in_{project_id}.txt"
-            open(dom_file, "w").write("\n".join(doms_now[:500]) + "\n")
-            log_fn(f"[Tool 2.2 -> ProjectDiscovery DNSX] {len(doms_now[:500])} ta subdomen A/CNAME yozuvlari tezkor tekshirilmoqda...")
-            dx_out = agent._run_cli(f"dnsx -l {dom_file} -r {res_file} -a -cname -resp -silent", log_fn, timeout=30, project_id=project_id)
-            for line in dx_out.splitlines():
-                clean_l = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
-                parts = clean_l.split()
-                if len(parts) >= 3:
-                    h = parts[0].strip().lower()
-                    val = parts[-1].strip("[]").rstrip(".")
-                    if "[A]" in clean_l and re.match(r"^\d+\.\d+\.\d+\.\d+$", val) and scope.is_in_scope(h)[0]:
-                        if h != apex_domain and val in wildcard_ips_s1:
-                            continue
-                        cdn_tag = "Cloudflare" if val.startswith(("104.16.", "104.17.", "104.18.", "104.19.", "104.20.", "104.21.", "172.64.", "172.67.", "188.114.")) else ""
-                        agent.db.upsert_domain(project_id, h, ip=val, cdn_waf=cdn_tag, source="dnsx_verified")
-                    elif "[CNAME]" in clean_l and "." in val and scope.is_in_scope(h)[0]:
-                        cdn_tag = "Cloudflare" if "cloudflare" in val.lower() else ""
-                        agent.db.upsert_domain(project_id, h, cname=val, cdn_waf=cdn_tag, source="dnsx_verified")
+        if "dnsx" in active_ids and agent._find_binary("dnsx"):
+            doms_now = [d["domain"] for d in agent.db.get_project_bundle(project_id).get("domains", [])]
+            if doms_now:
+                dom_file = os.path.join(dns_tmp, "dnsx_in.txt")
+                Path(dom_file).write_text("\n".join(doms_now[:500]) + "\n", encoding="utf-8")
+                log_fn(f"[Tool 2.2 -> ProjectDiscovery DNSX] {len(doms_now[:500])} ta subdomen A/CNAME yozuvlari tezkor tekshirilmoqda...")
+                dx_out = agent._run_cli(f"dnsx -l {shlex.quote(dom_file)} -r {shlex.quote(res_file)} -a -cname -resp -silent", log_fn, timeout=30, project_id=project_id)
+                for line in dx_out.splitlines():
+                    clean_l = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
+                    parts = clean_l.split()
+                    if len(parts) >= 3:
+                        h = parts[0].strip().lower()
+                        val = parts[-1].strip("[]").rstrip(".")
+                        if "[A]" in clean_l and re.match(r"^\d+\.\d+\.\d+\.\d+$", val) and scope.is_in_scope(h)[0]:
+                            if h != apex_domain and val in wildcard_ips_s1:
+                                continue
+                            cdn_tag = "Cloudflare" if val.startswith(("104.16.", "104.17.", "104.18.", "104.19.", "104.20.", "104.21.", "172.64.", "172.67.", "188.114.")) else ""
+                            agent.db.upsert_domain(project_id, h, ip=val, cdn_waf=cdn_tag, source="dnsx_verified")
+                        elif "[CNAME]" in clean_l and "." in val and scope.is_in_scope(h)[0]:
+                            cdn_tag = "Cloudflare" if "cloudflare" in val.lower() else ""
+                            agent.db.upsert_domain(project_id, h, cname=val, cdn_waf=cdn_tag, source="dnsx_verified")
 
-    # 2.3 Dig Deep DNS & Zone Transfer (AXFR) Audit
     if "dig" in active_ids and agent._find_binary("dig"):
         log_fn(f"[Tool 2.3 -> Dig Deep DNS & AXFR] {apex_domain} NS serverlarida Zone Transfer (AXFR) zaifligi tekshirilmoqda...")
         ns_out = agent._run_cli(f"dig +short NS {safe_apex}", log_fn, timeout=8, project_id=project_id)
         for ns_line in ns_out.splitlines()[:4]:
-            ns_host = ns_line.strip().rstrip(".")
-            if ns_host and "." in ns_host:
+            ns_host = ns_line.strip().rstrip(".").lower()
+            if ns_host and "." in ns_host and (ns_host.endswith("." + apex_domain) or scope.is_in_scope(ns_host)[0]):
                 axfr_out = agent._run_cli(f"dig @{shlex.quote(ns_host)} {safe_apex} AXFR +time=3 +tries=1", log_fn, timeout=8, project_id=project_id)
                 if "XFR size" in axfr_out or ("\tIN\tA\t" in axfr_out and "Transfer failed" not in axfr_out):
                     agent.db.upsert_finding(
@@ -728,7 +721,7 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
         for sip in smb_ips[:3]:
             canon_h = ip_to_primary_host.get(sip, sip)
             log_fn(f"[Tool 13.1 -> NetExec (nxc) SMB] {sip}:445 da OS versiyasi, Domain nomi va SMB Signing tekshirilmoqda...")
-            nxc_out = agent._run_cli(f"{nxc_bin} smb {shlex.quote(sip)}", log_fn, timeout=20, project_id=project_id)
+            nxc_out = agent._run_cli([nxc_bin, "smb", "--", sip], log_fn, timeout=20, project_id=project_id)
             if nxc_out.strip():
                 clean_line = nxc_out.strip().splitlines()[-1]
                 log_fn(f"  [NetExec-SMB] {clean_line}")
@@ -744,7 +737,7 @@ def run_deep_network_and_ad_tools(agent, project_id: int, primary_host: str, act
         ssh_ips = sorted({p.get("ip") or p.get("host") for p in ports_now if int(p.get("port", 0)) == 22 and (p.get("ip") or p.get("host"))})
         for ship in ssh_ips[:2]:
             canon_h = ip_to_primary_host.get(ship, ship)
-            nxc_ssh = agent._run_cli(f"{nxc_bin} ssh {shlex.quote(ship)}", log_fn, timeout=12, project_id=project_id)
+            nxc_ssh = agent._run_cli([nxc_bin, "ssh", "--", ship], log_fn, timeout=12, project_id=project_id)
             if nxc_ssh.strip():
                 ssh_line = nxc_ssh.strip().splitlines()[-1]
                 m_ssh_ver = re.search(r"\[\*\]\s*(.+)$", ssh_line)
@@ -772,23 +765,20 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
     import os
     import re
     import shlex
+    import tempfile
     import threading
 
     safe_url = shlex.quote(url)
     safe_dom = shlex.quote(dom)
     js_lock = threading.Lock()
+    tmp_web_obj = tempfile.TemporaryDirectory(prefix=f"spectre_web_{project_id}_")
+    tmp_web = tmp_web_obj.name
 
     def _task_whatweb():
         if "whatweb" in active_ids and agent._find_binary("whatweb") and is_high_val:
-            dom_slug = re.sub(r"[^a-zA-Z0-9]", "_", dom)[:30]
-            ww_json_file = f"/tmp/spectre_ww_{project_id}_{dom_slug}.json"
-            try:
-                if os.path.exists(ww_json_file):
-                    os.remove(ww_json_file)
-            except Exception:
-                pass
+            ww_json_file = os.path.join(tmp_web, "whatweb.json")
             log_fn(f"[Tool 4.2 -> WhatWeb Deep -a 3] {url} texnologik steki va plaginlari JSON formatda chuqur tahlil qilinmoqda...")
-            ww_out = agent._run_cli(f"whatweb --color=never -a 3 --log-json={ww_json_file} {safe_url}", log_fn, timeout=25, project_id=project_id)
+            ww_out = agent._run_cli(["whatweb", "--color=never", "-a", "3", f"--log-json={ww_json_file}", "--", url], log_fn, timeout=25, project_id=project_id)
             ww_techs = []
             if os.path.exists(ww_json_file):
                 try:
@@ -836,7 +826,7 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
     def _task_httpx():
         if "httpx" in active_ids and agent._find_binary("httpx") and is_high_val:
             hx_bin = agent._find_binary("httpx")
-            hx_out = agent._run_cli(f"{hx_bin} -u {safe_url} -silent -title -tech-detect -status-code -server -json", log_fn, timeout=18, project_id=project_id)
+            hx_out = agent._run_cli([hx_bin, "-u", url, "-silent", "-title", "-tech-detect", "-status-code", "-server", "-json"], log_fn, timeout=18, project_id=project_id)
             for line in hx_out.splitlines():
                 if line.strip().startswith("{"):
                     try:
@@ -965,52 +955,46 @@ def run_deep_web_and_fuzz_tools(agent, project_id: int, url: str, dom: str, prim
 
     def _task_ffuf():
         if "ffuf" in active_ids and agent._find_binary("ffuf") and os.path.exists(seclists_common) and is_fuzz_target:
-            ffuf_json = f"/tmp/spectre_ffuf_{project_id}.json"
-            try:
+            with tempfile.TemporaryDirectory(prefix=f"spectre_ffuf_{project_id}_") as ffuf_tmp:
+                ffuf_json = os.path.join(ffuf_tmp, "ffuf.json")
+                log_fn(f"[Tool 6.1 -> FFUF Auto-Calibrated (-ac) SecLists] {url}/FUZZ da yashirin katalog va fayllar qidirilmoqda...")
+                agent._run_cli(
+                    f"ffuf -u {safe_url}/FUZZ -w {shlex.quote(seclists_common)} -mc 200,204,301,302,307,401,403,405 -ac -t 20 -rate 120 -maxtime 20 -of json -o {shlex.quote(ffuf_json)} -s",
+                    log_fn,
+                    timeout=25,
+                    project_id=project_id,
+                )
                 if os.path.exists(ffuf_json):
-                    os.remove(ffuf_json)
-            except Exception:
-                pass
-            log_fn(f"[Tool 6.1 -> FFUF Auto-Calibrated (-ac) SecLists] {url}/FUZZ da yashirin katalog va fayllar qidirilmoqda...")
-            agent._run_cli(
-                f"ffuf -u {safe_url}/FUZZ -w {seclists_common} -mc 200,204,301,302,307,401,403,405 -ac -t 20 -rate 120 -maxtime 20 -of json -o {ffuf_json} -s",
-                log_fn,
-                timeout=25,
-                project_id=project_id,
-            )
-            if os.path.exists(ffuf_json):
-                try:
-                    f_data = json.load(open(ffuf_json, "r", errors="ignore"))
-                    for res in f_data.get("results", [])[:60]:
-                        f_url = res.get("url", "")
-                        f_stat = int(res.get("status", 0))
-                        f_len = int(res.get("length", 0))
-                        if f_url:
-                            agent._record_discovered_url(project_id, f_url, url, scope, f"ffuf_ac_{f_stat}")
-                            log_fn(f"  [FFUF-Hit] HTTP {f_stat} ({f_len}B) -> {f_url}")
-                except Exception as ex:
-                    log_fn(f"  [!] FFUF JSON parse ogohlantirish: {ex}")
+                    try:
+                        with open(ffuf_json, "r", encoding="utf-8", errors="ignore") as fh_f:
+                            f_data = json.load(fh_f)
+                        for res in f_data.get("results", [])[:60]:
+                            f_url = res.get("url", "")
+                            f_stat = int(res.get("status", 0))
+                            f_len = int(res.get("length", 0))
+                            if f_url:
+                                agent._record_discovered_url(project_id, f_url, url, scope, f"ffuf_ac_{f_stat}")
+                                log_fn(f"  [FFUF-Hit] HTTP {f_stat} ({f_len}B) -> {f_url}")
+                    except Exception as ex:
+                        log_fn(f"  [!] FFUF JSON parse ogohlantirish: {ex}")
 
     def _task_arjun_parallel():
         if "arjun" in active_ids and agent._find_binary("arjun") and dom == primary_host:
-            arjun_json = f"/tmp/spectre_arjun_{project_id}.json"
-            try:
+            with tempfile.TemporaryDirectory(prefix=f"spectre_arjun_{project_id}_") as arj_tmp:
+                arjun_json = os.path.join(arj_tmp, "arjun.json")
+                log_fn(f"[Tool 5.8 -> Arjun Parameter Miner] {url} da yashirin GET parametrlar qidirilmoqda...")
+                agent._run_cli(f"arjun -u {safe_url} -oJ {shlex.quote(arjun_json)} -q -t 8", log_fn, timeout=25, project_id=project_id)
                 if os.path.exists(arjun_json):
-                    os.remove(arjun_json)
-            except Exception:
-                pass
-            log_fn(f"[Tool 5.8 -> Arjun Parameter Miner] {url} da yashirin GET parametrlar qidirilmoqda...")
-            agent._run_cli(f"arjun -u {safe_url} -oJ {arjun_json} -q -t 8", log_fn, timeout=25, project_id=project_id)
-            if os.path.exists(arjun_json):
-                try:
-                    a_data = json.load(open(arjun_json, "r", errors="ignore"))
-                    for ep_u, ep_info in a_data.items():
-                        params_found = ep_info.get("params", []) if isinstance(ep_info, dict) else []
-                        if params_found:
-                            log_fn(f"  [Arjun-Params] {ep_u} -> {params_found}")
-                            agent._record_discovered_url(project_id, ep_u, url, scope, "arjun_miner", extra_params=params_found)
-                except Exception:
-                    pass
+                    try:
+                        with open(arjun_json, "r", encoding="utf-8", errors="ignore") as fh_a:
+                            a_data = json.load(fh_a)
+                        for ep_u, ep_info in a_data.items():
+                            params_found = ep_info.get("params", []) if isinstance(ep_info, dict) else []
+                            if params_found:
+                                log_fn(f"  [Arjun-Params] {ep_u} -> {params_found}")
+                                agent._record_discovered_url(project_id, ep_u, url, scope, "arjun_miner", extra_params=params_found)
+                    except Exception:
+                        pass
 
     ex_fz = concurrent.futures.ThreadPoolExecutor(max_workers=2)
     futs_fz = [ex_fz.submit(_task_ffuf), ex_fz.submit(_task_arjun_parallel)]
@@ -1028,9 +1012,10 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
     # 9.1 S3Scanner Cloud Bucket Auditor
     if "s3scanner" in active_ids and agent._find_binary("s3scanner"):
         base_w = apex_domain.split(".")[0]
-        b_file = f"/tmp/spectre_buckets_{project_id}.txt"
-        open(b_file, "w").write("\n".join([base_w, f"{base_w}-media", f"{base_w}-static", f"{base_w}-backup", f"{base_w}-dev"]) + "\n")
-        s3_out = agent._run_cli(f"s3scanner -bucket-file {b_file}", log_fn, timeout=20, project_id=project_id)
+        with tempfile.TemporaryDirectory(prefix=f"spectre_s3_{project_id}_") as s3_tmp:
+            b_file = os.path.join(s3_tmp, "buckets.txt")
+            Path(b_file).write_text("\n".join([base_w, f"{base_w}-media", f"{base_w}-static", f"{base_w}-backup", f"{base_w}-dev"]) + "\n", encoding="utf-8")
+            s3_out = agent._run_cli(f"s3scanner -bucket-file {shlex.quote(b_file)}", log_fn, timeout=20, project_id=project_id)
         for line in s3_out.splitlines():
             low_s3 = line.lower()
             if "exists" in low_s3 and "not_exist" not in low_s3:
@@ -1050,11 +1035,12 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
                 )
 
     # 10.1 & 10.2 TruffleHog & Gitleaks on Workspace / Source Code & Downloaded JS Cache
+    from core.http_engine import get_project_js_cache_dir
     proj = bundle.get("project", {}) or {}
     scan_dirs = []
     if proj.get("source_code_path", "").strip() and os.path.isdir(proj.get("source_code_path", "").strip()):
         scan_dirs.append(proj.get("source_code_path", "").strip())
-    js_cache_d = f"/tmp/spectre_js_cache_{project_id}"
+    js_cache_d = str(get_project_js_cache_dir(project_id))
     if os.path.isdir(js_cache_d) and os.listdir(js_cache_d):
         scan_dirs.append(js_cache_d)
 
@@ -1087,27 +1073,30 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
                     except Exception:
                         pass
         if "gitleaks" in active_ids and agent._find_binary("gitleaks"):
-            gl_json = f"/tmp/spectre_gitleaks_{project_id}.json"
-            agent._run_cli(f"gitleaks detect --no-git -s {safe_dir} -r {gl_json}", log_fn, timeout=25, project_id=project_id)
-            if os.path.exists(gl_json):
-                try:
-                    for gitem in (json.load(open(gl_json, "r", errors="ignore")) or [])[:20]:
-                        rule_id = gitem.get("RuleID", "Hardcoded-Secret")
-                        sec_val = str(gitem.get("Secret") or gitem.get("Match") or "").strip()
-                        if sec_val and sec_val[:48] in seen_secret_vals:
-                            continue
-                        if sec_val:
-                            seen_secret_vals.add(sec_val[:48])
-                        f_path = os.path.basename(str(gitem.get("File", scan_dir))) or scan_dir
-                        agent.db.upsert_finding(
-                            project_id, "SPECTRE-Agent1 (Gitleaks)", f"[CONFIRMED] Gitleaks Secret Leak ({rule_id})",
-                            "Cryptographic / Secret Exposure", "High", 8.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
-                            "CWE-798", "A07:2021 - Identification and Authentication Failures", f_path,
-                            f"Rule: {rule_id} | Match: {str(gitem.get('Match', ''))[:90]}",
-                            "Gitleaks tomonidan manba kodida hardcoded kalit aniqlandi.", "Kalitni koddan o'chiring va yangilang.", confidence="Confirmed-PoC"
-                        )
-                except Exception:
-                    pass
+            with tempfile.TemporaryDirectory(prefix=f"spectre_gl_{project_id}_") as gl_tmp:
+                gl_json = os.path.join(gl_tmp, "gitleaks.json")
+                agent._run_cli(f"gitleaks detect --no-git -s {safe_dir} -r {shlex.quote(gl_json)}", log_fn, timeout=25, project_id=project_id)
+                if os.path.exists(gl_json):
+                    try:
+                        with open(gl_json, "r", encoding="utf-8", errors="ignore") as fh_gl:
+                            gl_rows = json.load(fh_gl) or []
+                        for gitem in gl_rows[:20]:
+                            rule_id = gitem.get("RuleID", "Hardcoded-Secret")
+                            sec_val = str(gitem.get("Secret") or gitem.get("Match") or "").strip()
+                            if sec_val and sec_val[:48] in seen_secret_vals:
+                                continue
+                            if sec_val:
+                                seen_secret_vals.add(sec_val[:48])
+                            f_path = os.path.basename(str(gitem.get("File", scan_dir))) or scan_dir
+                            agent.db.upsert_finding(
+                                project_id, "SPECTRE-Agent1 (Gitleaks)", f"[CONFIRMED] Gitleaks Secret Leak ({rule_id})",
+                                "Cryptographic / Secret Exposure", "High", 8.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                                "CWE-798", "A07:2021 - Identification and Authentication Failures", f_path,
+                                f"Rule: {rule_id} | Match: {str(gitem.get('Match', ''))[:90]}",
+                                "Gitleaks tomonidan manba kodida hardcoded kalit aniqlandi.", "Kalitni koddan o'chiring va yangilang.", confidence="Confirmed-PoC"
+                            )
+                    except Exception:
+                        pass
 
     # 12.1 Holehe Corporate Email OSINT Account Checker
     if "holehe" in active_ids and agent._find_binary("holehe"):
@@ -1115,7 +1104,9 @@ def run_deep_cloud_osint_and_vuln_tools(agent, project_id: int, apex_domain: str
             if "Email" in f.get("title", ""):
                 emails = re.findall(r"[a-zA-Z0-9._%+-]+@" + re.escape(apex_domain), f.get("evidence", ""))
                 for em in emails[:2]:
-                    hh_out = agent._run_cli(f"holehe {shlex.quote(em)} --only-used --no-color", log_fn, timeout=20, project_id=project_id)
+                    if em.startswith("-"):
+                        continue
+                    hh_out = agent._run_cli(f"holehe --only-used --no-color -- {shlex.quote(em)}", log_fn, timeout=20, project_id=project_id)
                     used_svcs = [l.strip() for l in hh_out.splitlines() if "[+]" in l]
                     if used_svcs:
                         agent.db.log_task(project_id, "SPECTRE-Agent1", "holehe", "COMPLETED", f"holehe {em}", ", ".join(used_svcs[:10]))

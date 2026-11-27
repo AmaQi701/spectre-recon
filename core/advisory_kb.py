@@ -4,9 +4,15 @@ import json
 import re
 from pathlib import Path
 from typing import Any
-from core.native_bridge import fast_compare_distro_versions
+from core.native_bridge import (
+    fast_compare_distro_versions,
+    fast_rust_consolidate_cpe,
+    fast_rust_lookup_cve,
+)
 
-_SEMVER_RE = re.compile(r"(?i)^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:p(\d+)|([a-z])(?![a-z]))?")
+_SEMVER_RE = re.compile(
+    r"(?i)^(?:\d+:)?v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:p(\d+)|([a-z]{1,3})(?![a-z0-9]))?(?:[-~](rc|alpha|beta|pre|dev)(\d*))?"
+)
 _NOISE_BRACKETS_RE = re.compile(r"(?i)\[(?:http-title|ssl-cert|http-robots\.txt|http-favicon):[^\]]*\]")
 _RAW_CAT = json.loads((Path(__file__).resolve().parent.parent / "config" / "advisory_catalog.json").read_text(encoding="utf-8"))
 _PRODUCT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple((str(p), re.compile(str(pat))) for p, pat in _RAW_CAT["product_patterns"])
@@ -42,8 +48,8 @@ def is_openssh_cve_2024_6387_backported(raw_text: str) -> bool:
     return False
 
 
-def parse_semver(version_str: str) -> tuple[int, int, int, int] | None:
-    """Converts version strings such as `2.4.49`, `8.9p1`, or `1.1.1k` into a 4-int tuple."""
+def parse_semver(version_str: str) -> tuple[int, int, int, int, int] | None:
+    """Converts version strings (`2.4.49`, `8.9p1`, `1.0.2za`, `2.4.50-rc1`) into a 5-int tuple."""
     s = (version_str or "").strip()
     m = _SEMVER_RE.match(s)
     if not m:
@@ -54,10 +60,19 @@ def parse_semver(version_str: str) -> tuple[int, int, int, int] | None:
     if m.group(4):
         sub = int(m.group(4))
     elif m.group(5):
-        sub = ord(m.group(5).lower()) - ord("a") + 1
+        sub = 0
+        for ch in m.group(5).lower():
+            sub = sub * 26 + (ord(ch) - ord("a") + 1)
     else:
         sub = 0
-    return (major, minor, patch, sub)
+    if m.group(6):
+        tag_l = m.group(6).lower()
+        tag_base = {"dev": -400, "alpha": -300, "beta": -200, "pre": -150, "rc": -100}.get(tag_l, -100)
+        tag_num = int(m.group(7)) if m.group(7) else 0
+        pre = tag_base + min(tag_num, 89)
+    else:
+        pre = 0
+    return (major, minor, patch, sub, pre)
 
 
 def version_in_range(ver_str: str, min_inclusive: str, max_exclusive: str) -> bool:
@@ -93,7 +108,8 @@ def _extract_with_local_context(raw_text: str) -> list[tuple[str, str, str]]:
             if prod == "mysql" and has_mariadb:
                 continue
             for m in pat.finditer(seg_s):
-                ver = m.group(1)
+                raw_v = m.group(1)
+                ver = raw_v.split(":", 1)[1] if ":" in raw_v and raw_v.split(":", 1)[0].isdigit() else raw_v
                 pair = (prod, ver)
                 if pair not in seen:
                     seen.add(pair)
@@ -109,7 +125,12 @@ def extract_product_versions(raw_text: str) -> list[tuple[str, str]]:
 
 def extract_cpe_inventory(raw_text: str) -> list[str]:
     """Returns canonical NIST CPE 2.3 identifiers for all versioned products in `raw_text`."""
-    return list(dict.fromkeys(build_cpe23(p, v) for p, v, _ in _extract_with_local_context(raw_text)))
+    cpes = [build_cpe23(p, v) for p, v, _ in _extract_with_local_context(raw_text)]
+    for rs_item in fast_rust_consolidate_cpe(sanitize_banner_text(raw_text)):
+        cpe_s = str(rs_item.get("cpe23") or "")
+        if cpe_s:
+            cpes.append(cpe_s)
+    return list(dict.fromkeys(cpes))
 
 
 def match_version_advisories(raw_text: str) -> list[dict[str, Any]]:
@@ -141,6 +162,11 @@ def match_version_advisories(raw_text: str) -> list[dict[str, Any]]:
         best["cve"] = ", ".join(all_cves)
         best["detected_version"] = best_ver
         best["cpe23"] = build_cpe23(prod, best_ver)
+        for cid in all_cves:
+            rs_meta = fast_rust_lookup_cve(cid)
+            if rs_meta and rs_meta.get("is_kev"):
+                best["is_kev"] = True
+                break
 
         local_distro = bool(_DISTRO_MARKER_RE.search(best_win))
         ssh_bp_best = is_openssh_cve_2024_6387_backported(best_win)
@@ -236,15 +262,47 @@ def compare_distro_versions(v1: str, v2: str) -> int:
 
 
 def detect_distro_family(os_release_text: str) -> str:
-    low = (os_release_text or "").lower()
+    raw = os_release_text or ""
+    kv: dict[str, str] = {}
+    for ln in raw.splitlines():
+        s = ln.strip()
+        if "=" in s and not s.startswith("#"):
+            k, v = s.split("=", 1)
+            kv[k.strip().upper()] = v.strip().strip('"').strip("'").lower()
+    if "ID" in kv:
+        os_id = kv.get("ID", "")
+        ver_id = kv.get("VERSION_ID", "") or kv.get("PRETTY_NAME", "")
+        codename = kv.get("VERSION_CODENAME", "")
+        if os_id == "ubuntu":
+            if "24.04" in ver_id or codename == "noble":
+                return "ubuntu:24.04"
+            if "22.04" in ver_id or codename == "jammy":
+                return "ubuntu:22.04"
+            return ""
+        if os_id == "debian":
+            if ver_id == "12" or ver_id.startswith("12.") or " 12" in ver_id or codename == "bookworm":
+                return "debian:12"
+            return ""
+        if os_id in ("rhel", "rocky", "almalinux", "centos"):
+            if ver_id == "9" or ver_id.startswith("9.") or re.search(r"\b9(?:\.\d+|\b)", ver_id):
+                return "rhel:9"
+            return ""
+        return ""
+    low = raw.lower()
     if "ubuntu" in low:
-        if "24.04" in low or "noble" in low:
+        if re.search(r"(?:\b24\.04\b|~24\.04|\bnoble\b)", low):
             return "ubuntu:24.04"
-        if "22.04" in low or "jammy" in low:
+        if re.search(r"(?:\b22\.04\b|~22\.04|\bjammy\b)", low):
             return "ubuntu:22.04"
-    if "debian" in low and ("12" in low or "bookworm" in low):
+        return ""
+    if ("debian" in low or "deb12" in low or "bookworm" in low) and re.search(
+        r"(?:\bdebian\s+gnu/linux\s+12\b|\bbookworm\b|deb12(?:u\d+|\b))", low
+    ):
         return "debian:12"
-    if any(k in low for k in ("rhel", "red hat", "rocky", "almalinux", "centos stream")) and ("9" in low or "el9" in low):
+    if re.search(
+        r"\b(?:red\s+hat(?:\s+enterprise\s+linux)?|rhel|rocky(?:\s+linux)?|alma(?:\s*linux)?|centos(?:\s+stream)?)\s+9(?:\.\d+|\b)",
+        low,
+    ) or re.search(r"(?:\bel9(?:_\d+|\b)|\.el9)", low):
         return "rhel:9"
     return ""
 

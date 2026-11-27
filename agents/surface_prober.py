@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import re
+import socket
 import time
 import urllib.parse
 import warnings
@@ -11,7 +12,6 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from core.native_bridge import fast_dual_baseline_threshold
-from core.threat_intel_pack import EXTENDED_FAVICON_MMH3, lookup_favicon_mmh3_offline
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 urllib3_disable = getattr(requests.packages, "urllib3", None)
@@ -19,37 +19,9 @@ if urllib3_disable:
     urllib3_disable.disable_warnings()
 
 
-# --- 3 (SHODAN COMPATIBLE) ---
-FAVICON_SIGNATURES = dict(EXTENDED_FAVICON_MMH3)
-
-
 def murmur3_32(data: bytes, seed: int = 0) -> int:
     from core.native_bridge import fast_mmh3_signed
     return fast_mmh3_signed(data, seed)
-
-
-def fingerprint_favicon(session, base_url: str, db, project_id: int, log_fn) -> tuple[int | None, str]:
-    fav_url = urllib.parse.urljoin(base_url, "/favicon.ico")
-    try:
-        r = session.get(fav_url, timeout=6, verify=False)
-        if r.status_code == 200 and len(r.content) > 40 and "text/html" not in r.headers.get("Content-Type", "").lower():
-            b64_data = base64.encodebytes(r.content)
-            f_hash = murmur3_32(b64_data)
-            matched_tech = lookup_favicon_mmh3_offline(f_hash) or FAVICON_SIGNATURES.get(f_hash, "")
-            log_fn(f"  [+] Favicon Hash ({base_url}): http.favicon.hash:{f_hash} {f'[{matched_tech}]' if matched_tech else ''}")
-            if matched_tech:
-                db.upsert_finding(
-                    project_id, "SPECTRE-Agent1 (Favicon)", f"Technology Identified via Favicon Hash: {matched_tech}",
-                    "Technology Fingerprinting", "Low", 2.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
-                    "CWE-200", "A05:2021 - Security Misconfiguration", fav_url,
-                    f"Shodan Query: http.favicon.hash:{f_hash} -> {matched_tech}",
-                    "Favicon MurmurHash3 xeshi orqali serverdagi tizim aniqlandi.",
-                    "Maxfiy admin panellarda standart favicon.ico faylini o'zgartiring.",
-                )
-            return f_hash, matched_tech
-    except Exception:
-        pass
-    return None, ""
 
 
 # --- -STANDARD WEB PORT PROBER ---
@@ -172,34 +144,67 @@ def hunt_virtual_hosts(db, session, project_id: int, apex_domain: str, log_fn):
     if not unique_ips:
         return
 
+    def _vhost_fetch(scheme: str, ip_a: str, host_hdr: str) -> tuple[int, bytes, str]:
+        if scheme == "https":
+            import ssl as _ssl
+            ctx = _ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = _ssl.CERT_NONE
+            req_b = (
+                f"GET / HTTP/1.1\r\nHost: {host_hdr}\r\n"
+                "User-Agent: Mozilla/5.0 (X11; Linux x86_64) SPECTRE/9.5\r\n"
+                "Accept: text/html,*/*\r\nConnection: close\r\n\r\n"
+            ).encode("ascii", errors="ignore")
+            with socket.create_connection((ip_a, 443), timeout=3.5) as raw_s:
+                with ctx.wrap_socket(raw_s, server_hostname=host_hdr) as tls_s:
+                    tls_s.settimeout(3.5)
+                    tls_s.sendall(req_b)
+                    chunks = []
+                    total = 0
+                    while total < 131072:
+                        ch = tls_s.recv(8192)
+                        if not ch:
+                            break
+                        chunks.append(ch)
+                        total += len(ch)
+            raw_resp = b"".join(chunks)
+            hdr_b, _, body_b = raw_resp.partition(b"\r\n\r\n")
+            m_st = re.match(rb"^HTTP/\d(?:\.\d)?\s+(\d{3})", hdr_b)
+            code = int(m_st.group(1)) if m_st else 0
+            return code, body_b, body_b[:50000].decode("utf-8", errors="ignore")
+        r_vh = session.get(f"http://{ip_a}", headers={"Host": host_hdr}, timeout=3.5, verify=False, allow_redirects=False)
+        return r_vh.status_code, r_vh.content, r_vh.text[:50000]
+
     log_fn(f"[SPECTRE VHost Hunter] {len(unique_ips)} ta asosiy IP serverda DNS'da yo'q yashirin VirtualHost'lar parallel tekshirilmoqda...")
     for ip in unique_ips:
-        base_url = ""
+        base_sch = ""
         base_status = 0
         base_len = 0
         base_title = ""
         base_jitter = 0
         for sch in ("https", "http"):
             try:
-                r_base = session.get(f"{sch}://{ip}", headers={"Host": f"nonexistent-99182.{apex_domain}"}, timeout=3.5, verify=False, allow_redirects=False)
-                r_base2 = session.get(f"{sch}://{ip}", headers={"Host": f"nonexistent-44821.{apex_domain}"}, timeout=3.5, verify=False, allow_redirects=False)
-                base_url = f"{sch}://{ip}"
-                base_status = r_base.status_code
-                base_len = len(r_base.content)
-                base_jitter = abs(len(r_base.content) - len(r_base2.content))
-                soup_b = BeautifulSoup(r_base.text[:50000], "html.parser")
+                st1, b1, t1 = _vhost_fetch(sch, ip, f"nonexistent-99182.{apex_domain}")
+                _, b2, _ = _vhost_fetch(sch, ip, f"nonexistent-44821.{apex_domain}")
+                if st1 <= 0:
+                    continue
+                base_sch = sch
+                base_status = st1
+                base_len = len(b1)
+                base_jitter = abs(len(b1) - len(b2))
+                soup_b = BeautifulSoup(t1, "html.parser")
                 base_title = soup_b.title.string.strip() if (soup_b.title and soup_b.title.string) else ""
                 break
             except Exception:
                 continue
-        if not base_url:
+        if not base_sch:
             continue
         main_len = -1
         main_title = ""
         try:
-            r_main = session.get(base_url, headers={"Host": apex_domain}, timeout=3.5, verify=False, allow_redirects=False)
-            main_len = len(r_main.content)
-            soup_m = BeautifulSoup(r_main.text[:50000], "html.parser")
+            _, b_m, t_m = _vhost_fetch(base_sch, ip, apex_domain)
+            main_len = len(b_m)
+            soup_m = BeautifulSoup(t_m, "html.parser")
             main_title = soup_m.title.string.strip() if (soup_m.title and soup_m.title.string) else ""
         except Exception:
             pass
@@ -211,24 +216,24 @@ def hunt_virtual_hosts(db, session, project_id: int, apex_domain: str, log_fn):
             if cand_vhost in existing_hosts:
                 return
             try:
-                r = session.get(base_url, headers={"Host": cand_vhost}, timeout=3.5, verify=False, allow_redirects=False)
-                if r.status_code == 200 and (r.status_code != base_status or abs(len(r.content) - base_len) > min_diff):
-                    soup = BeautifulSoup(r.text[:50000], "html.parser")
+                st_c, b_c, t_c = _vhost_fetch(base_sch, ip, cand_vhost)
+                if st_c == 200 and (st_c != base_status or abs(len(b_c) - base_len) > min_diff):
+                    soup = BeautifulSoup(t_c, "html.parser")
                     title = soup.title.string.strip() if (soup.title and soup.title.string) else ""
-                    if base_title and title == base_title and abs(len(r.content) - base_len) <= max(min_diff, int(base_len * 0.15)):
+                    if base_title and title == base_title and abs(len(b_c) - base_len) <= max(min_diff, int(base_len * 0.15)):
                         return
-                    if main_len > 0 and title == main_title and abs(len(r.content) - main_len) <= max(500, int(main_len * 0.15)):
+                    if main_len > 0 and title == main_title and abs(len(b_c) - main_len) <= max(500, int(main_len * 0.15)):
                         return
                     db.upsert_domain(project_id, cand_vhost, ip=ip, source="vhost_fuzz")
                     db.upsert_finding(
                         project_id, "SPECTRE-Agent1 (VHost)", f"Hidden VirtualHost Discovered ({cand_vhost} on {ip})",
                         "Hidden Infrastructure (VHost)", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
                         "CWE-200", "A05:2021 - Security Misconfiguration", f"{ip} (Host: {cand_vhost})",
-                        f"HTTP {r.status_code} | Len: {len(r.content)} (Baseline: {base_len}) | Title: {title[:50]}",
+                        f"HTTP {st_c} | Len: {len(b_c)} (Baseline: {base_len}) | Title: {title[:50]}",
                         "Ommaviy DNS'da yo'q bo'lgan, lekin serverda sozlangan yashirin VirtualHost aniqlandi.",
                         "Ichki VirtualHost'larni faqat ichki IP interfeyslarida tinglaydigan qiling.",
                     )
-                    log_fn(f"  [HIDDEN-VHOST] {cand_vhost} @ {ip} -> HTTP {r.status_code} (Title: {title[:40]})")
+                    log_fn(f"  [HIDDEN-VHOST] {cand_vhost} @ {ip} -> HTTP {st_c} (Title: {title[:40]})")
             except Exception:
                 pass
 
@@ -450,7 +455,15 @@ def build_target_dossier(db, project_id: int, selected_domain: str = "") -> str:
         h for h in https
         if urllib.parse.urlparse(h["url"]).hostname in (selected_domain, f"www.{selected_domain}", ip)
     ]
-    host_finds = [f for f in findings if selected_domain in f["asset"] or (ip and ip in f["asset"])]
+    def _matches_asset_host(asset_val: str) -> bool:
+        av = str(asset_val or "")
+        if selected_domain and re.search(r"(?<![a-z0-9.\-])" + re.escape(selected_domain.lower()) + r"(?![a-z0-9\-])", av.lower()):
+            return True
+        if ip and re.search(r"(?<![0-9.])" + re.escape(ip) + r"(?![0-9.])", av):
+            return True
+        return False
+
+    host_finds = [f for f in findings if _matches_asset_host(f.get("asset", ""))]
 
     rec_raw = dom_obj.get("records_json") or "{}"
     try:
@@ -627,12 +640,12 @@ def probe_api_versions_and_ghost_endpoints(db, project_id: int, log_fn, session:
     def check_ghost(wb_url: str):
         p_u = urllib.parse.urlparse(wb_url)
         origin = f"{p_u.scheme}://{p_u.netloc}"
-        cal_stat, cal_len, cal_hash = host_cal.get(origin, (-1, -1, ""))
+        cal_stat, cal_len, cal_hash, cal_sk = host_cal.get(origin, (-1, -1, "", 0))
         try:
             with http_client.get(wb_url, headers=req_hdrs, timeout=(2.5, 3.0), verify=False, allow_redirects=False, stream=True) as r:
-                chunk_b, chunk_h = _read_capped(r)
+                chunk_b, chunk_h, chunk_sk = _read_capped(r)
                 code = r.status_code
-            if code == cal_stat and ((cal_hash and chunk_h == cal_hash) or abs(len(chunk_b) - cal_len) < 80):
+            if code == cal_stat and ((cal_hash and chunk_h == cal_hash) or (cal_sk and chunk_sk == cal_sk) or abs(len(chunk_b) - cal_len) < 80):
                 return
             if code in (200, 401, 403, 405):
                 db.upsert_endpoint(project_id, wb_url, method="GET", category="high_value_endpoint", risk_tags=["Zombie_Ghost_Endpoint"], status_code=code, source="wayback_verified")

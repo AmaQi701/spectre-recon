@@ -1,4 +1,4 @@
-// SPECTRE Polyglot Rust Security Kernel (`libspectre_rust_core.so` — ABI v850)
+// SPECTRE Polyglot Rust Security Kernel (`libspectre_rust_core.so` — ABI v950)
 // Compiled with: rustc -O --crate-type cdylib spectre_rust_core.rs -o libspectre_rust_core.so
 // Memory-safe, zero-dependency Rust FFI kernel accelerating:
 //   1. Debian Policy 5.6.12 & RPM Epoch-Upstream-Revision Distro LSC Comparator
@@ -10,6 +10,7 @@
 pub mod rust_cleanroom_nvd_cpe_pack;
 pub mod rust_cpe_advisory_engine;
 pub mod rust_cpe_consolidator;
+pub mod rust_kernel_selftest;
 pub mod rust_kev_cve_part1;
 pub mod rust_kev_cve_part2;
 pub mod rust_kev_cve_part3;
@@ -365,34 +366,48 @@ pub extern "C" fn spectre_rust_cvss31_score(vec_ptr: *const u8, vec_len: usize) 
         Ok(s) => s.trim(),
         Err(_) => return 0.0,
     };
+    let low_pfx = vec_str.as_bytes();
+    let has_v3_hdr = low_pfx.len() >= 9
+        && low_pfx[..5].eq_ignore_ascii_case(b"CVSS:")
+        && (&low_pfx[5..9] == b"3.1/" || &low_pfx[5..9] == b"3.0/");
+    if !has_v3_hdr {
+        return 0.0;
+    }
 
     let (mut av, mut ac, mut ui, mut c_w, mut i_w, mut a_w): (f64, f64, f64, f64, f64, f64) =
         (-1.0, -1.0, -1.0, -1.0, -1.0, -1.0);
     let (mut pr_tok, mut scope_tok) = (0u8, 0u8);
 
-    for tok in vec_str.split('/') {
-        if let Some((k_raw, v_raw)) = tok.split_once(':') {
-            if k_raw.eq_ignore_ascii_case("CVSS") {
-                continue;
-            }
-            let v_up = v_raw.trim().as_bytes().first().map(|b| b.to_ascii_uppercase()).unwrap_or(0);
-            if k_raw.eq_ignore_ascii_case("AV") {
-                av = match v_up { b'N' => 0.85, b'A' => 0.62, b'L' => 0.55, b'P' => 0.20, _ => return 0.0 };
-            } else if k_raw.eq_ignore_ascii_case("AC") {
-                ac = match v_up { b'L' => 0.77, b'H' => 0.44, _ => return 0.0 };
-            } else if k_raw.eq_ignore_ascii_case("PR") {
-                if matches!(v_up, b'N' | b'L' | b'H') { pr_tok = v_up; } else { return 0.0; }
-            } else if k_raw.eq_ignore_ascii_case("UI") {
-                ui = match v_up { b'N' => 0.85, b'R' => 0.62, _ => return 0.0 };
-            } else if k_raw.eq_ignore_ascii_case("S") {
-                if matches!(v_up, b'U' | b'C') { scope_tok = v_up; } else { return 0.0; }
-            } else if k_raw.eq_ignore_ascii_case("C") {
-                c_w = match v_up { b'H' => 0.56, b'L' => 0.22, b'N' => 0.0, _ => return 0.0 };
-            } else if k_raw.eq_ignore_ascii_case("I") {
-                i_w = match v_up { b'H' => 0.56, b'L' => 0.22, b'N' => 0.0, _ => return 0.0 };
-            } else if k_raw.eq_ignore_ascii_case("A") {
-                a_w = match v_up { b'H' => 0.56, b'L' => 0.22, b'N' => 0.0, _ => return 0.0 };
-            }
+    for (idx, tok) in vec_str.split('/').enumerate() {
+        if idx == 0 {
+            continue;
+        }
+        let Some((k_raw, v_raw)) = tok.split_once(':') else {
+            return 0.0;
+        };
+        let vb = v_raw.trim().as_bytes();
+        if vb.len() != 1 {
+            return 0.0;
+        }
+        let v_up = vb[0].to_ascii_uppercase();
+        if k_raw.eq_ignore_ascii_case("AV") {
+            av = match v_up { b'N' => 0.85, b'A' => 0.62, b'L' => 0.55, b'P' => 0.20, _ => return 0.0 };
+        } else if k_raw.eq_ignore_ascii_case("AC") {
+            ac = match v_up { b'L' => 0.77, b'H' => 0.44, _ => return 0.0 };
+        } else if k_raw.eq_ignore_ascii_case("PR") {
+            if matches!(v_up, b'N' | b'L' | b'H') { pr_tok = v_up; } else { return 0.0; }
+        } else if k_raw.eq_ignore_ascii_case("UI") {
+            ui = match v_up { b'N' => 0.85, b'R' => 0.62, _ => return 0.0 };
+        } else if k_raw.eq_ignore_ascii_case("S") {
+            if matches!(v_up, b'U' | b'C') { scope_tok = v_up; } else { return 0.0; }
+        } else if k_raw.eq_ignore_ascii_case("C") {
+            c_w = match v_up { b'H' => 0.56, b'L' => 0.22, b'N' => 0.0, _ => return 0.0 };
+        } else if k_raw.eq_ignore_ascii_case("I") {
+            i_w = match v_up { b'H' => 0.56, b'L' => 0.22, b'N' => 0.0, _ => return 0.0 };
+        } else if k_raw.eq_ignore_ascii_case("A") {
+            a_w = match v_up { b'H' => 0.56, b'L' => 0.22, b'N' => 0.0, _ => return 0.0 };
+        } else {
+            return 0.0;
         }
     }
 
@@ -516,8 +531,7 @@ pub extern "C" fn spectre_rust_kev_cve_count() -> u32 {
 
 #[no_mangle]
 pub extern "C" fn spectre_rust_cpe_count() -> u32 {
-    (rust_cpe_advisory_engine::CPE_PRODUCTS.len()
-        + (rust_cpe_advisory_engine::SEMVER_ADVISORIES.len() * 0)) as u32
+    rust_cpe_advisory_engine::CPE_PRODUCTS.len() as u32
 }
 
 #[no_mangle]
@@ -540,7 +554,6 @@ pub extern "C" fn spectre_rust_lookup_cve_json(
             Ok(s) => s,
             Err(_) => return 0,
         };
-        let _ = rust_cpe_advisory_engine::lookup_cpe_vendor_slug("nginx");
         if let Some(json_s) = rust_kev_cve_part3::lookup_cve_json(cve_str) {
             if write_c_buf(json_s.as_bytes(), out_ptr, out_cap) {
                 return 1;
@@ -597,7 +610,6 @@ pub extern "C" fn spectre_rust_strip_comments(
     }
     catch_unwind(AssertUnwindSafe(|| {
         let raw = unsafe { slice::from_raw_parts(src_ptr, src_len) };
-        let (_, _, _) = rust_sast_lexer_engine::lexical_scope_metrics(raw);
         let cleaned = rust_sast_lexer_engine::strip_comments_preserve_lines(raw);
         if write_c_buf(&cleaned, out_ptr, out_cap) {
             return cleaned.len() as i32;
@@ -605,6 +617,22 @@ pub extern "C" fn spectre_rust_strip_comments(
         -2
     }))
     .unwrap_or(-2)
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_lexical_metrics(
+    src_ptr: *const u8,
+    src_len: usize,
+) -> u64 {
+    if src_ptr.is_null() || src_len == 0 {
+        return 0;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let raw = unsafe { slice::from_raw_parts(src_ptr, src_len) };
+        let (_, _, fp) = rust_sast_lexer_engine::lexical_scope_metrics(raw);
+        fp
+    }))
+    .unwrap_or(0)
 }
 
 #[no_mangle]
@@ -665,5 +693,165 @@ pub extern "C" fn spectre_rust_triage_brocards_score(
     }))
     .unwrap_or(0)
 }
+
+fn path_has_object_id_segment(path_s: &str) -> bool {
+    let clean = path_s.split('?').next().unwrap_or("");
+    for seg in clean.split('/') {
+        let st = seg.trim();
+        if st.is_empty() {
+            continue;
+        }
+        if st == "{param}" {
+            return true;
+        }
+        let sb = st.as_bytes();
+        if (sb[0] == b'v' || sb[0] == b'V') && sb.len() >= 2 && sb[1..].iter().all(|c| c.is_ascii_digit() || *c == b'.') {
+            continue;
+        }
+        if sb.len() <= 20 && sb.iter().all(|c| c.is_ascii_digit()) {
+            return true;
+        }
+        if sb.len() >= 8
+            && sb.iter().any(|c| c.is_ascii_digit())
+            && sb.iter().all(|c| c.is_ascii_hexdigit() || *c == b'-')
+        {
+            return true;
+        }
+        if sb.len() >= 4
+            && (st.contains('_') || st.contains('-'))
+            && sb.iter().any(|c| c.is_ascii_digit())
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn extract_json_id_pairs<'a>(body: &'a str) -> Vec<(&'a str, &'a str)> {
+    const ID_KEYS: &[&str] = &[
+        "id", "uuid", "_id", "user_id", "userId", "account_id", "accountId",
+        "order_id", "orderId", "owner_id", "ownerId", "email",
+    ];
+    let mut out = Vec::new();
+    let bytes = body.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'"' {
+            let ks = i + 1;
+            let mut ke = ks;
+            while ke < bytes.len() && bytes[ke] != b'"' {
+                if bytes[ke] == b'\\' {
+                    ke += 1;
+                }
+                ke += 1;
+            }
+            if ke >= bytes.len() {
+                break;
+            }
+            let key = &body[ks..ke];
+            i = ke + 1;
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            if i < bytes.len() && bytes[i] == b':' && ID_KEYS.iter().any(|k| *k == key) {
+                i += 1;
+                while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                    i += 1;
+                }
+                if i < bytes.len() {
+                    if bytes[i] == b'"' {
+                        let vs = i + 1;
+                        let mut ve = vs;
+                        while ve < bytes.len() && bytes[ve] != b'"' {
+                            if bytes[ve] == b'\\' {
+                                ve += 1;
+                            }
+                            ve += 1;
+                        }
+                        if ve < bytes.len() && ve > vs {
+                            let val = &body[vs..ve];
+                            if val != "null" && val != "0" {
+                                out.push((key, val));
+                            }
+                            i = ve + 1;
+                            continue;
+                        }
+                    } else if bytes[i].is_ascii_digit() {
+                        let vs = i;
+                        let mut ve = vs;
+                        while ve < bytes.len() && (bytes[ve].is_ascii_digit() || bytes[ve] == b'.') {
+                            ve += 1;
+                        }
+                        let val = &body[vs..ve];
+                        if val != "0" {
+                            out.push((key, val));
+                        }
+                        i = ve;
+                        continue;
+                    }
+                }
+            }
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_verify_access_diff(
+    path_ptr: *const u8,
+    path_len: usize,
+    body_a_ptr: *const u8,
+    body_a_len: usize,
+    body_b_ptr: *const u8,
+    body_b_len: usize,
+) -> i32 {
+    if path_ptr.is_null()
+        || path_len == 0
+        || body_a_ptr.is_null()
+        || body_a_len < 16
+        || body_b_ptr.is_null()
+        || body_b_len < 16
+    {
+        return 0;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let p_raw = unsafe { slice::from_raw_parts(path_ptr, path_len) };
+        let a_raw = unsafe { slice::from_raw_parts(body_a_ptr, body_a_len) };
+        let b_raw = unsafe { slice::from_raw_parts(body_b_ptr, body_b_len) };
+        let (Ok(path_s), Ok(body_a), Ok(body_b)) = (
+            std::str::from_utf8(p_raw),
+            std::str::from_utf8(a_raw),
+            std::str::from_utf8(b_raw),
+        ) else {
+            return 0;
+        };
+        if !path_has_object_id_segment(path_s) {
+            return 0;
+        }
+        let ids_a = extract_json_id_pairs(body_a);
+        let ids_b = extract_json_id_pairs(body_b);
+        if !ids_a.is_empty() && !ids_b.is_empty() {
+            for (ka, va) in &ids_a {
+                if ids_b.iter().any(|(kb, vb)| kb == ka && vb == va) {
+                    return 1;
+                }
+            }
+            return 0;
+        }
+        let ta = body_a.trim();
+        let tb = body_b.trim();
+        if ta.len() >= 32 && ta == tb { 1 } else { 0 }
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_kernel_selftest() -> i32 {
+    catch_unwind(AssertUnwindSafe(|| rust_kernel_selftest::run_all_rust_kernel_selftests())).unwrap_or(-99)
+}
+
+
 
 

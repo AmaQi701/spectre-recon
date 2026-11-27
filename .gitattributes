@@ -1,4 +1,4 @@
-# GitHub Linguist classification rules for SPECTRE v9.0.0 Polyglot Architecture
+# GitHub Linguist classification rules for SPECTRE v9.5.0 Polyglot Architecture
 tests/** linguist-vendored=true
 config/** linguist-vendored=true
 workspaces/** linguist-vendored=true

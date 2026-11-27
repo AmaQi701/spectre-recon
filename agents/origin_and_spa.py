@@ -6,9 +6,9 @@ import json
 import re
 import socket
 import ssl
+import threading
 import urllib.parse
 import zipfile
-import zlib
 import dns.resolver
 import dns.reversename
 import requests
@@ -191,6 +191,8 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
     ptr_resolver.timeout = 1.0
     ptr_resolver.lifetime = 1.4
 
+    ptr_lock = threading.Lock()
+
     def check_neighbor(n_ip: str):
         try:
             rev_name = dns.reversename.from_address(n_ip)
@@ -198,8 +200,10 @@ def sweep_subnet_neighbors_and_ptr(db, project_id: int, apex_domain: str, scope,
             for rdata in ans:
                 ptr_host = rdata.to_text().rstrip(".").lower()
                 if ptr_host:
-                    ptr_map[n_ip] = ptr_host
-                    if ptr_host.endswith(apex_domain) or scope.is_in_scope(ptr_host)[0]:
+                    with ptr_lock:
+                        ptr_map[n_ip] = ptr_host
+                    is_apex_sub = (ptr_host == apex_domain or ptr_host.endswith("." + apex_domain))
+                    if is_apex_sub and scope.is_in_scope(ptr_host)[0]:
                         db.upsert_domain(project_id, ptr_host, ip=n_ip, source="subnet_ptr_sweep")
                         log_fn(f"  [PTR-Hit] {n_ip} -> {ptr_host}")
         except Exception:
@@ -338,13 +342,7 @@ def hunt_deep_secrets_and_uz_ecosystem(db, session: requests.Session, project_id
 
                     extra_note = ""
                     if label == "Telegram Bot Token":
-                        try:
-                            rtg = session.get(f"https://api.telegram.org/bot{val}/getMe", timeout=4)
-                            if rtg.status_code == 200 and rtg.json().get("ok"):
-                                bot_u = rtg.json().get("result", {}).get("username", "")
-                                extra_note = f" [ACTIVE TELEGRAM BOT CONFIRMED: @{bot_u}]"
-                        except Exception:
-                            pass
+                        extra_note = " [FORMAT VERIFIED — OFFLINE PASSIVE CHECK]"
 
                     log_fn(f"  [SECRET-DETECTED] {label}: {val[:45]}... ({t_url}){extra_note}")
                     db.upsert_finding(
@@ -545,11 +543,14 @@ def extract_document_metadata_osint(db, session: requests.Session, project_id: i
             elif raw.startswith(b"PK\x03\x04"):
                 with zipfile.ZipFile(io.BytesIO(raw)) as zf:
                     if "docProps/core.xml" in zf.namelist():
-                        xml_txt = zf.read("docProps/core.xml").decode("utf-8", errors="ignore")
-                        for tag in ("dc:creator", "cp:lastModifiedBy"):
-                            m = re.search(f"<{tag}>([^<]+)</{tag}>", xml_txt)
-                            if m:
-                                meta_hits.append(f"{tag}: {m.group(1)}")
+                        info = zf.getinfo("docProps/core.xml")
+                        if info.file_size <= 524288:
+                            with zf.open(info, "r") as zf_fp:
+                                xml_txt = zf_fp.read(524288).decode("utf-8", errors="ignore")
+                            for tag in ("dc:creator", "cp:lastModifiedBy"):
+                                m = re.search(f"<{tag}>([^<]{{1,120}})</{tag}>", xml_txt)
+                                if m:
+                                    meta_hits.append(f"{tag}: {m.group(1)}")
             if meta_hits:
                 log_fn(f"  [Document-Metadata] {d_url} -> {' | '.join(meta_hits)}")
                 db.log_task(
@@ -587,7 +588,7 @@ TECH_PLAYBOOKS = {
         "label": "Laravel PHP Playbook",
     },
     "spring": {
-        "triggers": ("spring", "whitelabel error", "jsessionid"),
+        "triggers": ("spring", "whitelabel error", "x-application-context"),
         "paths": ["/actuator", "/actuator/health", "/actuator/env", "/actuator/mappings", "/v2/api-docs", "/v3/api-docs", "/swagger-ui/index.html"],
         "label": "Java Spring Boot Playbook",
     },
@@ -624,16 +625,26 @@ def run_adaptive_brain_strategy(db, session: requests.Session, project_id: int, 
         for pb_key, pb in TECH_PLAYBOOKS.items():
             if any(trig in tech_blob for trig in pb["triggers"]):
                 log_fn(f"  [TECH-PLAYBOOK] {base_url} da '{pb['label']}' aniqlandi -> Maxsus {len(pb['paths'])} ta vektor tekshirilmoqda!")
+                cal_len = -1
+                try:
+                    rc_pb = session.get(urllib.parse.urljoin(base_url, "/spectre-pb-nonexistent-99182"), timeout=3.5, verify=False, allow_redirects=False)
+                    if rc_pb.status_code == 200:
+                        cal_len = len(rc_pb.content)
+                except Exception:
+                    pass
                 for clean_p in pb["paths"]:
                     target_u = urllib.parse.urljoin(base_url, clean_p)
                     try:
                         rp = session.get(target_u, timeout=4.5, verify=False, allow_redirects=False)
+                        if cal_len >= 0 and rp.status_code == 200 and abs(len(rp.content) - cal_len) < max(64, int(cal_len * 0.12)):
+                            continue
                         if rp.status_code in (200, 401, 403, 405) and len(rp.content) > 15:
                             if record_url_fn:
                                 record_url_fn(project_id, target_u, base_url, scope, f"adaptive_{pb_key}_{rp.status_code}")
                             if rp.status_code == 200 and any(x in clean_p for x in ("users", "debug.log", "laravel.log", "actuator/env", "_ignition", "xmlrpc.php")):
+                                ctype_pb = rp.headers.get("Content-Type", "").lower()
                                 body_sample = rp.text[:220].replace("\n", " ")
-                                if "<!doctype html" not in body_sample.lower():
+                                if "text/html" not in ctype_pb and "<!doctype html" not in body_sample.lower() and "<html" not in body_sample.lower():
                                     db.upsert_finding(
                                         project_id, "SPECTRE-Origin (Tech-Playbook)", f"[CONFIRMED] Exposed {pb['label']} Sensitive Endpoint ({clean_p})",
                                         "Technology-Specific Exposure", "High", 7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",

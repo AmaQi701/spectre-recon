@@ -96,14 +96,32 @@ def load_local_kev_map() -> dict[str, str]:
 
 
 def sync_cisa_kev_feed(timeout: float = 12.0) -> dict[str, Any]:
-    """Downloads the latest official CISA KEV JSON catalog to local disk."""
+    """Downloads the latest official CISA KEV JSON catalog atomically with ETag/If-Modified-Since."""
+    import os
     KEV_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    meta_pf = KEV_CACHE_PATH.with_suffix(".meta.json")
+    req_hdrs: dict[str, str] = {}
+    if KEV_CACHE_PATH.is_file() and meta_pf.is_file():
+        try:
+            meta = json.loads(meta_pf.read_text(encoding="utf-8"))
+            if meta.get("etag"):
+                req_hdrs["If-None-Match"] = str(meta["etag"])
+            if meta.get("last_modified"):
+                req_hdrs["If-Modified-Since"] = str(meta["last_modified"])
+        except Exception:
+            pass
     try:
-        r = requests.get(CISA_KEV_URL, timeout=timeout)
+        r = requests.get(CISA_KEV_URL, headers=req_hdrs or None, timeout=timeout)
+        if r.status_code == 304 and KEV_CACHE_PATH.is_file():
+            return {"ok": True, "count": len(load_local_kev_map()), "catalog_version": "cached-304", "path": str(KEV_CACHE_PATH)}
         if r.status_code == 200 and '"vulnerabilities"' in r.text[:2000]:
             data = r.json()
             vulns = data.get("vulnerabilities", [])
-            KEV_CACHE_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            tmp_pf = KEV_CACHE_PATH.with_name(f".cisa_kev_cache.json.tmp.{os.getpid()}")
+            tmp_pf.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp_pf, KEV_CACHE_PATH)
+            meta_obj = {"etag": r.headers.get("ETag", ""), "last_modified": r.headers.get("Last-Modified", "")}
+            meta_pf.write_text(json.dumps(meta_obj), encoding="utf-8")
             return {
                 "ok": True,
                 "count": len(vulns),

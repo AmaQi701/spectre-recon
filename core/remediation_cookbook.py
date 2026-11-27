@@ -20,10 +20,11 @@ def build_safe_reproducer(finding: dict[str, Any]) -> str:
 
     if asset.startswith("ssh://"):
         p = urllib.parse.urlparse(asset)
-        qh = shlex.quote(p.hostname or "target")
+        raw_h = (p.hostname or "target").lstrip("-") or "target"
+        qh = shlex.quote(raw_h)
         qp = str(p.port or 22)
         return (
-            f"ssh -o BatchMode=yes -o ConnectTimeout=5 -p {qp} {qh} "
+            f"ssh -o BatchMode=yes -o ConnectTimeout=5 -p {qp} -- {qh} "
             "'uname -sr && (dpkg-query -W openssh-server sudo libc6 2>/dev/null || rpm -q openssh-server sudo glibc)'"
         )
 
@@ -31,35 +32,38 @@ def build_safe_reproducer(finding: dict[str, Any]) -> str:
         q_url = shlex.quote(asset)
         if "mcp" in title and "tool server" in title:
             return (
-                f"curl -i -s -k -m 8 -X POST {q_url} "
+                f"curl -i -s -k -m 8 -X POST "
                 "-H 'Content-Type: application/json' "
-                "-d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}'"
+                "-d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}' "
+                f"-- {q_url}"
             )
         if "cors" in title:
-            return f"curl -i -s -k -m 8 -H 'Origin: https://audit-check.example.org' {q_url}"
+            return f"curl -i -s -k -m 8 -H 'Origin: https://audit-check.example.org' -- {q_url}"
         if "x-forwarded-host" in title:
-            return f"curl -i -s -k -m 8 -H 'X-Forwarded-Host: audit-check.example.org' {q_url}"
+            return f"curl -i -s -k -m 8 -H 'X-Forwarded-Host: audit-check.example.org' -- {q_url}"
         if "graphql" in title and "batch" in title:
             return (
-                f"curl -i -s -k -m 8 -X POST {q_url} "
+                f"curl -i -s -k -m 8 -X POST "
                 "-H 'Content-Type: application/json' "
-                "-d '[{\"query\":\"{__typename}\"},{\"query\":\"{__typename}\"}]'"
+                "-d '[{\"query\":\"{__typename}\"},{\"query\":\"{__typename}\"}]' "
+                f"-- {q_url}"
             )
         if "tls" in cat or "certificate" in title:
             p = urllib.parse.urlparse(asset)
-            hp = p.netloc if ":" in p.netloc else f"{p.hostname}:{'443' if p.scheme == 'https' else '80'}"
-            return f"openssl s_client -connect {shlex.quote(hp)} -servername {shlex.quote(p.hostname or '')} </dev/null"
-        return f"curl -i -s -k -m 8 {q_url}"
+            safe_h = (p.hostname or "target").lstrip("-") or "target"
+            hp = f"{safe_h}:{p.port}" if p.port else f"{safe_h}:{'443' if p.scheme == 'https' else '80'}"
+            return f"openssl s_client -connect {shlex.quote(hp)} -servername {shlex.quote(safe_h)} </dev/null"
+        return f"curl -i -s -k -m 8 -- {q_url}"
 
     if ":" in asset and not asset.startswith("/") and "/" not in asset:
         host_p, port_p = asset.rsplit(":", 1)
         if port_p.isdigit() and " " not in host_p:
-            qh = shlex.quote(host_p)
+            qh = shlex.quote(host_p.lstrip("-") or "target")
             if port_p == "6379":
-                return f"printf 'INFO server\\r\\nQUIT\\r\\n' | nc -w 3 {qh} 6379"
+                return f"printf 'INFO server\\r\\nQUIT\\r\\n' | nc -w 3 -- {qh} 6379"
             if port_p in ("22", "1022"):
-                return f"ssh -vvv -o BatchMode=yes -o ConnectTimeout=4 {qh} -p {port_p} 2>&1 | grep -i kex"
-            return f"nc -vz -w 3 {qh} {port_p}"
+                return f"ssh -vvv -o BatchMode=yes -o ConnectTimeout=4 -p {port_p} -- {qh} 2>&1 | grep -i kex"
+            return f"nc -vz -w 3 -- {qh} {port_p}"
 
     if ":" in asset and ("/" in asset or "\\" in asset):
         fpath, ln_s = asset.rsplit(":", 1)

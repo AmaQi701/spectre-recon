@@ -3,6 +3,7 @@
 
 #include <arpa/inet.h>
 #include <cerrno>
+#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -109,6 +110,56 @@ uint64_t spectre_simhash64(const uint8_t* data, size_t len) {
     return out;
 }
 
+int spectre_jwt_verify_wordlist_bin(
+    const uint8_t* signing_input,
+    size_t signing_len,
+    const uint8_t* target_sig,
+    size_t sig_len,
+    int alg_bits,
+    const uint8_t* wordlist_buf,
+    size_t wordlist_len,
+    char* matched_out,
+    size_t matched_cap
+) {
+    if (!signing_input || signing_len == 0 || !target_sig || sig_len == 0 || !wordlist_buf || wordlist_len == 0 || !matched_out || matched_cap < 2) {
+        return 0;
+    }
+    const EVP_MD* md = nullptr;
+    if (alg_bits == 256) md = EVP_sha256();
+    else if (alg_bits == 384) md = EVP_sha384();
+    else if (alg_bits == 512) md = EVP_sha512();
+    else return 0;
+
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int digest_len = 0;
+    size_t pos = 0;
+    while (pos < wordlist_len) {
+        size_t end = pos;
+        while (end < wordlist_len && wordlist_buf[end] != 0) ++end;
+        size_t wlen = end - pos;
+        if (wlen > 0 && wlen <= static_cast<size_t>(INT_MAX)) {
+            digest_len = 0;
+            const unsigned char* rc_h = HMAC(
+                md, wordlist_buf + pos, static_cast<int>(wlen),
+                signing_input, signing_len, digest, &digest_len
+            );
+            if (rc_h != nullptr && digest_len == sig_len && CRYPTO_memcmp(digest, target_sig, sig_len) == 0) {
+                OPENSSL_cleanse(digest, sizeof(digest));
+                if (wlen + 1 > matched_cap) {
+                    matched_out[0] = '\0';
+                    return -2;
+                }
+                std::memcpy(matched_out, wordlist_buf + pos, wlen);
+                matched_out[wlen] = '\0';
+                return 1;
+            }
+        }
+        pos = end + 1;
+    }
+    OPENSSL_cleanse(digest, sizeof(digest));
+    return 0;
+}
+
 int spectre_jwt_verify_wordlist(
     const uint8_t* signing_input,
     size_t signing_len,
@@ -119,10 +170,12 @@ int spectre_jwt_verify_wordlist(
     char* matched_out,
     size_t matched_cap
 ) {
-    if (!signing_input || !target_sig || !wordlist_nl || !matched_out || matched_cap < 2) return 0;
-    const EVP_MD* md = EVP_sha256();
-    if (alg_bits == 384) md = EVP_sha384();
+    if (!signing_input || signing_len == 0 || !target_sig || sig_len == 0 || !wordlist_nl || !matched_out || matched_cap < 2) return 0;
+    const EVP_MD* md = nullptr;
+    if (alg_bits == 256) md = EVP_sha256();
+    else if (alg_bits == 384) md = EVP_sha384();
     else if (alg_bits == 512) md = EVP_sha512();
+    else return 0;
 
     unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int digest_len = 0;
@@ -131,13 +184,19 @@ int spectre_jwt_verify_wordlist(
         const char* nl = std::strchr(p, '\n');
         size_t wlen = nl ? static_cast<size_t>(nl - p) : std::strlen(p);
         if (wlen > 0 && p[wlen - 1] == '\r') wlen--;
-        HMAC(md, p, static_cast<int>(wlen), signing_input, signing_len, digest, &digest_len);
-        if (digest_len == sig_len && CRYPTO_memcmp(digest, target_sig, sig_len) == 0) {
-            size_t copy_n = wlen < (matched_cap - 1) ? wlen : (matched_cap - 1);
-            std::memcpy(matched_out, p, copy_n);
-            matched_out[copy_n] = '\0';
-            OPENSSL_cleanse(digest, sizeof(digest));
-            return 1;
+        if (wlen > 0 && wlen <= static_cast<size_t>(INT_MAX)) {
+            digest_len = 0;
+            const unsigned char* rc_h = HMAC(md, p, static_cast<int>(wlen), signing_input, signing_len, digest, &digest_len);
+            if (rc_h != nullptr && digest_len == sig_len && CRYPTO_memcmp(digest, target_sig, sig_len) == 0) {
+                OPENSSL_cleanse(digest, sizeof(digest));
+                if (wlen + 1 > matched_cap) {
+                    matched_out[0] = '\0';
+                    return -2;
+                }
+                std::memcpy(matched_out, p, wlen);
+                matched_out[wlen] = '\0';
+                return 1;
+            }
         }
         if (!nl) break;
         p = nl + 1;
@@ -170,11 +229,21 @@ int spectre_epoll_tcp_probe(
     int epfd = epoll_create1(EPOLL_CLOEXEC);
     if (epfd < 0) return 0;
 
-    struct Slot { int fd; int port; bool connected; bool done; std::string hex_banner; };
+    using SteadyClock = std::chrono::steady_clock;
+    auto t_start = SteadyClock::now();
+    struct Slot {
+        int fd;
+        int port;
+        bool connected;
+        bool done;
+        SteadyClock::time_point conn_tp;
+        std::string hex_banner;
+    };
     std::vector<Slot> slots;
-    slots.reserve(num_ports);
+    slots.reserve(num_ports < 512 ? num_ports : 512);
 
-    for (size_t i = 0; i < num_ports && i < 512; ++i) {
+    for (size_t i = 0; i < num_ports && slots.size() < 512; ++i) {
+        if (ports[i] < 1 || ports[i] > 65535) continue;
         int domain = is_v6 ? AF_INET6 : AF_INET;
         int fd = socket(domain, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
         if (fd < 0) continue;
@@ -197,25 +266,25 @@ int spectre_epoll_tcp_probe(
             continue;
         }
         int idx = static_cast<int>(slots.size());
-        slots.push_back({fd, ports[i], rc == 0, false, ""});
+        slots.push_back({fd, ports[i], rc == 0, false, t_start, ""});
         struct epoll_event ev{};
         ev.events = EPOLLOUT | EPOLLIN | EPOLLET;
         ev.data.u32 = static_cast<uint32_t>(idx);
         epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
     }
 
-    auto t_start = std::chrono::steady_clock::now();
     std::vector<struct epoll_event> events(64);
     size_t remaining = slots.size();
+    const int banner_grace_ms = timeout_ms < 120 ? timeout_ms : 110;
 
     while (remaining > 0) {
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - t_start
-        ).count();
+        auto now_tp = SteadyClock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now_tp - t_start).count();
         int left_ms = timeout_ms - static_cast<int>(elapsed);
         if (left_ms <= 0) break;
-        int n = epoll_wait(epfd, events.data(), static_cast<int>(events.size()), left_ms > 80 ? 80 : left_ms);
-        if (n <= 0) continue;
+        int wait_slice = left_ms > 35 ? 35 : left_ms;
+        int n = epoll_wait(epfd, events.data(), static_cast<int>(events.size()), wait_slice);
+        auto post_tp = SteadyClock::now();
         for (int i = 0; i < n; ++i) {
             Slot& s = slots[events[i].data.u32];
             if (s.done) continue;
@@ -229,20 +298,41 @@ int spectre_epoll_tcp_probe(
                 int err = 0; socklen_t elen = sizeof(err);
                 if (getsockopt(s.fd, SOL_SOCKET, SO_ERROR, &err, &elen) == 0 && err == 0) {
                     s.connected = true;
+                    s.conn_tp = post_tp;
                 } else {
                     s.done = true; remaining--; continue;
                 }
             }
-            if (s.connected && (ev & EPOLLIN)) {
+            if (s.connected && (ev & (EPOLLIN | EPOLLHUP))) {
                 uint8_t buf[256];
-                ssize_t r = recv(s.fd, buf, sizeof(buf), MSG_DONTWAIT);
-                if (r > 0) {
-                    static const char* hx = "0123456789abcdef";
-                    for (ssize_t k = 0; k < r && s.hex_banner.size() < 256; ++k) {
-                        s.hex_banner.push_back(hx[(buf[k] >> 4) & 0xF]);
-                        s.hex_banner.push_back(hx[buf[k] & 0xF]);
+                static const char* hx = "0123456789abcdef";
+                while (s.hex_banner.size() < 256) {
+                    ssize_t r = recv(s.fd, buf, sizeof(buf), MSG_DONTWAIT);
+                    if (r > 0) {
+                        for (ssize_t k = 0; k < r && s.hex_banner.size() < 256; ++k) {
+                            s.hex_banner.push_back(hx[(buf[k] >> 4) & 0xF]);
+                            s.hex_banner.push_back(hx[buf[k] & 0xF]);
+                        }
+                    } else if (r == 0) {
+                        s.done = true;
+                        remaining--;
+                        break;
+                    } else {
+                        break;
                     }
-                    s.done = true; remaining--;
+                }
+                if (!s.done && !s.hex_banner.empty()) {
+                    s.done = true;
+                    remaining--;
+                }
+            }
+        }
+        for (auto& s : slots) {
+            if (!s.done && s.connected) {
+                auto c_ms = std::chrono::duration_cast<std::chrono::milliseconds>(post_tp - s.conn_tp).count();
+                if (c_ms >= banner_grace_ms) {
+                    s.done = true;
+                    remaining--;
                 }
             }
         }
@@ -552,12 +642,13 @@ uint64_t spectre_fnv1a64_ci(const uint8_t* data, size_t len) {
 }
 
 int spectre_dual_baseline_threshold(int base_len, int base_jitter) {
-    int j4 = base_jitter > 0 ? (base_jitter * 4) : 0;
-    int pct12 = base_len > 0 ? static_cast<int>(base_len * 0.12) : 0;
-    int thr = 500;
+    int64_t j4 = base_jitter > 0 ? (static_cast<int64_t>(base_jitter) * 4LL) : 0LL;
+    int64_t pct12 = base_len > 0 ? static_cast<int64_t>(static_cast<double>(base_len) * 0.12) : 0LL;
+    int64_t thr = 500LL;
     if (j4 > thr) thr = j4;
     if (pct12 > thr) thr = pct12;
-    return thr;
+    if (thr > static_cast<int64_t>(INT_MAX)) thr = static_cast<int64_t>(INT_MAX);
+    return static_cast<int>(thr);
 }
 
 uint32_t spectre_nvt_body_sig_mask(const uint8_t* data, size_t len) {

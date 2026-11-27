@@ -8,10 +8,13 @@ routines via `ctypes` with deterministic pure-Python fallbacks.
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
+import fcntl
 import hashlib
 import hmac
 import math
+import os
 import shutil
 import subprocess
 import threading
@@ -57,6 +60,42 @@ NVT_SIG_AI_MCP_VECTOR = 8
 NVT_SIG_DEBUG_STATUS = 16
 
 
+EXPECTED_NATIVE_ABI = 950
+
+
+@contextlib.contextmanager
+def _cross_process_build_lock():
+    uid = os.getuid() if hasattr(os, "getuid") else 0
+    lock_path = Path(f"/tmp/spectre_native_build_{uid}.lock")
+    fd = -1
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    except Exception:
+        yield
+    finally:
+        if fd >= 0:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except Exception:
+                pass
+            try:
+                os.close(fd)
+            except Exception:
+                pass
+
+
+def _as_bytes(val: str | bytes | bytearray | memoryview) -> bytes:
+    if isinstance(val, bytes):
+        return val
+    if isinstance(val, str):
+        return val.encode("utf-8", errors="ignore")
+    if isinstance(val, (bytearray, memoryview)):
+        return bytes(val)
+    return str(val or "").encode("utf-8", errors="ignore")
+
+
 def _resolve_rustc_bin() -> str | None:
     found = shutil.which("rustc")
     if found:
@@ -74,19 +113,28 @@ def get_native_lib() -> ctypes.CDLL | None:
             return _LIB
         _TRIED_LOAD = True
         try:
-            cpp_files = sorted(NATIVE_DIR.glob("*.cpp"))
-            need_build = (not SO_PATH.exists()) or any(p.stat().st_mtime > SO_PATH.stat().st_mtime for p in cpp_files)
-            if need_build and cpp_files and shutil.which("g++"):
-                subprocess.run(
-                    [
-                        "g++", "-O3", "-Wall", "-Wextra",
-                        "-D_FORTIFY_SOURCE=2", "-fstack-protector-strong",
-                        "-std=c++17", "-shared", "-fPIC", "-pthread",
-                        *[str(p) for p in cpp_files],
-                        "-o", str(SO_PATH), "-lssl", "-lcrypto",
-                    ],
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=40, check=True,
+            with _cross_process_build_lock():
+                cpp_files = sorted(NATIVE_DIR.glob("*.cpp"))
+                hdr_files = sorted(NATIVE_DIR.glob("*.hpp"))
+                need_build = (not SO_PATH.exists()) or any(
+                    p.stat().st_mtime > SO_PATH.stat().st_mtime for p in (*cpp_files, *hdr_files)
                 )
+                if need_build and cpp_files and shutil.which("g++") and os.access(NATIVE_DIR, os.W_OK):
+                    tmp_so = NATIVE_DIR / f".libspectre_accel.so.tmp.{os.getpid()}.{threading.get_ident()}"
+                    try:
+                        subprocess.run(
+                            [
+                                "g++", "-O3", "-Wall", "-Wextra",
+                                "-D_FORTIFY_SOURCE=2", "-fstack-protector-strong",
+                                "-std=c++17", "-shared", "-fPIC", "-pthread",
+                                *[str(p) for p in cpp_files],
+                                "-o", str(tmp_so), "-lssl", "-lcrypto",
+                            ],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45, check=True,
+                        )
+                        os.replace(tmp_so, SO_PATH)
+                    finally:
+                        tmp_so.unlink(missing_ok=True)
             if SO_PATH.exists():
                 lib = ctypes.CDLL(str(SO_PATH))
                 lib.spectre_mmh3_32.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_uint32]
@@ -100,6 +148,12 @@ def get_native_lib() -> ctypes.CDLL | None:
                     ctypes.c_int, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t,
                 ]
                 lib.spectre_jwt_verify_wordlist.restype = ctypes.c_int
+                if hasattr(lib, "spectre_jwt_verify_wordlist_bin"):
+                    lib.spectre_jwt_verify_wordlist_bin.argtypes = [
+                        ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+                        ctypes.c_int, ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+                    ]
+                    lib.spectre_jwt_verify_wordlist_bin.restype = ctypes.c_int
                 lib.spectre_epoll_tcp_probe.argtypes = [
                     ctypes.c_char_p, ctypes.POINTER(ctypes.c_int), ctypes.c_size_t,
                     ctypes.c_int, ctypes.c_char_p, ctypes.c_size_t,
@@ -120,6 +174,8 @@ def get_native_lib() -> ctypes.CDLL | None:
                 if hasattr(lib, "spectre_cpp_abi_version"):
                     lib.spectre_cpp_abi_version.argtypes = []
                     lib.spectre_cpp_abi_version.restype = ctypes.c_uint32
+                    if int(lib.spectre_cpp_abi_version()) != EXPECTED_NATIVE_ABI:
+                        return None
                 if hasattr(lib, "spectre_dual_baseline_threshold"):
                     lib.spectre_dual_baseline_threshold.argtypes = [ctypes.c_int, ctypes.c_int]
                     lib.spectre_dual_baseline_threshold.restype = ctypes.c_int
@@ -132,6 +188,11 @@ def get_native_lib() -> ctypes.CDLL | None:
                 if hasattr(lib, "spectre_cpp_nvt_rodata_count"):
                     lib.spectre_cpp_nvt_rodata_count.argtypes = []
                     lib.spectre_cpp_nvt_rodata_count.restype = ctypes.c_uint32
+                if hasattr(lib, "spectre_cpp_lookup_nvt_json"):
+                    lib.spectre_cpp_lookup_nvt_json.argtypes = [
+                        ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+                    ]
+                    lib.spectre_cpp_lookup_nvt_json.restype = ctypes.c_int
                 if hasattr(lib, "spectre_cpp_lookup_favicon_mmh3"):
                     lib.spectre_cpp_lookup_favicon_mmh3.argtypes = [ctypes.c_int32, ctypes.c_char_p, ctypes.c_size_t]
                     lib.spectre_cpp_lookup_favicon_mmh3.restype = ctypes.c_int
@@ -163,18 +224,26 @@ def get_rust_lib() -> ctypes.CDLL | None:
             return _RUST_LIB
         _TRIED_RUST_LOAD = True
         try:
-            rs_files = sorted(NATIVE_DIR.glob("*.rs"))
-            need_build = (not RUST_SO_PATH.exists()) or any(p.stat().st_mtime > RUST_SO_PATH.stat().st_mtime for p in rs_files)
-            rustc_bin = _resolve_rustc_bin()
-            if need_build and RUST_SRC.exists() and rustc_bin:
-                subprocess.run(
-                    [rustc_bin, "-C", "opt-level=3", "-C", "strip=debuginfo", "--crate-type", "cdylib", str(RUST_SRC), "-o", str(RUST_SO_PATH)],
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45, check=True,
-                )
+            with _cross_process_build_lock():
+                rs_files = sorted(NATIVE_DIR.glob("*.rs"))
+                need_build = (not RUST_SO_PATH.exists()) or any(p.stat().st_mtime > RUST_SO_PATH.stat().st_mtime for p in rs_files)
+                rustc_bin = _resolve_rustc_bin()
+                if need_build and RUST_SRC.exists() and rustc_bin and os.access(NATIVE_DIR, os.W_OK):
+                    tmp_rs = NATIVE_DIR / f".libspectre_rust_core.so.tmp.{os.getpid()}.{threading.get_ident()}"
+                    try:
+                        subprocess.run(
+                            [rustc_bin, "-C", "opt-level=3", "-C", "strip=debuginfo", "--crate-type", "cdylib", str(RUST_SRC), "-o", str(tmp_rs)],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60, check=True,
+                        )
+                        os.replace(tmp_rs, RUST_SO_PATH)
+                    finally:
+                        tmp_rs.unlink(missing_ok=True)
             if RUST_SO_PATH.exists():
                 rlib = ctypes.CDLL(str(RUST_SO_PATH))
                 rlib.spectre_rust_abi_version.argtypes = []
                 rlib.spectre_rust_abi_version.restype = ctypes.c_uint32
+                if int(rlib.spectre_rust_abi_version()) != EXPECTED_NATIVE_ABI:
+                    return None
                 rlib.spectre_rust_compare_distro_versions.argtypes = [
                     ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
                 ]
@@ -214,6 +283,9 @@ def get_rust_lib() -> ctypes.CDLL | None:
                         ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
                     ]
                     rlib.spectre_rust_strip_comments.restype = ctypes.c_int32
+                if hasattr(rlib, "spectre_rust_lexical_metrics"):
+                    rlib.spectre_rust_lexical_metrics.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+                    rlib.spectre_rust_lexical_metrics.restype = ctypes.c_uint64
                 if hasattr(rlib, "spectre_rust_strip_comments_lang"):
                     rlib.spectre_rust_strip_comments_lang.argtypes = [
                         ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
@@ -225,22 +297,90 @@ def get_rust_lib() -> ctypes.CDLL | None:
                         ctypes.c_char_p, ctypes.c_size_t, ctypes.c_int32,
                     ]
                     rlib.spectre_rust_triage_brocards_score.restype = ctypes.c_int32
+                if hasattr(rlib, "spectre_rust_verify_access_diff"):
+                    rlib.spectre_rust_verify_access_diff.argtypes = [
+                        ctypes.c_char_p, ctypes.c_size_t,
+                        ctypes.c_char_p, ctypes.c_size_t,
+                        ctypes.c_char_p, ctypes.c_size_t,
+                    ]
+                    rlib.spectre_rust_verify_access_diff.restype = ctypes.c_int32
+                if hasattr(rlib, "spectre_rust_kernel_selftest"):
+                    rlib.spectre_rust_kernel_selftest.argtypes = []
+                    rlib.spectre_rust_kernel_selftest.restype = ctypes.c_int32
                 _RUST_LIB = rlib
         except Exception:
             _RUST_LIB = None
     return _RUST_LIB
 
 
-def fast_mmh3_signed(data: bytes, seed: int = 0) -> int:
+def _py_mmh3_32(data: bytes, seed: int = 0) -> int:
+    c1, c2 = 0xCC9E2D51, 0x1B873593
+    length = len(data)
+    h1 = seed & 0xFFFFFFFF
+    nblocks = length // 4
+    for i in range(nblocks):
+        k1 = int.from_bytes(data[i * 4 : i * 4 + 4], "little", signed=False)
+        k1 = (k1 * c1) & 0xFFFFFFFF
+        k1 = ((k1 << 15) | (k1 >> 17)) & 0xFFFFFFFF
+        k1 = (k1 * c2) & 0xFFFFFFFF
+        h1 ^= k1
+        h1 = ((h1 << 13) | (h1 >> 19)) & 0xFFFFFFFF
+        h1 = (h1 * 5 + 0xE6546B64) & 0xFFFFFFFF
+    tail = data[nblocks * 4 :]
+    k1, rem = 0, length & 3
+    if rem == 3:
+        k1 ^= tail[2] << 16
+    if rem >= 2:
+        k1 ^= tail[1] << 8
+    if rem >= 1:
+        k1 ^= tail[0]
+        k1 = (k1 * c1) & 0xFFFFFFFF
+        k1 = ((k1 << 15) | (k1 >> 17)) & 0xFFFFFFFF
+        k1 = (k1 * c2) & 0xFFFFFFFF
+        h1 ^= k1
+    h1 ^= length
+    h1 ^= h1 >> 16
+    h1 = (h1 * 0x85EBCA6B) & 0xFFFFFFFF
+    h1 ^= h1 >> 13
+    h1 = (h1 * 0xC2B2AE35) & 0xFFFFFFFF
+    h1 ^= h1 >> 16
+    return h1 - 0x100000000 if h1 >= 0x80000000 else h1
+
+
+def _py_simhash64(b: bytes) -> int:
+    v = [0] * 64
+    rolling, tok_len = 14695981039346656037, 0
+    for c in b:
+        if (97 <= c <= 122) or (65 <= c <= 90) or (48 <= c <= 57) or c in (60, 47):
+            lc = c + 32 if 65 <= c <= 90 else c
+            rolling = ((rolling ^ lc) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+            tok_len += 1
+        else:
+            if tok_len >= 2:
+                for bit in range(64):
+                    v[bit] += 1 if ((rolling >> bit) & 1) else -1
+            rolling, tok_len = 14695981039346656037, 0
+    if tok_len >= 2:
+        for bit in range(64):
+            v[bit] += 1 if ((rolling >> bit) & 1) else -1
+    out = 0
+    for bit in range(64):
+        if v[bit] > 0:
+            out |= 1 << bit
+    return out
+
+
+def fast_mmh3_signed(data: bytes | bytearray | memoryview, seed: int = 0) -> int:
+    b = _as_bytes(data)
     lib = get_native_lib()
     if lib is not None:
-        h = int(lib.spectre_mmh3_32(data, len(data), seed))
+        h = int(lib.spectre_mmh3_32(b, len(b), seed & 0xFFFFFFFF))
         return h - 0x100000000 if h >= 0x80000000 else h
-    return int.from_bytes(hashlib.md5(data).digest()[:4], "little", signed=True)
+    return _py_mmh3_32(b, seed)
 
 
-def fast_shannon_entropy(text_or_bytes: str | bytes) -> float:
-    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+def fast_shannon_entropy(text_or_bytes: str | bytes | bytearray | memoryview) -> float:
+    b = _as_bytes(text_or_bytes)
     if not b:
         return 0.0
     lib = get_native_lib()
@@ -253,31 +393,45 @@ def fast_shannon_entropy(text_or_bytes: str | bytes) -> float:
     return -sum((c / n) * math.log2(c / n) for c in counts.values())
 
 
-def fast_simhash64(text_or_bytes: str | bytes) -> int:
-    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+def fast_simhash64(text_or_bytes: str | bytes | bytearray | memoryview) -> int:
+    b = _as_bytes(text_or_bytes)
     if not b:
         return 0
     lib = get_native_lib()
     if lib is not None:
         return int(lib.spectre_simhash64(b, len(b)))
-    return int.from_bytes(hashlib.blake2b(b[:8192], digest_size=8).digest(), "little")
+    return _py_simhash64(b)
 
 
-def fast_jwt_hmac_audit(signing_input: bytes, raw_sig: bytes, alg: str, candidates: list[str] | tuple[str, ...]) -> str | None:
+def fast_jwt_hmac_audit(
+    signing_input: bytes | bytearray | memoryview,
+    raw_sig: bytes | bytearray | memoryview,
+    alg: str,
+    candidates: list[str] | tuple[str, ...],
+) -> str | None:
     bits = {"hs256": 256, "hs384": 384, "hs512": 512}.get(alg.lower(), 0)
-    if not bits or not signing_input or not raw_sig or not candidates:
+    sig_in_b = _as_bytes(signing_input)
+    raw_sig_b = _as_bytes(raw_sig)
+    if not bits or not sig_in_b or not raw_sig_b or not candidates:
         return None
     lib = get_native_lib()
     if lib is not None:
-        joined = ("\n".join(candidates) + "\n").encode("utf-8", errors="ignore")
-        out_buf = ctypes.create_string_buffer(256)
-        found = lib.spectre_jwt_verify_wordlist(
-            signing_input, len(signing_input), raw_sig, len(raw_sig), bits, joined, out_buf, 256
-        )
-        return out_buf.value.decode("utf-8", errors="ignore") if found == 1 else None
+        enc_cands = [c.encode("utf-8", errors="ignore") for c in candidates if c]
+        if enc_cands:
+            out_cap = max(256, max(len(c) for c in enc_cands) + 16)
+            out_buf = ctypes.create_string_buffer(out_cap)
+            if hasattr(lib, "spectre_jwt_verify_wordlist_bin") and all(b"\x00" not in c for c in enc_cands):
+                joined_bin = b"\x00".join(enc_cands) + b"\x00"
+                found = int(lib.spectre_jwt_verify_wordlist_bin(
+                    sig_in_b, len(sig_in_b), raw_sig_b, len(raw_sig_b), bits, joined_bin, len(joined_bin), out_buf, out_cap
+                ))
+                if found == 1:
+                    return out_buf.value.decode("utf-8", errors="ignore")
+                if found == 0:
+                    return None
     digest_fn = {256: hashlib.sha256, 384: hashlib.sha384, 512: hashlib.sha512}[bits]
     for cand in candidates:
-        if hmac.compare_digest(hmac.new(cand.encode("utf-8"), signing_input, digest_fn).digest(), raw_sig):
+        if hmac.compare_digest(hmac.new(cand.encode("utf-8", errors="ignore"), sig_in_b, digest_fn).digest(), raw_sig_b):
             return cand
     return None
 
@@ -285,28 +439,34 @@ def fast_jwt_hmac_audit(signing_input: bytes, raw_sig: bytes, alg: str, candidat
 def fast_epoll_tcp_probe(ip_addr: str, ports: list[int], timeout_ms: int = 900) -> dict[int, bytes]:
     if not ip_addr or not ports:
         return {}
+    valid_ports = [int(p) for p in ports if isinstance(p, (int, str)) and str(p).lstrip("-").isdigit() and 1 <= int(p) <= 65535]
+    if not valid_ports:
+        return {}
     lib = get_native_lib()
     if lib is None:
         return {}
-    arr_t = ctypes.c_int * len(ports)
-    c_ports = arr_t(*[int(p) for p in ports])
-    out_cap = max(4096, len(ports) * 300)
-    out_buf = ctypes.create_string_buffer(out_cap)
-    lib.spectre_epoll_tcp_probe(ip_addr.encode("ascii", errors="ignore"), c_ports, len(ports), int(timeout_ms), out_buf, out_cap)
     discovered: dict[int, bytes] = {}
-    for ln in out_buf.value.decode("ascii", errors="ignore").splitlines():
-        if ":" in ln:
-            p_s, hx_s = ln.split(":", 1)
-            if p_s.isdigit():
-                try:
-                    discovered[int(p_s)] = bytes.fromhex(hx_s.strip()) if hx_s.strip() else b""
-                except Exception:
-                    discovered[int(p_s)] = b""
+    ip_b = ip_addr.encode("ascii", errors="ignore")
+    for idx in range(0, len(valid_ports), 256):
+        chunk = valid_ports[idx : idx + 256]
+        arr_t = ctypes.c_int * len(chunk)
+        c_ports = arr_t(*chunk)
+        out_cap = max(4096, len(chunk) * 300)
+        out_buf = ctypes.create_string_buffer(out_cap)
+        lib.spectre_epoll_tcp_probe(ip_b, c_ports, len(chunk), int(timeout_ms), out_buf, out_cap)
+        for ln in out_buf.value.decode("ascii", errors="ignore").splitlines():
+            if ":" in ln:
+                p_s, hx_s = ln.split(":", 1)
+                if p_s.isdigit():
+                    try:
+                        discovered[int(p_s)] = bytes.fromhex(hx_s.strip()) if hx_s.strip() else b""
+                    except Exception:
+                        discovered[int(p_s)] = b""
     return discovered
 
 
-def fast_js_token_mask(text_or_bytes: str | bytes) -> int:
-    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+def fast_js_token_mask(text_or_bytes: str | bytes | bytearray | memoryview) -> int:
+    b = _as_bytes(text_or_bytes)
     if not b:
         return 0
     lib = get_native_lib()
@@ -336,8 +496,8 @@ def fast_hamming64(a: int, b: int) -> int:
     return (ua ^ ub).bit_count()
 
 
-def fast_structural_hash(text_or_bytes: str | bytes) -> int:
-    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+def fast_structural_hash(text_or_bytes: str | bytes | bytearray | memoryview) -> int:
+    b = _as_bytes(text_or_bytes)
     if not b:
         return 0
     lib = get_native_lib()
@@ -349,17 +509,20 @@ def fast_structural_hash(text_or_bytes: str | bytes) -> int:
         return 0
     if s[0] in "{[":
         keys = _re.findall(r'"([A-Za-z0-9_\-]{1,48})"\s*:', s)
-        skel = "json:" + ",".join(k.lower() for k in keys)
+        skel = ("json:" + ",".join(k.lower() for k in keys)).encode("utf-8")
     elif "<" in s[:512]:
         tags = _re.findall(r"<(/?[A-Za-z][A-Za-z0-9]{0,23})", s)
-        skel = "html:" + ",".join(t.lower() for t in tags)
+        skel = ("html:" + ",".join(t.lower() for t in tags)).encode("utf-8")
     else:
-        skel = "txt:" + "".join(ch for ch in s if ch in "\n:=[]")
-    return int.from_bytes(hashlib.blake2b(skel.encode("utf-8"), digest_size=8).digest(), "little")
+        skel = ("txt:" + "".join(ch for ch in s if ch in "\n:=[]")).encode("utf-8")
+    h = 14695981039346656037
+    for ch in skel:
+        h = ((h ^ ch) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return h
 
 
-def fast_secret_prefilter_mask(text_or_bytes: str | bytes) -> int:
-    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+def fast_secret_prefilter_mask(text_or_bytes: str | bytes | bytearray | memoryview) -> int:
+    b = _as_bytes(text_or_bytes)
     if len(b) < 4:
         return 0
     lib = get_native_lib()
@@ -386,8 +549,8 @@ def fast_dual_baseline_threshold(base_len: int, base_jitter: int) -> int:
     return max(500, max(0, int(base_jitter)) * 4, int(max(0, int(base_len)) * 0.12))
 
 
-def fast_nvt_body_sig_mask(text_or_bytes: str | bytes) -> int:
-    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+def fast_nvt_body_sig_mask(text_or_bytes: str | bytes | bytearray | memoryview) -> int:
+    b = _as_bytes(text_or_bytes)
     if len(b) < 4:
         return 0
     lib = get_native_lib()
@@ -439,8 +602,8 @@ def fast_topological_waves(task_specs: list[tuple[str, list[str]]]) -> list[list
     return [[tok for tok in ln.split("\t") if tok] for ln in decoded.splitlines() if ln]
 
 
-def fast_sast_prefilter_mask(text_or_bytes: str | bytes) -> int:
-    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+def fast_sast_prefilter_mask(text_or_bytes: str | bytes | bytearray | memoryview) -> int:
+    b = _as_bytes(text_or_bytes)
     if len(b) < 2:
         return 0
     rlib = get_rust_lib()
@@ -477,19 +640,25 @@ def get_go_indexer_bin() -> Path | None:
             return _GO_BIN
         _TRIED_GO_BUILD = True
         try:
-            go_files = sorted(NATIVE_DIR.glob("*.go"))
-            need_build = (not GO_BIN_PATH.is_file()) or any(p.stat().st_mtime > GO_BIN_PATH.stat().st_mtime for p in go_files)
-            go_bin = _resolve_go_bin()
-            if need_build and go_files and go_bin:
-                subprocess.run(
-                    [go_bin, "build", "-ldflags=-s -w", "-o", str(GO_BIN_PATH), *[str(p) for p in go_files]],
-                    cwd=str(NATIVE_DIR),
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=45,
-                    check=True,
-                )
+            with _cross_process_build_lock():
+                go_files = sorted(NATIVE_DIR.glob("*.go"))
+                need_build = (not GO_BIN_PATH.is_file()) or any(p.stat().st_mtime > GO_BIN_PATH.stat().st_mtime for p in go_files)
+                go_bin = _resolve_go_bin()
+                if need_build and go_files and go_bin and os.access(NATIVE_DIR, os.W_OK):
+                    tmp_go = NATIVE_DIR / f".spectre-intel-indexer.tmp.{os.getpid()}.{threading.get_ident()}"
+                    try:
+                        subprocess.run(
+                            [go_bin, "build", "-ldflags=-s -w", "-o", str(tmp_go), *[str(p) for p in go_files]],
+                            cwd=str(NATIVE_DIR),
+                            stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=60,
+                            check=True,
+                        )
+                        os.replace(tmp_go, GO_BIN_PATH)
+                    finally:
+                        tmp_go.unlink(missing_ok=True)
             if GO_BIN_PATH.is_file():
                 _GO_BIN = GO_BIN_PATH
         except Exception:
@@ -497,8 +666,8 @@ def get_go_indexer_bin() -> Path | None:
     return _GO_BIN
 
 
-def fast_fnv1a64_ci(text_or_bytes: str | bytes) -> int:
-    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+def fast_fnv1a64_ci(text_or_bytes: str | bytes | bytearray | memoryview) -> int:
+    b = _as_bytes(text_or_bytes)
     if not b:
         return 0
     lib = get_native_lib()
@@ -510,8 +679,8 @@ def fast_fnv1a64_ci(text_or_bytes: str | bytes) -> int:
     return h
 
 
-def fast_tech_fingerprint_mask(text_or_bytes: str | bytes) -> int:
-    b = text_or_bytes.encode("utf-8", errors="ignore") if isinstance(text_or_bytes, str) else text_or_bytes
+def fast_tech_fingerprint_mask(text_or_bytes: str | bytes | bytearray | memoryview) -> int:
+    b = _as_bytes(text_or_bytes)
     if len(b) < 4:
         return 0
     rlib = get_rust_lib()
@@ -537,8 +706,29 @@ def fast_rust_lookup_cve(cve_id: str) -> dict | None:
     rlib = get_rust_lib()
     if rlib is None or not hasattr(rlib, "spectre_rust_lookup_cve_json"):
         return None
+    for out_cap in (2048, 16384):
+        out_buf = ctypes.create_string_buffer(out_cap)
+        rc = int(rlib.spectre_rust_lookup_cve_json(b, len(b), out_buf, out_cap))
+        if rc == 1:
+            try:
+                return _json.loads(out_buf.value.decode("utf-8", errors="ignore"))
+            except Exception:
+                return None
+        if rc != -2:
+            break
+    return None
+
+
+def fast_cpp_lookup_nvt(nvt_id: str) -> dict | None:
+    import json as _json
+    b = (nvt_id or "").strip().encode("utf-8", errors="ignore")
+    if not b:
+        return None
+    lib = get_native_lib()
+    if lib is None or not hasattr(lib, "spectre_cpp_lookup_nvt_json"):
+        return None
     out_buf = ctypes.create_string_buffer(2048)
-    rc = int(rlib.spectre_rust_lookup_cve_json(b, len(b), out_buf, 2048))
+    rc = int(lib.spectre_cpp_lookup_nvt_json(b, len(b), out_buf, 2048))
     if rc == 1:
         try:
             return _json.loads(out_buf.value.decode("utf-8", errors="ignore"))
@@ -630,20 +820,22 @@ def fast_rust_consolidate_cpe(observations: str) -> list[dict]:
     rlib = get_rust_lib()
     if rlib is None or not hasattr(rlib, "spectre_rust_consolidate_cpe_json"):
         return []
-    out_cap = max(8192, len(b) * 4)
-    out_buf = ctypes.create_string_buffer(out_cap)
-    rc = int(rlib.spectre_rust_consolidate_cpe_json(b, len(b), out_buf, out_cap))
-    if rc == 1:
-        try:
-            parsed = _json.loads(out_buf.value.decode("utf-8", errors="ignore"))
-            return parsed if isinstance(parsed, list) else []
-        except Exception:
-            return []
+    for out_cap in (max(8192, len(b) * 4), 131072, 524288):
+        out_buf = ctypes.create_string_buffer(out_cap)
+        rc = int(rlib.spectre_rust_consolidate_cpe_json(b, len(b), out_buf, out_cap))
+        if rc == 1:
+            try:
+                parsed = _json.loads(out_buf.value.decode("utf-8", errors="ignore"))
+                return parsed if isinstance(parsed, list) else []
+            except Exception:
+                return []
+        if rc != -2:
+            break
     return []
 
 
-def fast_rust_strip_comments(code_or_bytes: str | bytes, lang: str = "") -> str:
-    b = code_or_bytes.encode("utf-8", errors="ignore") if isinstance(code_or_bytes, str) else code_or_bytes
+def fast_rust_strip_comments(code_or_bytes: str | bytes | bytearray | memoryview, lang: str = "") -> str:
+    b = _as_bytes(code_or_bytes)
     if not b:
         return ""
     rlib = get_rust_lib()
@@ -714,6 +906,25 @@ def fast_go_sync_feeds(
     except Exception:
         return None
     return None
+
+
+def fast_rust_verify_access_diff(url_path: str, body_a: str, body_b: str) -> bool:
+    pb = (url_path or "").encode("utf-8", errors="ignore")
+    ab = (body_a or "").encode("utf-8", errors="ignore")
+    bb = (body_b or "").encode("utf-8", errors="ignore")
+    if not pb or len(ab) < 16 or len(bb) < 16:
+        return False
+    rlib = get_rust_lib()
+    if rlib is not None and hasattr(rlib, "spectre_rust_verify_access_diff"):
+        return int(rlib.spectre_rust_verify_access_diff(pb, len(pb), ab, len(ab), bb, len(bb))) == 1
+    segs = [s for s in (url_path or "").split("?")[0].split("/") if s]
+    has_obj = any(
+        s == "{param}"
+        or (not (s.lower().startswith("v") and s[1:].replace(".", "").isdigit()) and any(c.isdigit() for c in s))
+        for s in segs
+    )
+    return bool(has_obj and body_a.strip() == body_b.strip() and len(body_a.strip()) >= 32)
+
 
 
 

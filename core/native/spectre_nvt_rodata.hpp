@@ -10,4 +10,5 @@ struct NativeNvtSpec {
     int32_t status; const char* match_tok0; const char* match_tok1; const char* mandatory_gate;
 };
 uint32_t nvt_part2_count();
+const NativeNvtSpec* lookup_nvt_part2(const char* nvt_id);
 } // namespace spectre_rodata

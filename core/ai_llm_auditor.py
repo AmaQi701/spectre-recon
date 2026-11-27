@@ -15,6 +15,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from core.models import walk_safe_repo_files
 from core.native_bridge import SEC_MASK_AI_LLM, fast_secret_prefilter_mask
 from core.plugin_runner import QoD
 
@@ -332,9 +333,9 @@ def audit_ai_code_and_mcp_configs(db: Any, project_id: int, code_paths: list[str
         root = Path(cp)
         if not root.exists():
             continue
-        files = [root] if root.is_file() else [
-            p for p in root.rglob("*")
-            if p.is_file() and (p.suffix.lower() in exts or p.name.startswith(".env")) and ".git" not in p.parts and "node_modules" not in p.parts
+        files = [
+            p for p in walk_safe_repo_files(root, max_files=240, max_bytes=524288)
+            if p.suffix.lower() in exts or p.name.startswith(".env")
         ][:160]
         for fp in files:
             try:
@@ -384,7 +385,10 @@ def audit_ai_code_and_mcp_configs(db: Any, project_id: int, code_paths: list[str
                         cmd_s = str(s_def.get("command") or "")
                         args_l = [str(x) for x in (s_def.get("args") or []) if isinstance(x, (str, int))]
                         joined = f"{cmd_s} {' '.join(args_l)}"
-                        if ("npx" in cmd_s and "-y" in args_l and any("@" not in a.lstrip("@") for a in args_l if not a.startswith("-"))) or "0.0.0.0" in joined:
+                        pos_args = [a for a in args_l if a and not a.startswith("-")]
+                        pkg_arg = pos_args[0] if pos_args else ""
+                        unpinned_npx = "npx" in cmd_s and "-y" in args_l and bool(pkg_arg) and "@" not in pkg_arg.lstrip("@")
+                        if unpinned_npx or "0.0.0.0" in joined:
                             db.upsert_finding(
                                 project_id, "Agent-2 (AI-Posture)", f"Unpinned or Publicly Bound MCP Server Config ({s_name})",
                                 "AI Supply-Chain / MCP Misconfiguration", "High", 7.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",

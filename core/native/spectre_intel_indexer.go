@@ -143,8 +143,20 @@ func main() {
 	pluginsDir := flag.String("plugins-dir", "", "Directory containing declarative *.yaml plugins")
 	kbHints := flag.String("kb-hints", "", "Semicolon-separated key=val KB facts for YAML plugin gating")
 	mcpServer := flag.Bool("mcp-server", false, "Start local read-only JSON-RPC 2.0 MCP server on stdio")
-	mcpDbPath := flag.String("intel-db", "", "Path to intel/spectre_intel.db or state DB for MCP queries")
+	mcpTsvPath := flag.String("intel-tsv", "", "Optional clean-room TSV advisory file for local MCP queries")
+	mcpDbPath := flag.String("intel-db", "", "Legacy alias for -intel-tsv advisory path")
+	selfTestSockets := flag.Bool("selftest-sockets", false, "Run ephemeral loopback binary socket & MCP JSON-RPC self-tests")
 	flag.Parse()
+
+	if *selfTestSockets {
+		rep := RunAllGoProtocolSelfTests()
+		b, _ := json.Marshal(rep)
+		fmt.Println(string(b))
+		if !rep.AllPassed {
+			os.Exit(1)
+		}
+		return
+	}
 
 	if *showVer {
 		fmt.Printf("SPECTRE-Go-Security-Engine v9.5.0 ABI=950 PSL=%d OUI=%d SCA=%d CleanAdv=%d SocketPorts=%d\n",
@@ -153,7 +165,11 @@ func main() {
 		return
 	}
 	if *mcpServer {
-		if err := RunLocalMcpStdioServerGo(*mcpDbPath); err != nil {
+		hint := *mcpTsvPath
+		if hint == "" {
+			hint = *mcpDbPath
+		}
+		if err := RunLocalMcpStdioServerGo(hint); err != nil {
 			os.Exit(1)
 		}
 		return
@@ -354,7 +370,7 @@ func main() {
 	}()
 
 	wg.Wait()
-	rep := IndexerReport{ABI: 850, Engine: "go-goroutine-indexer", Wordlists: results}
+	rep := IndexerReport{ABI: 950, Engine: "go-goroutine-indexer", Wordlists: results}
 	enc, _ := json.Marshal(rep)
 	fmt.Println(string(enc))
 }

@@ -16,6 +16,7 @@ from core.native_bridge import (
     SAST_MASK_ENTRY_POINT,
     SAST_MASK_SHARP_EDGES,
     SAST_MASK_TOCTOU,
+    fast_rust_strip_comments,
     fast_sast_prefilter_mask,
 )
 
@@ -93,7 +94,7 @@ def _expr_uses_names(node: ast.AST, names: set[str]) -> bool:
 
 def _expr_is_external_source(node: ast.AST) -> bool:
     src = ast.unparse(node) if hasattr(ast, "unparse") else ""
-    return any(tok in src for tok in ("request.", "req.", "sys.argv", "os.environ", "input("))
+    return any(tok in src for tok in ("request.", "req.", "sys.argv", "input("))
 
 
 def _expr_is_formatted_sql(node: ast.AST, tainted: set[str]) -> bool:
@@ -137,11 +138,17 @@ def analyze_js_ts_taint_flow(src_text: str) -> tuple[list[dict[str, Any]], set[i
     dom_tainted: set[str] = set()
     sql_tainted: set[str] = set()
     seen: set[tuple[int, str]] = set()
+    clean_src = fast_rust_strip_comments(src_text or "", "js")
 
-    for lineno, raw_ln in enumerate((src_text or "").splitlines(), start=1):
+    for lineno, raw_ln in enumerate(clean_src.splitlines(), start=1):
         s = raw_ln.strip()
         if not s or s.startswith(("//", "/*", "*")):
             continue
+        if re.match(r"^(?:export\s+)?(?:async\s+)?function\s+[A-Za-z_$]", s):
+            const_vars.clear()
+            srv_tainted.clear()
+            dom_tainted.clear()
+            sql_tainted.clear()
         for m_fo in _JS_FAIL_OPEN_RE.finditer(s):
             fo_key = m_fo.group(1) or m_fo.group(2) or ""
             fo_val = m_fo.group(3) if m_fo.group(3) is not None else (m_fo.group(4) or "")
@@ -235,11 +242,15 @@ def analyze_go_java_taint_flow(src_text: str, ext: str) -> tuple[list[dict[str, 
     seen: set[tuple[int, str]] = set()
     is_go = ext == ".go"
     go_env_vars: dict[str, str] = {}
+    clean_src = fast_rust_strip_comments(src_text or "", "go" if is_go else "java")
 
-    for lineno, raw_ln in enumerate((src_text or "").splitlines(), start=1):
+    for lineno, raw_ln in enumerate(clean_src.splitlines(), start=1):
         s = raw_ln.strip()
         if not s or s.startswith(("//", "/*", "*")):
             continue
+        if (is_go and s.startswith("func ")) or (not is_go and re.match(r"^(?:public|private|protected)\s+[\w<>\[\],\s]+\s+\w+\s*\(", s)):
+            tainted.clear()
+            sql_tainted.clear()
         if is_go:
             m_ge = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*:?=\s*os\.Getenv\(\s*"([^"]+)"\s*\)$', s)
             if m_ge:
@@ -317,11 +328,15 @@ def analyze_php_csharp_taint_flow(src_text: str, ext: str) -> tuple[list[dict[st
     sql_tainted: set[str] = set()
     seen: set[tuple[int, str]] = set()
     is_php = ext == ".php"
+    clean_src = fast_rust_strip_comments(src_text or "", "php" if is_php else "cs")
 
-    for lineno, raw_ln in enumerate((src_text or "").splitlines(), start=1):
+    for lineno, raw_ln in enumerate(clean_src.splitlines(), start=1):
         s = raw_ln.strip()
         if not s or s.startswith(("//", "#", "/*", "*")):
             continue
+        if re.match(r"^(?:(?:public|private|protected|static|async)\s+)*function\s+\w+\s*\(", s):
+            tainted.clear()
+            sql_tainted.clear()
         if is_php:
             for m_pf in re.finditer(
                 r"""(?:getenv\(\s*['"]([^'"]+)['"]\s*\)\s*\?:\s*(?:['"]([^'"]+)['"]|\b(true|false)\b)"""
@@ -345,7 +360,9 @@ def analyze_php_csharp_taint_flow(src_text: str, ext: str) -> tuple[list[dict[st
                     tainted.discard(vname)
                     sql_tainted.discard(vname)
                     continue
-                has_ext = bool(_PHP_SRC_RE.search(rhs)) or any(tv in rhs for tv in tainted)
+                has_ext = bool(_PHP_SRC_RE.search(rhs)) or any(
+                    re.search(rf"(?<![A-Za-z0-9_]){re.escape(tv)}(?![A-Za-z0-9_])", rhs) for tv in tainted
+                )
                 if has_ext:
                     tainted.add(vname)
                     if _SQL_KW_RE.search(rhs) and ("." in rhs or '"' in rhs):
@@ -466,10 +483,19 @@ def analyze_python_ast_taint(src_text: str) -> tuple[list[dict[str, Any]], set[i
                     seen_lines.add((node.lineno, fo_hit["cwe"]))
                     findings.append(fo_hit)
 
+    def _iter_ordered_nodes(stmts_in: list[ast.stmt]):
+        for st in stmts_in:
+            yield st
+            for field_val in ast.iter_child_nodes(st):
+                if not isinstance(field_val, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    for sub_n in ast.walk(field_val):
+                        yield sub_n
+
     scopes: list[tuple[list[ast.stmt], set[str]]] = [(tree.body, set())]
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            arg_names = {a.arg for a in node.args.args if a.arg not in _SAFE_INFRA_PARAMS}
+            is_priv_helper = node.name.startswith("_") and not node.decorator_list
+            arg_names = set() if is_priv_helper else {a.arg for a in node.args.args if a.arg not in _SAFE_INFRA_PARAMS}
             scopes.append((node.body, arg_names))
 
     for stmts, init_taint in scopes:
@@ -477,7 +503,7 @@ def analyze_python_ast_taint(src_text: str) -> tuple[list[dict[str, Any]], set[i
         sql_tainted: set[str] = set()
 
         for stmt in stmts:
-            for sub in ast.walk(stmt):
+            for sub in _iter_ordered_nodes([stmt]):
                 if isinstance(sub, ast.Assign):
                     val = sub.value
                     is_sql_t = _expr_is_formatted_sql(val, tainted)
@@ -595,7 +621,9 @@ def analyze_sharp_edges_and_timing(
         return []
     findings: list[dict[str, Any]] = []
     seen: set[tuple[int, str]] = set()
-    lines = src_text.splitlines()
+    ext_hint = filename.rsplit(".", 1)[-1].lower() if "." in (filename or "") else ""
+    clean_src = fast_rust_strip_comments(src_text, ext_hint)
+    lines = clean_src.splitlines()
 
     def _emit(ln: int, title: str, sev: str, cvss: float, vec: str, cwe: str, owasp: str, rem: str) -> None:
         if (ln, cwe) not in seen:
@@ -694,10 +722,12 @@ def analyze_unauthenticated_entry_points(
     mask = fast_sast_prefilter_mask(src_text) if prefilter_mask is None else prefilter_mask
     if not (mask & SAST_MASK_ENTRY_POINT):
         return []
-    lines = src_text.splitlines()
+    ext_hint = filename.rsplit(".", 1)[-1].lower() if "." in (filename or "") else ""
+    clean_src = fast_rust_strip_comments(src_text, ext_hint)
+    lines = clean_src.splitlines()
     if not lines:
         return []
-    file_level_guard = bool(re.search(r"(?:\[Authorize\b|@PreAuthorize\b|router\.use\([^)]*auth|middleware\(\s*\[?['\"]auth)", (src_text or "")[:1500], re.I))
+    file_level_guard = bool(re.search(r"(?:\[Authorize\b|@PreAuthorize\b|router\.use\([^)]*auth|middleware\(\s*\[?['\"]auth)", clean_src, re.I))
     findings: list[dict[str, Any]] = []
     for idx, raw_ln in enumerate(lines, start=1):
         s = raw_ln.strip()

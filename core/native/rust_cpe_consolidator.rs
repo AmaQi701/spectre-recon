@@ -4,6 +4,7 @@
 
 use crate::cmp_deb_rpm_part;
 use crate::rust_cleanroom_nvd_cpe_pack::CLEANROOM_RANGE_RULES;
+use crate::rust_cpe_advisory_engine::{lookup_cpe_vendor_slug, CPE_PRODUCTS, SEMVER_ADVISORIES};
 
 struct BannerSig {
     token_lower: &'static str,
@@ -87,17 +88,28 @@ fn has_distro_backport_marker(obs_lower: &str, ver: &str) -> bool {
     matches!(ver, "8.9p1" | "9.2p1" | "9.6p1")
 }
 
+fn normalize_upstream_for_cmp(ver: &str) -> String {
+    if let Some((base, rest)) = ver.split_once('-') {
+        let rl = rest.to_ascii_lowercase();
+        if rl.starts_with("rc") || rl.starts_with("alpha") || rl.starts_with("beta") || rl.starts_with("pre") || rl.starts_with("dev") {
+            return format!("{}~{}", base, rl);
+        }
+        return base.to_string();
+    }
+    ver.to_string()
+}
+
 pub fn consolidate_cpe_and_audit_json(observations: &str) -> String {
     let obs_low = observations.to_ascii_lowercase();
-    let mut seen_prod: Vec<(&str, String)> = Vec::new();
+    let mut seen_prod: Vec<(char, &str, &str, String)> = Vec::new();
 
     for sig in BANNER_SIGS {
         let mut search_from = 0usize;
         while let Some(rel) = obs_low[search_from..].find(sig.token_lower) {
             let hit_end = search_from + rel + sig.token_lower.len();
             if let Some(ver) = extract_version_after(observations, hit_end) {
-                if !seen_prod.iter().any(|(p, v)| *p == sig.product && *v == ver) {
-                    seen_prod.push((sig.product, ver));
+                if !seen_prod.iter().any(|(_, _, p, v)| *p == sig.product && *v == ver) {
+                    seen_prod.push((sig.part, sig.vendor, sig.product, ver));
                 }
             }
             search_from = hit_end;
@@ -106,26 +118,44 @@ pub fn consolidate_cpe_and_audit_json(observations: &str) -> String {
             }
         }
     }
+    for cp in CPE_PRODUCTS {
+        for sep in ["/", " ", ":"] {
+            let tok = format!("{}{}", cp.key, sep);
+            let mut search_from = 0usize;
+            while let Some(rel) = obs_low[search_from..].find(&tok) {
+                let hit_end = search_from + rel + tok.len();
+                if let Some(ver) = extract_version_after(observations, hit_end) {
+                    let (vend, slug) = lookup_cpe_vendor_slug(cp.key).unwrap_or((cp.vendor, cp.slug));
+                    if !seen_prod.iter().any(|(_, _, p, v)| *p == slug && *v == ver) {
+                        seen_prod.push(('a', vend, slug, ver));
+                    }
+                }
+                search_from = hit_end;
+                if search_from >= obs_low.len() {
+                    break;
+                }
+            }
+        }
+    }
 
     let mut items_json: Vec<String> = Vec::new();
-    for (prod, ver) in &seen_prod {
-        let sig = match BANNER_SIGS.iter().find(|s| s.product == *prod) {
-            Some(s) => s,
-            None => continue,
-        };
-        let upstream_ver = ver.split('-').next().unwrap_or(ver.as_str());
-        let cpe23 = format!("cpe:2.3:{}:{}:{}:{}:*:*:*:*:*:*:*", sig.part, sig.vendor, sig.product, upstream_ver);
+    for (part_ch, vendor, prod, ver) in &seen_prod {
+        let cmp_ver = normalize_upstream_for_cmp(ver);
+        let cpe_ver = ver.split('+').next().unwrap_or(ver.as_str());
+        let cpe23 = format!("cpe:2.3:{}:{}:{}:{}:*:*:*:*:*:*:*", part_ch, vendor, prod, cpe_ver);
         let backport = has_distro_backport_marker(&obs_low, ver);
         let qod = if backport { 60 } else { 88 };
 
         let mut matched_cves: Vec<String> = Vec::new();
+        let mut seen_cve_ids: Vec<&str> = Vec::new();
         for rule in CLEANROOM_RANGE_RULES {
-            if rule.product != *prod {
+            if rule.product != *prod || seen_cve_ids.contains(&rule.cve_id) {
                 continue;
             }
-            let ge_min = cmp_deb_rpm_part(upstream_ver.as_bytes(), rule.min_ver.as_bytes()) >= 0;
-            let lt_max = cmp_deb_rpm_part(upstream_ver.as_bytes(), rule.max_ver_excl.as_bytes()) < 0;
+            let ge_min = cmp_deb_rpm_part(cmp_ver.as_bytes(), rule.min_ver.as_bytes()) >= 0;
+            let lt_max = cmp_deb_rpm_part(cmp_ver.as_bytes(), rule.max_ver_excl.as_bytes()) < 0;
             if ge_min && lt_max {
+                seen_cve_ids.push(rule.cve_id);
                 matched_cves.push(format!(
                     "{{\"cve\":\"{}\",\"severity\":\"{}\",\"cvss\":{:.1},\"cwe\":\"{}\",\"is_kev\":{},\"qod\":{},\"backport_possible\":{},\"summary\":\"{}\",\"fix\":\"{}\"}}",
                     json_escape_rs(rule.cve_id),
@@ -140,10 +170,32 @@ pub fn consolidate_cpe_and_audit_json(observations: &str) -> String {
                 ));
             }
         }
+        for srule in SEMVER_ADVISORIES {
+            if srule.product != *prod || seen_cve_ids.contains(&srule.cve) {
+                continue;
+            }
+            let ge_min = cmp_deb_rpm_part(cmp_ver.as_bytes(), srule.min_v.as_bytes()) >= 0;
+            let lt_max = cmp_deb_rpm_part(cmp_ver.as_bytes(), srule.max_v.as_bytes()) < 0;
+            if ge_min && lt_max {
+                seen_cve_ids.push(srule.cve);
+                matched_cves.push(format!(
+                    "{{\"cve\":\"{}\",\"severity\":\"{}\",\"cvss\":{:.1},\"cwe\":\"{}\",\"is_kev\":false,\"qod\":{},\"backport_possible\":{},\"summary\":\"{}\",\"fix\":\"Upgrade {} to >= {}\"}}",
+                    json_escape_rs(srule.cve),
+                    srule.severity,
+                    (srule.cvss_x10 as f64) / 10.0,
+                    srule.cwe,
+                    qod,
+                    if backport { "true" } else { "false" },
+                    json_escape_rs(srule.title),
+                    json_escape_rs(prod),
+                    json_escape_rs(srule.max_v),
+                ));
+            }
+        }
         items_json.push(format!(
             "{{\"vendor\":\"{}\",\"product\":\"{}\",\"version\":\"{}\",\"cpe23\":\"{}\",\"backport_possible\":{},\"qod\":{},\"advisories\":[{}]}}",
-            sig.vendor,
-            sig.product,
+            vendor,
+            prod,
             json_escape_rs(ver),
             json_escape_rs(&cpe23),
             if backport { "true" } else { "false" },

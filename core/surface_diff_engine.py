@@ -10,14 +10,26 @@ Compares two scan bundles (baseline project vs current project) to pinpoint:
 from __future__ import annotations
 
 import re
+import urllib.parse
 from typing import Any
 
 
-def _canon_finding_key(f: dict[str, Any]) -> tuple[str, str, str]:
+def _norm_asset_key(raw_asset: str) -> tuple[str, str]:
+    s = (raw_asset or "").strip()
+    if not s:
+        return ("", "")
+    if "://" in s:
+        p = urllib.parse.urlsplit(s)
+        return ((p.netloc or "").lower(), (p.path or "/").rstrip("/") or "/")
+    return (s.lower(), "")
+
+
+def _canon_finding_key(f: dict[str, Any]) -> tuple[str, str, str, str, str]:
     title = re.sub(r"\(\d+\s+(?:Hosts|Service Profiles|Server Profiles|JS Bundles|packages|libraries)\)", "", str(f.get("title") or "")).strip().lower()
     cwe = str(f.get("cwe") or "").upper()
     sev = str(f.get("severity") or "")
-    return (cwe, sev, title)
+    a_host, a_path = _norm_asset_key(str(f.get("asset") or ""))
+    return (cwe, sev, title, a_host, a_path)
 
 
 def compute_project_diff(base_bundle: dict[str, Any], curr_bundle: dict[str, Any]) -> dict[str, Any]:

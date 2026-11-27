@@ -45,8 +45,9 @@ def map_iam_and_keycloak_realms(db, session, project_id: int, base_url: str, log
                 data = r.json()
                 grants = data.get("grant_types_supported", [])
                 for k in ("authorization_endpoint", "token_endpoint", "userinfo_endpoint", "end_session_endpoint", "jwks_uri", "registration_endpoint"):
-                    if data.get(k):
-                        db.upsert_endpoint(project_id, str(data[k]), method="POST" if "token" in k else "GET", params=[], category="api_endpoint", risk_tags=["oidc_iam"], source="keycloak_mapper")
+                    ep_val = str(data.get(k) or "").strip()
+                    if ep_val and (urllib.parse.urlparse(ep_val).hostname or "").lower() == (urllib.parse.urlparse(base_url).hostname or "").lower():
+                        db.upsert_endpoint(project_id, ep_val, method="POST" if "token" in k else "GET", params=[], category="api_endpoint", risk_tags=["oidc_iam"], source="keycloak_mapper")
                 mapped += 1
                 has_reg = "registration_endpoint" in data
                 has_direct_grant = "password" in grants
@@ -573,8 +574,15 @@ def audit_jwt_header_posture(token: str) -> list[tuple[str, str, float, str]]:
 def audit_graphql_batching_and_suggestions(db, session, project_id: int, base_url: str, log_fn) -> int:
     from core.plugin_runner import QoD
     hits = 0
+    existing_cwe770 = {
+        str(f.get("asset") or "")
+        for f in db.get_project_bundle(project_id).get("findings", [])
+        if str(f.get("cwe") or "") == "CWE-770"
+    }
     for gp in ("/graphql", "/api/graphql"):
         gu = urllib.parse.urljoin(base_url, gp)
+        if gu in existing_cwe770:
+            continue
         try:
             batch_q = [{"query": "{__typename}"}, {"query": "{__typename}"}, {"query": "{__typename}"}]
             r = session.post(gu, json=batch_q, timeout=4.5, verify=False, allow_redirects=False)
@@ -599,6 +607,28 @@ def audit_graphql_batching_and_suggestions(db, session, project_id: int, base_ur
     return hits
 
 
+def audit_discovered_jwt_headers_in_bundle(db, project_id: int, base_url: str) -> int:
+    from core.plugin_runner import QoD
+    tok_re = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*")
+    hits = 0
+    for j_row in db.get_project_bundle(project_id).get("js_assets", [])[:20]:
+        blob = str(j_row.get("secrets_hints_json") or "")
+        for tok in tok_re.findall(blob)[:4]:
+            for title, sev, cvss, cwe in audit_jwt_header_posture(tok):
+                db.upsert_finding(
+                    project_id, "SPECTRE-Schema (JWT-Header)", title,
+                    "JWT Header Posture", sev, cvss,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N", cwe,
+                    "A02:2021 - Cryptographic Failures", base_url,
+                    f"JWT Header Token Sample: {tok[:36]}...",
+                    "JWT JOSE sarlavhasida xavfli dinamik kalit manzili yoki metabelgilar aniqlandi.",
+                    "JWT kutubxonasida jku/x5u/jwk sarlavhalarini o'chiring va statik JWKS ishlating.",
+                    confidence=QoD.HEADER_CONFIG,
+                )
+                hits += 1
+    return hits
+
+
 def run_schema_iam_suite(agent, project_id: int, apex_domain: str, base_url: str, js_urls: list[str], log_fn) -> None:
     from core.plugin_runner import ScanPhase, run_plugin_safely
 
@@ -615,6 +645,7 @@ def run_schema_iam_suite(agent, project_id: int, apex_domain: str, base_url: str
     run_plugin_safely(db, project_id, "si_iam_keycloak", map_iam_and_keycloak_realms, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
     run_plugin_safely(db, project_id, "si_openapi_refs", resolve_openapi_schema_refs, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
     run_plugin_safely(db, project_id, "si_graphql_batch", audit_graphql_batching_and_suggestions, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
+    run_plugin_safely(db, project_id, "si_jwt_hdr_posture", audit_discovered_jwt_headers_in_bundle, db, project_id, base_url, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
     run_plugin_safely(db, project_id, "si_webpack_chunks", predict_and_fetch_webpack_chunks, db, session, project_id, base_url, js_urls, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
     run_plugin_safely(db, project_id, "si_i18n_miner", mine_i18n_translation_dictionaries, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
     run_plugin_safely(db, project_id, "si_lb_etag", fingerprint_load_balancer_and_etag, db, session, project_id, base_url, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)

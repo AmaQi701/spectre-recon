@@ -15,6 +15,7 @@ from typing import Any
 
 import yaml
 
+from core.models import walk_safe_repo_files
 from core.plugin_runner import QoD
 
 _ENV_SECRET_RE = re.compile(
@@ -100,10 +101,17 @@ def audit_dockerfile_text(content: str) -> list[tuple[str, str, float, str, str]
     return issues
 
 
+def _safe_yaml_load(content: str, multi: bool = False) -> Any:
+    raw = content or ""
+    if not raw or len(raw) > 524288 or raw.count("*") > 64:
+        return [] if multi else {}
+    return list(yaml.safe_load_all(raw)) if multi else (yaml.safe_load(raw) or {})
+
+
 def audit_compose_yaml(content: str) -> list[tuple[str, str, float, str, str]]:
     issues: list[tuple[str, str, float, str, str]] = []
     try:
-        doc = yaml.safe_load(content) or {}
+        doc = _safe_yaml_load(content, multi=False)
     except Exception:
         return issues
     services = doc.get("services") if isinstance(doc, dict) else None
@@ -154,7 +162,7 @@ def audit_k8s_yaml(content: str) -> list[tuple[str, str, float, str, str]]:
     k8s_kinds = {"Pod", "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
     rbac_kinds = {"ClusterRole", "Role", "ClusterRoleBinding", "RoleBinding", "Secret"}
     try:
-        docs = list(yaml.safe_load_all(content))
+        docs = _safe_yaml_load(content, multi=True)
     except Exception:
         return issues
     for doc in docs:
@@ -214,7 +222,11 @@ def audit_k8s_yaml(content: str) -> list[tuple[str, str, float, str, str]]:
         if kind not in k8s_kinds:
             continue
         spec_root = doc.get("spec") or {}
-        pod_spec = ((spec_root.get("template") or {}).get("spec") or spec_root) if isinstance(spec_root, dict) else {}
+        if kind == "CronJob" and isinstance(spec_root, dict):
+            jt_spec = (spec_root.get("jobTemplate") or {}).get("spec") or {}
+            pod_spec = ((jt_spec.get("template") or {}).get("spec") or {}) if isinstance(jt_spec, dict) else {}
+        else:
+            pod_spec = ((spec_root.get("template") or {}).get("spec") or spec_root) if isinstance(spec_root, dict) else {}
         if not isinstance(pod_spec, dict):
             continue
         if pod_spec.get("hostNetwork") is True or pod_spec.get("hostPID") is True:
@@ -231,7 +243,12 @@ def audit_k8s_yaml(content: str) -> list[tuple[str, str, float, str, str]]:
                     "Critical", 9.0, "CWE-250",
                     "Podlarda sezgir host kataloglarini (`hostPath`) ulashni taqiqlang.",
                 ))
-        for ctr in (pod_spec.get("containers") or []):
+        all_ctrs = (
+            list(pod_spec.get("containers") or [])
+            + list(pod_spec.get("initContainers") or [])
+            + list(pod_spec.get("ephemeralContainers") or [])
+        )
+        for ctr in all_ctrs:
             sc = (ctr.get("securityContext") or {}) if isinstance(ctr, dict) else {}
             if isinstance(sc, dict):
                 if sc.get("privileged") is True:
@@ -288,7 +305,7 @@ def audit_helm_or_ansible_yaml(filename: str, content: str) -> list[tuple[str, s
     issues: list[tuple[str, str, float, str, str]] = []
     fn = filename.lower()
     try:
-        doc = yaml.safe_load(content)
+        doc = _safe_yaml_load(content, multi=False)
     except Exception:
         return issues
     if fn.startswith("values") and isinstance(doc, dict):
@@ -353,17 +370,14 @@ def audit_nginx_conf_text(content: str) -> list[tuple[str, str, float, str, str]
 
 
 def run_iac_security_audit(db: Any, project_id: int, code_paths: list[str], log_fn: Any) -> int:
-    skip_parts = ("node_modules", ".git", "__pycache__", "/tests/", "/test/", ".terraform", ".venv", "venv")
     written = 0
     for cp in code_paths:
         if not cp:
             continue
         root = Path(cp)
-        if not root.is_dir():
+        if not root.is_dir() or root.is_symlink():
             continue
-        for fp in sorted(root.rglob("*"))[:300]:
-            if not fp.is_file() or any(sp in str(fp).replace("\\", "/") for sp in skip_parts):
-                continue
+        for fp in walk_safe_repo_files(root, max_files=360, max_bytes=524288):
             fn = fp.name.lower()
             is_docker = fn == "dockerfile" or fn.startswith("dockerfile.")
             is_compose = fn in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
