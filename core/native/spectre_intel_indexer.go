@@ -138,7 +138,7 @@ func main() {
 	probePorts := flag.String("probe-ports", "", "Comma-separated port or logical:connect specs")
 	timeoutMs := flag.Int("timeout-ms", 2400, "Socket/HTTP timeout in milliseconds")
 	syncFeeds := flag.String("sync-feeds", "", "Stream OSV + Clean-Room advisories into TSV path")
-	syncEcos := flag.String("ecosystems", "PyPI,Go,Maven,NuGet,crates.io,Packagist,RubyGems,Alpine,Debian,Ubuntu,Rocky Linux,AlmaLinux,Bitnami,Wolfi,OSS-Fuzz,Linux,Hex,Pub,GitHub Actions", "OSV ecosystems to sync")
+	syncEcos := flag.String("ecosystems", "npm,PyPI,Go,Maven,Packagist,RubyGems,crates.io,NuGet,Pub,Hex,Debian,Ubuntu,Alpine,AlmaLinux,Rocky Linux,Wolfi,Bitnami,Linux,GitHub Actions", "OSV ecosystems to sync")
 	runPlugins := flag.String("run-plugins", "", "Target base URL to execute YAML plugins against")
 	pluginsDir := flag.String("plugins-dir", "", "Directory containing declarative *.yaml plugins")
 	kbHints := flag.String("kb-hints", "", "Semicolon-separated key=val KB facts for YAML plugin gating")

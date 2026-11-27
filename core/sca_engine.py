@@ -18,7 +18,9 @@ import requests
 from core.advisory_kb import version_in_range
 from core.http_engine import get_project_js_cache_dir
 from core.models import walk_safe_repo_files
+from core.native_bridge import fast_rust_lookup_cve
 from core.plugin_runner import QoD
+from core.threat_intel_pack import query_offline_sca_advisories
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 OSV_CACHE_PATH = ROOT_DIR / "workspaces" / "osv_advisory_cache.json"
@@ -252,6 +254,7 @@ def _load_osv_cache() -> dict[str, list[str]]:
 def match_dependencies_advisories(
     deps: list[tuple[str, str, str]],
     allow_online_osv: bool = True,
+    use_intel_db: bool = True,
 ) -> list[dict[str, Any]]:
     if not deps:
         return []
@@ -259,14 +262,38 @@ def match_dependencies_advisories(
     for eco, pkg, ver in deps:
         for rl in OFFLINE_SCA_RULES:
             if rl["eco"] == eco and rl["pkg"] == pkg.lower() and version_in_range(ver, rl["min"], rl["max"]):
-                hits_map[(eco, pkg, ver)] = {
-                    "eco": eco, "pkg": pkg, "ver": ver, "cves": [rl["cve"]],
-                    "sev": rl["sev"], "cvss": float(rl["cvss"]),
-                }
+                cur = hits_map.get((eco, pkg, ver))
+                if cur:
+                    if rl["cve"] not in cur["cves"]:
+                        cur["cves"].append(rl["cve"])
+                    if float(rl["cvss"]) > cur["cvss"]:
+                        cur["cvss"] = float(rl["cvss"])
+                        cur["sev"] = rl["sev"]
+                else:
+                    hits_map[(eco, pkg, ver)] = {
+                        "eco": eco, "pkg": pkg, "ver": ver, "cves": [rl["cve"]],
+                        "sev": rl["sev"], "cvss": float(rl["cvss"]),
+                    }
+
+    if use_intel_db:
+        db_hits = query_offline_sca_advisories(deps)
+        for key_t, db_item in db_hits.items():
+            cur = hits_map.get(key_t)
+            if cur:
+                for cid in db_item["cves"]:
+                    if cid not in cur["cves"] and len(cur["cves"]) < 6:
+                        cur["cves"].append(cid)
+                if float(db_item["cvss"]) > cur["cvss"]:
+                    cur["cvss"] = float(db_item["cvss"])
+                    cur["sev"] = db_item["sev"]
+                if db_item.get("kev"):
+                    cur["kev"] = True
+            else:
+                hits_map[key_t] = dict(db_item)
 
     if allow_online_osv:
         cache = _load_osv_cache()
-        uncached = [(e, p, v) for e, p, v in deps[:60] if f"{e}:{p}:{v}" not in cache]
+        uncached = [(e, p, v) for e, p, v in deps[:60] if (e, p, v) not in hits_map and f"{e}:{p}:{v}" not in cache]
         if uncached:
             try:
                 q_list = [{"package": {"name": p, "ecosystem": e}, "version": v} for e, p, v in uncached]
@@ -294,7 +321,10 @@ def match_dependencies_advisories(
                         "sev": "High", "cvss": 7.5,
                     }
     for item in hits_map.values():
-        item["kev"] = any(str(c).upper() in CISA_KEV_CVES for c in item.get("cves", []))
+        item["kev"] = bool(item.get("kev")) or any(
+            str(c).upper() in CISA_KEV_CVES or bool((fast_rust_lookup_cve(str(c).upper()) or {}).get("is_kev"))
+            for c in item.get("cves", [])
+        )
     return list(hits_map.values())
 
 

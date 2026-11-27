@@ -278,14 +278,27 @@ def detect_distro_family(os_release_text: str) -> str:
                 return "ubuntu:24.04"
             if "22.04" in ver_id or codename == "jammy":
                 return "ubuntu:22.04"
+            if "20.04" in ver_id or codename == "focal":
+                return "ubuntu:20.04"
             return ""
         if os_id == "debian":
+            if ver_id == "13" or ver_id.startswith("13.") or " 13" in ver_id or codename == "trixie":
+                return "debian:13"
             if ver_id == "12" or ver_id.startswith("12.") or " 12" in ver_id or codename == "bookworm":
                 return "debian:12"
+            if ver_id == "11" or ver_id.startswith("11.") or " 11" in ver_id or codename == "bullseye":
+                return "debian:11"
             return ""
         if os_id in ("rhel", "rocky", "almalinux", "centos"):
             if ver_id == "9" or ver_id.startswith("9.") or re.search(r"\b9(?:\.\d+|\b)", ver_id):
                 return "rhel:9"
+            if ver_id == "8" or ver_id.startswith("8.") or re.search(r"\b8(?:\.\d+|\b)", ver_id):
+                return "rhel:8"
+            return ""
+        if os_id == "alpine":
+            m_alp = re.match(r"^(\d+\.\d+)", ver_id)
+            if m_alp:
+                return f"alpine:v{m_alp.group(1)}"
             return ""
         return ""
     low = raw.lower()
@@ -310,10 +323,11 @@ def detect_distro_family(os_release_text: str) -> str:
 def evaluate_distro_lsc_inventory(
     os_release_text: str,
     pkg_inventory_text: str,
+    include_intel_db: bool = False,
 ) -> tuple[list[dict[str, Any]], set[str]]:
     """
-    Table-driven Distro Local Security Check (LSC) evaluator.
-    Compares installed `dpkg`/`rpm` package revisions against distro security advisories.
+    Table-driven + `spectre_intel.db` Distro Local Security Check (LSC) evaluator.
+    Compares installed `dpkg`/`rpm`/`apk` package revisions against distro security advisories.
     """
     distro_id = detect_distro_family(os_release_text)
     if not distro_id:
@@ -328,6 +342,7 @@ def evaluate_distro_lsc_inventory(
 
     findings: list[dict[str, Any]] = []
     covered_products: set[str] = set()
+    flagged_pkgs: set[str] = set()
     for row in DISTRO_LSC_ADVISORY_TABLE:
         if row["distro"] != distro_id:
             continue
@@ -341,13 +356,24 @@ def evaluate_distro_lsc_inventory(
             item["owasp"] = "A06:2021 - Vulnerable and Outdated Components"
             item["cpe23"] = build_cpe23(str(row["product"]), parse_distro_version(inst_ver)[1])
             findings.append(item)
+            flagged_pkgs.add(str(row["pkg"]))
+
+    if include_intel_db and pkgs:
+        from core.threat_intel_pack import query_offline_distro_advisories
+        rem_pkgs = {k: v for k, v in pkgs.items() if k not in flagged_pkgs}
+        if rem_pkgs:
+            for db_hit in query_offline_distro_advisories(distro_id, rem_pkgs):
+                covered_products.add(str(db_hit["product"]))
+                findings.append(db_hit)
+
     return findings, covered_products
 
 
 def evaluate_distro_package_advisory(
     os_release_text: str,
     pkg_inventory_text: str,
+    include_intel_db: bool = False,
 ) -> list[dict[str, Any]]:
     """Convenience wrapper returning confirmed distro LSC advisories."""
-    hits, _ = evaluate_distro_lsc_inventory(os_release_text, pkg_inventory_text)
+    hits, _ = evaluate_distro_lsc_inventory(os_release_text, pkg_inventory_text, include_intel_db=include_intel_db)
     return hits

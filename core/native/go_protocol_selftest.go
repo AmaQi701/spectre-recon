@@ -331,6 +331,44 @@ func runHttpFramingCheckGo() (bool, string) {
 	return false, "http framing check mismatch"
 }
 
+func runOsvCveNormalizerCheckGo() (bool, string) {
+	ent := osvEntry{
+		ID:      "DEBIAN-CVE-2024-6387",
+		Summary: "OpenSSH server signal race condition",
+		Severity: []osvSeverity{
+			{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"},
+		},
+		Affected: []osvAffected{
+			{
+				Package: osvPackage{Ecosystem: "PyPI", Name: "urllib3"},
+				Ranges: []osvRange{
+					{
+						Type: "GIT",
+						Events: []osvEvent{
+							{Introduced: "0", Fixed: "3bd8afbff29e50b38f889b2f688785a669b9aafc"},
+						},
+					},
+					{
+						Type: "ECOSYSTEM",
+						Events: []osvEvent{
+							{Introduced: "0"},
+							{Fixed: "1.26.18"},
+							{Introduced: "2.0.0"},
+							{Fixed: "2.0.7"},
+						},
+					},
+				},
+			},
+		},
+	}
+	cid := resolvePrimaryAdvIDGo(&ent)
+	rows := extractOsvRowsWithIDGo(&ent, cid)
+	if cid == "CVE-2024-6387" && len(rows) == 2 && strings.Contains(rows[0], "\t*\t1.26.18\t8.1\tHigh\t") && strings.Contains(rows[1], "\t2.0.0\t2.0.7\t8.1\tHigh\t") {
+		return true, "DEBIAN-CVE->CVE-2024-6387 + multi-branch ranges + GIT SHA skip + CVSS 8.1 OK"
+	}
+	return false, fmt.Sprintf("osv normalizer mismatch cid=%s rows=%d", cid, len(rows))
+}
+
 func RunAllGoProtocolSelfTests() GoProtocolSelfTestReport {
 	details := make(map[string]string)
 	passed := 0
@@ -347,6 +385,7 @@ func RunAllGoProtocolSelfTests() GoProtocolSelfTestReport {
 		{"cross_role_access_matrix", runAccessMatrixCheckGo},
 		{"cloud_iam_posture", runCloudPostureCheckGo},
 		{"rfc9112_http_framing", runHttpFramingCheckGo},
+		{"osv_cve_cvss31_normalizer", runOsvCveNormalizerCheckGo},
 	}
 	for _, c := range checks {
 		ok, msg := c.fn()

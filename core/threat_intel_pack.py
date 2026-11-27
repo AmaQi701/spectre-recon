@@ -346,7 +346,7 @@ def _init_intel_schema(conn: sqlite3.Connection) -> None:
             built_ts INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS cve_advisories (
-            cve_id TEXT PRIMARY KEY,
+            cve_id TEXT NOT NULL,
             vendor TEXT NOT NULL,
             product TEXT NOT NULL,
             cpe23 TEXT NOT NULL,
@@ -360,10 +360,12 @@ def _init_intel_schema(conn: sqlite3.Connection) -> None:
             epss REAL NOT NULL,
             summary TEXT NOT NULL,
             remediation TEXT NOT NULL,
-            spdx_license TEXT NOT NULL
+            spdx_license TEXT NOT NULL,
+            PRIMARY KEY (cve_id, vendor, product, min_ver, max_ver)
         );
         CREATE INDEX IF NOT EXISTS idx_cve_prod_kev ON cve_advisories(product, is_kev);
         CREATE INDEX IF NOT EXISTS idx_cve_cpe23 ON cve_advisories(cpe23);
+        CREATE INDEX IF NOT EXISTS idx_cve_eco_pkg_ci ON cve_advisories(vendor COLLATE NOCASE, product COLLATE NOCASE);
         CREATE TABLE IF NOT EXISTS ieee_oui (
             oui_prefix TEXT PRIMARY KEY,
             organization TEXT NOT NULL,
@@ -550,8 +552,10 @@ def build_offline_intel_pack(
 
         conn = sqlite3.connect(str(target_db))
         try:
+            conn.execute("DROP TABLE IF EXISTS cve_advisories")
             _init_intel_schema(conn)
-            cve_rows: dict[str, tuple[Any, ...]] = {}
+            kev_meta_map: dict[str, tuple[str, float]] = {}
+            cve_rows: dict[tuple[str, str, str, str, str], tuple[Any, ...]] = {}
             for item in kev_vulns:
                 cid = str(item.get("cveID") or "").strip().upper()
                 if not cid.startswith("CVE-"):
@@ -563,12 +567,15 @@ def build_offline_intel_pack(
                 sev = "Critical" if cvss >= 9.0 else "High"
                 cwe = _normalize_triad_cwe(item.get("cwes") or [])
                 epss = float(BUILTIN_EPSS_HIGH.get(cid, 0.85 if ransom.lower() == "known" else 0.65))
+                kev_meta_map[cid] = (ransom, epss)
                 v_tok = re.sub(r"[^a-z0-9._\-]+", "_", vend.lower()).strip("_") or "vendor"
                 p_tok = re.sub(r"[^a-z0-9._\-]+", "_", prod.lower()).strip("_") or "product"
                 cpe = f"cpe:2.3:a:{v_tok}:{p_tok}:*:*:*:*:*:*:*:*"
                 summ = str(item.get("shortDescription") or item.get("vulnerabilityName") or cid)[:320]
                 rem = str(item.get("requiredAction") or "Install official vendor security patch.")[:260]
-                cve_rows[cid] = (cid, vend, prod, cpe, "*", "*", cvss, sev, cwe, 1, ransom, epss, summ, rem, "US-Gov-Public-Domain")
+                cve_rows[(cid, vend.lower(), prod.lower(), "*", "*")] = (
+                    cid, vend, prod, cpe, "*", "*", cvss, sev, cwe, 1, ransom, epss, summ, rem, "US-Gov-Public-Domain",
+                )
 
             for adv in CURATED_CVE_ADVISORIES:
                 for raw_c in str(adv.get("cve") or "").split("/"):
@@ -577,27 +584,35 @@ def build_offline_intel_pack(
                         continue
                     prod = str(adv.get("product") or "unknown")
                     cpe = build_cpe23(prod, "*")
-                    prev = cve_rows.get(cid)
-                    is_kev = 1 if (prev and prev[9] == 1) else (1 if cid in BUILTIN_KEV_SET else 0)
-                    ransom = prev[10] if prev else "Unknown"
-                    epss = float(BUILTIN_EPSS_HIGH.get(cid, prev[11] if prev else 0.25))
-                    cve_rows[cid] = (
-                        cid, cpe.split(":")[3], prod, cpe, str(adv.get("min") or "*"), str(adv.get("max") or "*"),
-                        float(adv.get("cvss") or 7.5), str(adv.get("severity") or "High"), str(adv.get("cwe") or "CWE-1104"),
+                    vend_s = cpe.split(":")[3]
+                    min_s = str(adv.get("min") or "*")
+                    max_s = str(adv.get("max") or "*")
+                    k_meta = kev_meta_map.get(cid)
+                    is_kev = 1 if (k_meta is not None or cid in BUILTIN_KEV_SET) else 0
+                    ransom = k_meta[0] if k_meta else "Unknown"
+                    epss = float(BUILTIN_EPSS_HIGH.get(cid, k_meta[1] if k_meta else 0.25))
+                    cve_rows[(cid, vend_s.lower(), prod.lower(), min_s, max_s)] = (
+                        cid, vend_s, prod, cpe, min_s, max_s,
+                        float(adv.get("cvss") or 7.5), str(adv.get("severity") or "High"), _normalize_triad_cwe(str(adv.get("cwe") or "CWE-1104")),
                         is_kev, ransom, epss, str(adv.get("title") or cid), str(adv.get("remediation") or ""), "US-Gov-Public-Domain",
                     )
 
             for srl in OFFLINE_SCA_RULES:
                 cid = str(srl.get("cve") or "").strip().upper()
-                if cid and cid not in cve_rows:
+                if cid:
                     pkg = str(srl.get("pkg") or "pkg")
                     eco = str(srl.get("eco") or "oss")
-                    cve_rows[cid] = (
-                        cid, eco.lower(), pkg, f"cpe:2.3:a:{eco.lower()}:{re.sub(r'[^a-z0-9._-]+', '_', pkg.lower())}:*:*:*:*:*:*:*:*",
-                        str(srl.get("min") or "*"), str(srl.get("max") or "*"), float(srl.get("cvss") or 7.5),
-                        str(srl.get("sev") or "High"), "CWE-1104", 1 if cid in BUILTIN_KEV_SET else 0,
-                        "Unknown", float(BUILTIN_EPSS_HIGH.get(cid, 0.20)), f"{eco} {pkg} vulnerability advisory",
-                        f"Upgrade {pkg} to >= {srl.get('max')}", "CC-BY-4.0",
+                    min_s = str(srl.get("min") or "*")
+                    max_s = str(srl.get("max") or "*")
+                    k_meta = kev_meta_map.get(cid)
+                    is_kev = 1 if (k_meta is not None or cid in BUILTIN_KEV_SET) else 0
+                    ransom = k_meta[0] if k_meta else "Unknown"
+                    cve_rows[(cid, eco.lower(), pkg.lower(), min_s, max_s)] = (
+                        cid, eco, pkg, f"cpe:2.3:a:{eco.lower()}:{re.sub(r'[^a-z0-9._-]+', '_', pkg.lower())}:*:*:*:*:*:*:*:*",
+                        min_s, max_s, float(srl.get("cvss") or 7.5),
+                        str(srl.get("sev") or "High"), "CWE-1104", is_kev,
+                        ransom, float(BUILTIN_EPSS_HIGH.get(cid, k_meta[1] if k_meta else 0.20)), f"{eco} {pkg} vulnerability advisory",
+                        f"Upgrade {pkg} to >= {max_s}", "CC-BY-4.0",
                     )
 
             conn.executemany("INSERT OR REPLACE INTO cve_advisories VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", list(cve_rows.values()))
@@ -609,10 +624,15 @@ def build_offline_intel_pack(
                         cols = raw_ln.rstrip("\n").split("\t")
                         if len(cols) == 15:
                             try:
+                                cid_u = cols[0].strip().upper()
+                                k_meta = kev_meta_map.get(cid_u)
+                                kev_flag = 1 if (int(cols[9]) == 1 or k_meta is not None or cid_u in BUILTIN_KEV_SET) else 0
+                                r_use = k_meta[0] if (k_meta and cols[10] == "Unknown") else cols[10]
+                                epss_v = float(BUILTIN_EPSS_HIGH.get(cid_u, k_meta[1] if k_meta else float(cols[11])))
                                 batch.append((
-                                    cols[0], cols[1], cols[2], cols[3], cols[4], cols[5],
-                                    float(cols[6]), cols[7], cols[8], int(cols[9]), cols[10],
-                                    float(cols[11]), cols[12], cols[13], cols[14],
+                                    cid_u, cols[1], cols[2], cols[3], cols[4], cols[5],
+                                    float(cols[6]), cols[7], _normalize_triad_cwe(cols[8]), kev_flag, r_use,
+                                    epss_v, cols[12], cols[13], cols[14],
                                 ))
                             except ValueError:
                                 continue
@@ -641,7 +661,7 @@ def ensure_offline_intel_pack() -> Path:
 
 
 def sync_cleanroom_feeds_via_go(
-    ecosystems: str = "PyPI,Go,Maven,NuGet,crates.io,Packagist,RubyGems,Alpine,Debian,Ubuntu,Rocky Linux,AlmaLinux,Bitnami,Wolfi,OSS-Fuzz,Linux,Hex,Pub,GitHub Actions",
+    ecosystems: str = "npm,PyPI,Go,Maven,Packagist,RubyGems,crates.io,NuGet,Pub,Hex,Debian,Ubuntu,Alpine,AlmaLinux,Rocky Linux,Wolfi,Bitnami,Linux,GitHub Actions",
 ) -> dict[str, Any]:
     """Streams official OpenSSF/OSV + CISA KEV advisories via Go and rebuilds `intel/spectre_intel.db`."""
     go_idx = get_go_indexer_bin()
@@ -652,7 +672,7 @@ def sync_cleanroom_feeds_via_go(
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
-            timeout=240,
+            timeout=480,
         )
         if proc.returncode == 0 and proc.stdout.strip():
             try:
@@ -704,6 +724,30 @@ def get_offline_intel_status(
     }
 
 
+_STRICT_SCA_SEMVER_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[-.](?:alpha|beta|rc|pre|dev)[.\-]?\d*)?$", re.I)
+_PRERELEASE_TAG_RE = re.compile(r"(?i)[-.](?:alpha|beta|rc|pre|dev)")
+_DISTRO_VENDOR_MAP: dict[str, tuple[str, ...]] = {
+    "debian:11": ("Debian:11",),
+    "debian:12": ("Debian:12",),
+    "debian:13": ("Debian:13",),
+    "ubuntu:20.04": ("Ubuntu:20.04",),
+    "ubuntu:22.04": ("Ubuntu:22.04",),
+    "ubuntu:24.04": ("Ubuntu:24.04",),
+    "rhel:8": ("Rocky Linux:8", "AlmaLinux:8"),
+    "rhel:9": ("Rocky Linux:9", "AlmaLinux:9"),
+}
+_DISTRO_BIN_TO_SRC: dict[str, str] = {
+    "openssh-server": "openssh",
+    "openssh-client": "openssh",
+    "libc6": "glibc",
+    "redis-server": "redis",
+    "mariadb-server": "mariadb",
+    "apache2-bin": "apache2",
+    "nginx-core": "nginx",
+    "nginx-full": "nginx",
+}
+
+
 def lookup_cve_offline(cve_id: str, db_path: Path | None = None) -> dict[str, Any] | None:
     cid = str(cve_id or "").strip().upper()
     if not cid:
@@ -718,7 +762,7 @@ def lookup_cve_offline(cve_id: str, db_path: Path | None = None) -> dict[str, An
     try:
         row = conn.execute(
             "SELECT cve_id, vendor, product, cpe23, cvss, severity, cwe, is_kev, ransomware_use, epss, summary, remediation, spdx_license "
-            "FROM cve_advisories WHERE cve_id = ?",
+            "FROM cve_advisories WHERE cve_id = ? ORDER BY is_kev DESC, cvss DESC LIMIT 1",
             (cid,),
         ).fetchone()
         if not row:
@@ -731,6 +775,148 @@ def lookup_cve_offline(cve_id: str, db_path: Path | None = None) -> dict[str, An
         }
     finally:
         conn.close()
+
+
+def query_offline_sca_advisories(
+    deps: list[tuple[str, str, str]],
+    db_path: Path | None = None,
+) -> dict[tuple[str, str, str], dict[str, Any]]:
+    """Queries `intel/spectre_intel.db` B-Tree (`idx_cve_eco_pkg_ci`) for SemVer-verified package CVEs."""
+    if not deps:
+        return {}
+    target_db = db_path or INTEL_DB_PATH
+    if not target_db.is_file():
+        return {}
+    from core.advisory_kb import parse_semver, version_in_range
+
+    hits: dict[tuple[str, str, str], dict[str, Any]] = {}
+    conn = sqlite3.connect(f"file:{target_db}?mode=ro", uri=True)
+    try:
+        sql = (
+            "SELECT cve_id, min_ver, max_ver, cvss, severity, is_kev FROM cve_advisories "
+            "WHERE vendor = ? COLLATE NOCASE AND product = ? COLLATE NOCASE AND max_ver != '*' LIMIT 80"
+        )
+        for eco, pkg, ver in deps[:200]:
+            if not _STRICT_SCA_SEMVER_RE.match(ver) or parse_semver(ver) is None:
+                continue
+            cand_pkgs = [pkg]
+            if eco == "PyPI":
+                pep_norm = re.sub(r"[-_.]+", "-", pkg.lower())
+                if pep_norm not in cand_pkgs:
+                    cand_pkgs.append(pep_norm)
+                us_norm = pep_norm.replace("-", "_")
+                if us_norm not in cand_pkgs:
+                    cand_pkgs.append(us_norm)
+            matched_cves: list[str] = []
+            top_cvss = 0.0
+            any_kev = False
+            for c_pkg in cand_pkgs:
+                for cid, min_v, max_v, cvss_v, _sev_v, kev_v in conn.execute(sql, (eco, c_pkg)):
+                    eff_min = "0.0.0" if min_v in ("*", "0", "") else min_v
+                    if not _STRICT_SCA_SEMVER_RE.match(eff_min) or not _STRICT_SCA_SEMVER_RE.match(max_v):
+                        continue
+                    if min_v in ("*", "0", "") and _PRERELEASE_TAG_RE.search(max_v) and not _PRERELEASE_TAG_RE.search(ver):
+                        continue
+                    min_t, max_t = parse_semver(eff_min), parse_semver(max_v)
+                    if min_t is None or max_t is None or min_t >= max_t:
+                        continue
+                    if version_in_range(ver, eff_min, max_v):
+                        if cid not in matched_cves:
+                            matched_cves.append(str(cid))
+                        if float(cvss_v) > top_cvss:
+                            top_cvss = float(cvss_v)
+                        if int(kev_v) == 1:
+                            any_kev = True
+            if matched_cves:
+                top_sev = "Critical" if top_cvss >= 9.0 else ("High" if top_cvss >= 7.0 else ("Medium" if top_cvss >= 4.0 else "Low"))
+                hits[(eco, pkg, ver)] = {
+                    "eco": eco, "pkg": pkg, "ver": ver, "cves": matched_cves[:5],
+                    "sev": top_sev, "cvss": top_cvss if top_cvss > 0.0 else 7.5, "kev": any_kev,
+                }
+    finally:
+        conn.close()
+    return hits
+
+
+def query_offline_distro_advisories(
+    distro_id: str,
+    pkgs: dict[str, str],
+    db_path: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Queries `intel/spectre_intel.db` for distro-specific `dpkg`/`rpm`/`apk` LSC advisories."""
+    if not distro_id or not pkgs:
+        return []
+    target_db = db_path or INTEL_DB_PATH
+    if not target_db.is_file():
+        return []
+    vendors = _DISTRO_VENDOR_MAP.get(distro_id)
+    if not vendors and distro_id.startswith("alpine:"):
+        vendors = (f"Alpine:{distro_id.split(':', 1)[1]}",)
+    if not vendors:
+        return []
+    from core.advisory_kb import build_cpe23, compare_distro_versions, parse_distro_version
+
+    results: list[dict[str, Any]] = []
+    conn = sqlite3.connect(f"file:{target_db}?mode=ro", uri=True)
+    try:
+        sql = (
+            "SELECT cve_id, min_ver, max_ver, cvss, cwe FROM cve_advisories "
+            "WHERE vendor = ? COLLATE NOCASE AND product = ? COLLATE NOCASE AND max_ver != '*' LIMIT 60"
+        )
+        for pkg_name, inst_ver in pkgs.items():
+            ep_i, up_i, _ = parse_distro_version(inst_ver)
+            if not up_i:
+                continue
+            cand_prods = [pkg_name]
+            src_alias = _DISTRO_BIN_TO_SRC.get(pkg_name)
+            if src_alias and src_alias not in cand_prods:
+                cand_prods.append(src_alias)
+            cves: list[str] = []
+            best_cvss = 0.0
+            best_cwe = "CWE-1104"
+            best_fixed = ""
+            for vend in vendors:
+                for c_prod in cand_prods:
+                    for cid, min_v, max_v, cvss_v, cwe_v in conn.execute(sql, (vend, c_prod)):
+                        if not max_v or max_v == "*" or " " in max_v or max_v.startswith("0~"):
+                            continue
+                        ep_f, up_f, _ = parse_distro_version(max_v)
+                        if ep_i != ep_f or up_i.split(".")[:2] != up_f.split(".")[:2]:
+                            continue
+                        if min_v not in ("*", "0", ""):
+                            ep_m, up_m, _ = parse_distro_version(min_v)
+                            if ep_m == ep_i and up_m.split(".")[:2] == up_i.split(".")[:2] and compare_distro_versions(inst_ver, min_v) < 0:
+                                continue
+                        if compare_distro_versions(inst_ver, max_v) < 0:
+                            if cid not in cves:
+                                cves.append(str(cid))
+                            if float(cvss_v) > best_cvss:
+                                best_cvss = float(cvss_v)
+                                best_cwe = _normalize_triad_cwe(str(cwe_v or "CWE-1104"))
+                            if not best_fixed or compare_distro_versions(best_fixed, max_v) < 0:
+                                best_fixed = str(max_v)
+            if cves and best_fixed:
+                canon_p = (src_alias or pkg_name).replace("-server", "")
+                sev_s = "Critical" if best_cvss >= 9.0 else ("High" if best_cvss >= 7.0 else "Medium")
+                results.append({
+                    "distro": distro_id,
+                    "pkg": pkg_name,
+                    "product": canon_p,
+                    "installed_version": inst_ver,
+                    "fixed": best_fixed,
+                    "cve": ", ".join(cves[:4]),
+                    "severity": sev_s,
+                    "cvss": best_cvss if best_cvss > 0.0 else 7.5,
+                    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+                    "cwe": best_cwe,
+                    "owasp": "A06:2021 - Vulnerable and Outdated Components",
+                    "cpe23": build_cpe23(canon_p, up_i),
+                    "title": f"Outdated {distro_id} Package '{pkg_name}' ({inst_ver} < {best_fixed})",
+                    "remediation": f"Distro xavfsizlik yangilanishini o'rnating: `{pkg_name} >= {best_fixed}`.",
+                })
+    finally:
+        conn.close()
+    return results
 
 
 def lookup_mac_vendor_offline(mac_addr: str, db_path: Path | None = None) -> dict[str, str] | None:

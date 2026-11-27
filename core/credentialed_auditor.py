@@ -140,9 +140,11 @@ def run_credentialed_ssh_audit(
         "uname -sr; echo '===OS==='; cat /etc/os-release 2>/dev/null | head -n 12; "
         "echo '===SSHD==='; grep -hEv '^[[:space:]]*(#|$)' /etc/ssh/sshd_config.d/*.conf /etc/ssh/sshd_config 2>/dev/null; "
         "echo '===PKGS==='; dpkg-query -W -f='${Package} ${Version}\\n' 2>/dev/null | "
-        "grep -Ei '^(openssh-server|sudo|libc6|nginx|apache2|mysql-server|mariadb-server|postgresql|redis-server|php|exim4|postfix|squid|bind9|dnsmasq)' || "
+        "grep -Ei '^(openssh-server|sudo|libc6|nginx|apache2|mysql-server|mariadb-server|postgresql|redis-server|php|exim4|postfix|squid|bind9|dnsmasq|curl|openssl)' || "
         "rpm -qa --qf '%{NAME} %{VERSION}-%{RELEASE}\\n' 2>/dev/null | "
-        "grep -Ei '^(openssh-server|sudo|glibc|nginx|httpd|mariadb-server|postgresql-server|redis|php|postfix|squid|bind|dnsmasq)'"
+        "grep -Ei '^(openssh-server|sudo|glibc|nginx|httpd|mariadb-server|postgresql-server|redis|php|postfix|squid|bind|dnsmasq|curl|openssl)' || "
+        "apk info -v 2>/dev/null | sed -E 's/-([0-9]+\\.[0-9]+.*)/ \\1/' | "
+        "grep -Ei '^(openssh|sudo|musl|nginx|apache2|mariadb|postgresql|redis|php|postfix|squid|bind|dnsmasq|curl|openssl)'"
     )
     cmd.extend(["--", dest_arg, remote_probe])
 
@@ -177,7 +179,7 @@ def run_credentialed_ssh_audit(
         )
         written += 1
 
-    distro_hits, covered_prods = evaluate_distro_lsc_inventory(f"{os_name}\n{os_rel}", pkgs_txt)
+    distro_hits, covered_prods = evaluate_distro_lsc_inventory(f"{os_name}\n{os_rel}", pkgs_txt, include_intel_db=True)
     for d_adv in distro_hits:
         db.upsert_finding(
             project_id, "Agent-2 (Credentialed-SSH)", f"[CONFIRMED] {d_adv['title']} ({host_part}) [{d_adv['cve']}]",

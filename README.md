@@ -25,10 +25,10 @@
 | **AI/LLM, RAG Vector DB & MCP `tools/list` Audit** | **Built-in (`Ollama/vLLM/Qdrant/Chroma/Ray/MCP`)** | Partial | No | Community YAML | No |
 | **Active Read-Only Binary/Text Socket NVTs** | **50 Protocols** | Yes | Yes | Limited TCP | No |
 | **KB-Gated Declarative NVTs + Custom YAML SDK** | **2,000 Built-in (`250 Core + 1,750 KEV`) + YAML** | NASL Only | NASL Only | YAML | No |
-| **Offline Threat-Intel DB + MIT SecLists Wordlists** | **253k+ Records + 402k+ Wordlists (`SPDX Verified`)** | Proprietary Feed | Community Feed | Separate | Separate |
+| **Offline Threat-Intel DB + MIT SecLists Wordlists** | **314k+ Records (`256k+` Advisories) + 402k+ Wordlists (`SPDX Verified`)** | Proprietary Feed | Community Feed | Separate | Separate |
 | **6-Language Multi-Line Taint-Flow SAST** | **Py / JS / TS / Go / Java / PHP / C#** | No | No | No | No |
 | **SourceMap (`.js.map`) Unpack -> White-Box SAST** | **Automatic** | No | No | No | No |
-| **Polyglot Lockfile SCA + CycloneDX 1.5 VEX SBOM** | **18 Formats (`90` Offline + OSV.dev)** | Basic | No | No | Yes |
+| **Polyglot Lockfile SCA + CycloneDX 1.5 VEX SBOM** | **18 Formats (`256k+` Offline B-Tree + OSV.dev)** | Basic | No | No | Yes |
 | **Cloud/IaC (`Dockerfile`, K8s RBAC/Ingress, Helm, TF, Nginx, Ansible)** | **Built-in** | Compliance Only | No | Partial | Yes |
 | **Multi-Role BOLA / Authz Differential Matrix** | **Guest vs Role-A vs Role-B** | No | No | Manual | No |
 | **1-Click Safe `curl` Reproducer + Ready Fix Patch** | **Every Finding** | No | No | curl Only | No |
