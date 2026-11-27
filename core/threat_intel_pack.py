@@ -1,5 +1,5 @@
 """
-SPECTRE v9.5.0 Offline Threat Intelligence, SecLists & Clean-Room NVT Pack Engine
+SPECTRE v10.0.0 Offline Threat Intelligence, SecLists & Clean-Room NVT Pack Engine
 =================================================================================
 Compiles and queries a 100% copyright-clean offline intelligence pack (`intel/`):
   1. `intel/spectre_intel.db` (SQLite WAL B-Tree: KEV/CVE, IEEE OUI, Mozilla PSL, IANA Ports, Favicon MMH3, Tech Fingerprints)
@@ -640,7 +640,9 @@ def ensure_offline_intel_pack() -> Path:
     return INTEL_DB_PATH
 
 
-def sync_cleanroom_feeds_via_go(ecosystems: str = "crates.io,NuGet,RubyGems,Go,Maven,Packagist,PyPI") -> dict[str, Any]:
+def sync_cleanroom_feeds_via_go(
+    ecosystems: str = "PyPI,Go,Maven,NuGet,crates.io,Packagist,RubyGems,Alpine,Debian,Ubuntu,Rocky Linux,AlmaLinux,Bitnami,Wolfi,OSS-Fuzz,Linux,Hex,Pub,GitHub Actions",
+) -> dict[str, Any]:
     """Streams official OpenSSF/OSV + CISA KEV advisories via Go and rebuilds `intel/spectre_intel.db`."""
     go_idx = get_go_indexer_bin()
     sync_meta: dict[str, Any] = {"synced": 0}
@@ -650,7 +652,7 @@ def sync_cleanroom_feeds_via_go(ecosystems: str = "crates.io,NuGet,RubyGems,Go,M
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=240,
         )
         if proc.returncode == 0 and proc.stdout.strip():
             try:

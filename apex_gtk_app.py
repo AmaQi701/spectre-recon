@@ -43,7 +43,7 @@ DARK_CSS = (BASE_DIR / "ui" / "gtk_dark.css").read_bytes()
 
 class ApexNativeWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="SPECTRE Recon & Attack Surface Studio v9.5.0")
+        super().__init__(title="SPECTRE Recon & Attack Surface Studio v10.0.0")
         self.set_default_size(1340, 800)
         self.maximize()
         self.set_wmclass("spectre-recon", "spectre-recon")
@@ -243,7 +243,7 @@ class ApexNativeWindow(Gtk.Window):
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
         hb.props.title = "SPECTRE  —  Kiber-Razvedka va Hujum Yuzasi Platformasi"
-        hb.props.subtitle = "v9.5.0  •  Rust + Go + C++17 (>72% Native)  •  109k+ Offline Threat Intel & SecLists  •  2000-NVT & 50-Port NVTs  •  7-Framework Studio"
+        hb.props.subtitle = "v10.0.0  •  Rust + Go + C++17 (>73% Native)  •  253k+ Offline Threat Intel & SecLists  •  2000-NVT & 50-Port NVTs  •  7-Framework Studio"
         self.set_titlebar(hb)
 
         outer_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -639,7 +639,7 @@ class ApexNativeWindow(Gtk.Window):
         self.term_view.set_monospace(True)
         self.term_view.set_left_margin(8); self.term_view.set_top_margin(6)
         self.term_buf = self.term_view.get_buffer()
-        self.term_buf.set_text("[SPECTRE v9.5.0 Workstation] Polyglot Rust + Go + C++17 Native Systems (>72% Native Code), 109k+ Offline Threat Intel & SecLists Pack, KB-Gated 2000-NVT & Wave DAG, 50-Port Socket Verifiers & 7-Framework Studio initialized.\n")
+        self.term_buf.set_text("[SPECTRE v10.0.0 Workstation] Polyglot Rust + Go + C++17 Native Systems (>73% Native Code, ABI 1000), 253k+ Offline Threat Intel & SecLists Pack, KB-Gated 2000-NVT & Wave DAG, 50-Port Socket Verifiers & 7-Framework Studio initialized.\n")
         term_scroll.add(self.term_view)
         term_box.pack_start(term_scroll, True, True, 0)
         vpaned.pack2(term_box, False, False)

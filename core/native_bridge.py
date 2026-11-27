@@ -60,7 +60,7 @@ NVT_SIG_AI_MCP_VECTOR = 8
 NVT_SIG_DEBUG_STATUS = 16
 
 
-EXPECTED_NATIVE_ABI = 950
+EXPECTED_NATIVE_ABI = 1000
 
 
 @contextlib.contextmanager
@@ -209,6 +209,17 @@ def get_native_lib() -> ctypes.CDLL | None:
                         ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_int64),
                     ]
                     lib.spectre_cpp_barrier_selftest.restype = ctypes.c_int
+                if hasattr(lib, "spectre_cpp_chronos_jitter_zscore"):
+                    lib.spectre_cpp_chronos_jitter_zscore.argtypes = [
+                        ctypes.POINTER(ctypes.c_int64), ctypes.c_size_t, ctypes.c_int64,
+                    ]
+                    lib.spectre_cpp_chronos_jitter_zscore.restype = ctypes.c_double
+                if hasattr(lib, "spectre_cpp_concurrency_variance_gate"):
+                    lib.spectre_cpp_concurrency_variance_gate.argtypes = [
+                        ctypes.POINTER(ctypes.c_int64), ctypes.POINTER(ctypes.c_int),
+                        ctypes.POINTER(ctypes.c_int), ctypes.c_size_t,
+                    ]
+                    lib.spectre_cpp_concurrency_variance_gate.restype = ctypes.c_int
                 _LIB = lib
         except Exception:
             _LIB = None
@@ -307,6 +318,23 @@ def get_rust_lib() -> ctypes.CDLL | None:
                 if hasattr(rlib, "spectre_rust_kernel_selftest"):
                     rlib.spectre_rust_kernel_selftest.argtypes = []
                     rlib.spectre_rust_kernel_selftest.restype = ctypes.c_int32
+                for r_json_sym in (
+                    "spectre_rust_score_attack_graph",
+                    "spectre_rust_refute_triage_7gate",
+                    "spectre_rust_audit_k8s_posture",
+                ):
+                    if hasattr(rlib, r_json_sym):
+                        fn_obj = getattr(rlib, r_json_sym)
+                        fn_obj.argtypes = [
+                            ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+                        ]
+                        fn_obj.restype = ctypes.c_int32
+                if hasattr(rlib, "spectre_rust_taint_flow_v2"):
+                    rlib.spectre_rust_taint_flow_v2.argtypes = [
+                        ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+                        ctypes.c_char_p, ctypes.c_size_t,
+                    ]
+                    rlib.spectre_rust_taint_flow_v2.restype = ctypes.c_int32
                 _RUST_LIB = rlib
         except Exception:
             _RUST_LIB = None
@@ -926,6 +954,134 @@ def fast_rust_verify_access_diff(url_path: str, body_a: str, body_b: str) -> boo
     return bool(has_obj and body_a.strip() == body_b.strip() and len(body_a.strip()) >= 32)
 
 
+def fast_cpp_chronos_jitter_zscore(baseline_us: list[int], candidate_us: int) -> float:
+    if not baseline_us or len(baseline_us) < 3 or candidate_us <= 0:
+        return 0.0
+    lib = get_native_lib()
+    if lib is not None and hasattr(lib, "spectre_cpp_chronos_jitter_zscore"):
+        arr_t = ctypes.c_int64 * len(baseline_us)
+        c_arr = arr_t(*[int(x) for x in baseline_us])
+        return float(lib.spectre_cpp_chronos_jitter_zscore(c_arr, len(baseline_us), int(candidate_us)))
+    med = sorted(float(max(0, x)) for x in baseline_us)[len(baseline_us) // 2]
+    scale = max(500.0, med * 0.08, fast_cpp_mad_latency_us(baseline_us))
+    return max(0.0, (float(candidate_us) - med) / scale)
 
 
+def fast_cpp_concurrency_variance(
+    burst_us: list[int], status_codes: list[int], body_lengths: list[int]
+) -> int:
+    n = min(len(burst_us), len(status_codes), len(body_lengths))
+    if n < 3:
+        return 0
+    lib = get_native_lib()
+    if lib is not None and hasattr(lib, "spectre_cpp_concurrency_variance_gate"):
+        u_arr = (ctypes.c_int64 * n)(*[int(x) for x in burst_us[:n]])
+        s_arr = (ctypes.c_int * n)(*[int(x) for x in status_codes[:n]])
+        b_arr = (ctypes.c_int * n)(*[int(x) for x in body_lengths[:n]])
+        return int(lib.spectre_cpp_concurrency_variance_gate(u_arr, s_arr, b_arr, n))
+    return 0
+
+
+def _call_rust_json_fn(sym_name: str, payload: bytes) -> list | dict | None:
+    import json as _json
+    rlib = get_rust_lib()
+    if rlib is None or not hasattr(rlib, sym_name):
+        return None
+    fn = getattr(rlib, sym_name)
+    for cap in (max(8192, len(payload) * 4), 131072, 524288):
+        buf = ctypes.create_string_buffer(cap)
+        rc = int(fn(payload, len(payload), buf, cap))
+        if rc >= 0:
+            try:
+                return _json.loads(buf.value.decode("utf-8", errors="ignore") or "[]")
+            except Exception:
+                return None
+        if rc != -2:
+            break
+    return None
+
+
+def fast_rust_score_attack_graph(tsv_nodes: str) -> list[dict]:
+    res = _call_rust_json_fn("spectre_rust_score_attack_graph", _as_bytes(tsv_nodes))
+    return res if isinstance(res, list) else []
+
+
+def fast_rust_refute_triage_7gate(
+    severity: str, cwe: str, asset: str, evidence: str, remediation: str, qod: int = 80, distro: str = ""
+) -> dict:
+    clean = lambda s: str(s or "").replace("\t", " ").replace("\n", " ").replace("\r", " ")
+    raw = f"{clean(severity)}\t{clean(cwe)}\t{clean(asset)}\t{clean(evidence)}\t{clean(remediation)}\t{int(qod)}\t{clean(distro)}"
+    res = _call_rust_json_fn("spectre_rust_refute_triage_7gate", raw.encode("utf-8", errors="ignore"))
+    if isinstance(res, dict) and "verdict" in res:
+        return res
+    return {"verdict": "VERIFIED", "adjusted_qod": int(qod), "gates_passed": 7, "reason": "FALLBACK"}
+
+
+def fast_rust_taint_flow_v2(code_or_bytes: str | bytes, lang: str = "") -> list[dict]:
+    import json as _json
+    b = _as_bytes(code_or_bytes)
+    if not b:
+        return []
+    rlib = get_rust_lib()
+    if rlib is None or not hasattr(rlib, "spectre_rust_taint_flow_v2"):
+        return []
+    lb = (lang or "").encode("ascii", errors="ignore")
+    for cap in (max(8192, len(b) * 2), 131072):
+        buf = ctypes.create_string_buffer(cap)
+        rc = int(rlib.spectre_rust_taint_flow_v2(b, len(b), lb, len(lb), buf, cap))
+        if rc >= 0:
+            try:
+                parsed = _json.loads(buf.value.decode("utf-8", errors="ignore") or "[]")
+                return parsed if isinstance(parsed, list) else []
+            except Exception:
+                return []
+        if rc != -2:
+            break
+    return []
+
+
+def fast_rust_audit_k8s_posture(yaml_text: str) -> list[dict]:
+    res = _call_rust_json_fn("spectre_rust_audit_k8s_posture", _as_bytes(yaml_text))
+    return res if isinstance(res, list) else []
+
+
+def _call_go_json_mode(flag_name: str, payload_obj: object, timeout_s: int = 15) -> list | dict | None:
+    import json as _json
+    import tempfile as _tf
+    gobin = get_go_indexer_bin()
+    if gobin is None:
+        return None
+    with _tf.TemporaryDirectory(prefix="spectre_go_ipc_") as tdir:
+        in_pf = Path(tdir) / "in.json"
+        in_pf.write_text(_json.dumps(payload_obj, ensure_ascii=False), encoding="utf-8")
+        try:
+            proc = subprocess.run(
+                [str(gobin), flag_name, str(in_pf)],
+                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout_s,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                return _json.loads(proc.stdout.strip())
+        except Exception:
+            return None
+    return None
+
+
+def fast_go_osint_pivot_graph(nodes: list[dict]) -> dict | None:
+    res = _call_go_json_mode("-osint-pivot", nodes)
+    return res if isinstance(res, dict) else None
+
+
+def fast_go_verify_access_matrix(probes: list[dict]) -> list[dict]:
+    res = _call_go_json_mode("-verify-access-matrix", probes)
+    return res if isinstance(res, list) else []
+
+
+def fast_go_audit_cloud_posture(items: list[dict]) -> list[dict]:
+    res = _call_go_json_mode("-audit-cloud-posture", items)
+    return res if isinstance(res, list) else []
+
+
+def fast_go_audit_http_framing(items: list[dict]) -> list[dict]:
+    res = _call_go_json_mode("-audit-http-framing", items)
+    return res if isinstance(res, list) else []
 

@@ -98,8 +98,8 @@ func handleMcpToolCallGo(params mcpCallParams, intelHint string) (any, *mcpError
 	case "spectre_engine_posture":
 		info := map[string]any{
 			"engine":          "SPECTRE Polyglot Native Security Engine",
-			"version":         "9.5.0",
-			"abi":             950,
+			"version":         "10.0.0",
+			"abi":             1000,
 			"socket_ports":    len(SupportedSocketPorts),
 			"oui_vendors":     len(CompiledOuiTable),
 			"psl_suffixes":    len(CompiledPslTable),

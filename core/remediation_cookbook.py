@@ -154,6 +154,23 @@ def build_fix_patch_snippet(finding: dict[str, Any]) -> str:
             "ssl_protocols TLSv1.2 TLSv1.3;\n"
             "add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains; preload\" always;"
         )
+    if cwe == "CWE-444" or "framing" in title or "transfer-encoding" in title:
+        return (
+            "# Enforce Strict RFC 9112 HTTP/1.1 Framing & Reject Ambiguous CL+TE:\n"
+            "ignore_invalid_headers on;\n"
+            "proxy_http_version 1.1;\n"
+            "proxy_set_header Connection \"\";"
+        )
+    if cwe in ("CWE-639", "CWE-285", "CWE-863") or "bola" in title or "bfla" in title:
+        return (
+            "# Enforce Object Ownership & Role Guard on Every Resource Query:\n"
+            "record = db.query(Order).filter_by(id=order_id, owner_id=current_user.id).first_or_404()"
+        )
+    if "iam" in title and cwe == "CWE-269":
+        return (
+            "# Replace Wildcard IAM Policy with Least-Privilege Scoped Actions & ExternalId:\n"
+            "{\"Effect\": \"Allow\", \"Action\": [\"s3:GetObject\"], \"Resource\": \"arn:aws:s3:::app-bucket/*\"}"
+        )
     if "authenticated package audit" in cat or cwe in ("CWE-269", "CWE-787"):
         return (
             "# Apply Distro Security Backport Update (Debian/Ubuntu or RHEL/RPM):\n"

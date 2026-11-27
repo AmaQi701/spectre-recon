@@ -1,7 +1,7 @@
-// SPECTRE C++17 Deterministic Thread Barrier & Telemetry Kernel (ABI v950)
+// SPECTRE C++17 Deterministic Thread Barrier & Statistical Latency Variance Kernel (ABI v1000)
 // SPDX-License-Identifier: Apache-2.0
-// Provides generation-safe POSIX/C++17 thread barrier synchronization and
-// robust multi-sample latency dispersion (MAD / IQR) for QA benchmarking.
+// Provides generation-safe POSIX/C++17 thread barrier synchronization,
+// robust Modified Z-Score latency variance verification, and state-drift scoring.
 
 #include <algorithm>
 #include <chrono>
@@ -157,6 +157,82 @@ int spectre_cpp_idempotency_drift_score(
         return 60;
     }
     return 0;
+}
+
+double spectre_cpp_chronos_jitter_zscore(
+    const int64_t* baseline_us,
+    size_t base_count,
+    int64_t candidate_us
+) {
+    if (!baseline_us || base_count < 3 || candidate_us <= 0) {
+        return 0.0;
+    }
+    const size_t cap = base_count > 1024 ? 1024 : base_count;
+    std::vector<double> vals(cap);
+    for (size_t i = 0; i < cap; ++i) {
+        vals[i] = static_cast<double>(baseline_us[i] < 0 ? 0 : baseline_us[i]);
+    }
+    std::sort(vals.begin(), vals.end());
+    const double median = (cap % 2 == 1)
+        ? vals[cap / 2]
+        : 0.5 * (vals[(cap / 2) - 1] + vals[cap / 2]);
+
+    std::vector<double> devs(cap);
+    for (size_t i = 0; i < cap; ++i) {
+        devs[i] = std::fabs(vals[i] - median);
+    }
+    std::sort(devs.begin(), devs.end());
+    const double mad = (cap % 2 == 1)
+        ? devs[cap / 2]
+        : 0.5 * (devs[(cap / 2) - 1] + devs[cap / 2]);
+
+    const double q1 = vals[cap / 4];
+    const double q3 = vals[(cap * 3) / 4];
+    const double iqr_scale = (q3 - q1) * 0.7413;
+    double scale = mad * 1.4826;
+    if (iqr_scale > scale) scale = iqr_scale;
+    const double min_floor = std::max(500.0, median * 0.08);
+    if (scale < min_floor) scale = min_floor;
+
+    const double delta = static_cast<double>(candidate_us) - median;
+    if (delta <= 0.0) {
+        return 0.0;
+    }
+    return delta / scale;
+}
+
+int spectre_cpp_concurrency_variance_gate(
+    const int64_t* burst_us,
+    const int* status_codes,
+    const int* body_lengths,
+    size_t count
+) {
+    if (!burst_us || !status_codes || !body_lengths || count < 3) {
+        return 0;
+    }
+    const size_t cap = count > 256 ? 256 : count;
+    const int drift = spectre_cpp_idempotency_drift_score(status_codes, body_lengths, cap);
+    if (drift == 0) {
+        return 0;
+    }
+    int64_t min_us = burst_us[0] < 0 ? 0 : burst_us[0];
+    int64_t max_us = min_us;
+    for (size_t i = 1; i < cap; ++i) {
+        const int64_t v = burst_us[i] < 0 ? 0 : burst_us[i];
+        if (v < min_us) min_us = v;
+        if (v > max_us) max_us = v;
+    }
+    const int64_t spread_us = max_us - min_us;
+    const double mad_sigma = spectre_cpp_mad_latency_us(burst_us, cap);
+    int score = drift;
+    if (spread_us <= 25000 && mad_sigma <= 15000.0) {
+        score += 10;
+    } else if (spread_us > 500000) {
+        score -= 15;
+    }
+    if (score < 0) score = 0;
+    if (score > 96) score = 96;
+    return score;
 }
 
 } // extern "C"

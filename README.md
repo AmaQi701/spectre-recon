@@ -2,12 +2,12 @@
 
 <img src="ui/apex-icon.svg" width="105" alt="SPECTRE Logo" />
 
-# SPECTRE (`spectre-recon`) v9.5.0
+# SPECTRE (`spectre-recon`) v10.0.0
 
-**Polyglot Rust + Go + C++17 + Python Enterprise ASM (`>72%` Compiled Native Systems Code, ABI v950), `.rodata` Binary-Search CVE/CPE/PSL/OUI/NVT Kernels, 109k+ Offline Threat-Intel DB, 402k+ MIT SecLists Wordlist Pack, KB-Gated 2,000-Rule NVT + Go YAML Plugin Runner, 50-Port Active Socket NVT, Local MCP Server, 6-Language SAST, 18-Format SCA & 7-Framework (+MITRE ATT&CK v15) Platform**
+**Polyglot Rust + Go + C++17 + Python Enterprise ASM (`>73%` Compiled Native Systems Code, ABI v1000), `.rodata` Binary-Search CVE/CPE/PSL/OUI/NVT Kernels, 253k+ Offline Threat-Intel DB, 402k+ MIT SecLists Wordlist Pack, KB-Gated 2,000-Rule NVT + Go YAML Plugin Runner, 50-Port Active Socket NVT, Local MCP Server, 7-Gate Refuting Triage, 6-Language SAST, 18-Format SCA & 7-Framework (+MITRE ATT&CK v15) Platform**
 
 [![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Kali%20%7C%20Debian-0ea5e9?style=for-the-badge&logo=linux)](https://github.com/AmaQi701/spectre-recon)
-[![Engine](https://img.shields.io/badge/Native%20Code-Rust%20%2B%20Go%20%2B%20C%2B%2B17%20(%3E72%25)-ef4444?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
+[![Engine](https://img.shields.io/badge/Native%20Code-Rust%20%2B%20Go%20%2B%20C%2B%2B17%20(%3E73%25)-ef4444?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
 [![AI_Security](https://img.shields.io/badge/AI%20%26%20MCP%20Audit-Ollama%20%7C%20vLLM%20%7C%20Qdrant%20%7C%20MCP-8b5cf6?style=for-the-badge)](https://github.com/AmaQi701/spectre-recon)
 [![GUI](https://img.shields.io/badge/Desktop%20GUI-Native%20GTK3%20%2B%20Cairo-6366f1?style=for-the-badge&logo=gnome)](https://gtk.org/)
 [![License](https://img.shields.io/badge/License-MIT-f59e0b?style=for-the-badge)](LICENSE)
@@ -16,16 +16,16 @@
 
 ---
 
-## Why SPECTRE v9.5 Over Legacy Scanners?
+## Why SPECTRE v10.0 Over Legacy Scanners?
 
-| Capability | **SPECTRE v9.5 (OSS)** | Nessus Pro | OpenVAS / Greenbone | Nuclei | Trivy |
+| Capability | **SPECTRE v10.0 (OSS)** | Nessus Pro | OpenVAS / Greenbone | Nuclei | Trivy |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **100% Free & Open-Source** | **Yes (MIT)** | Paid Commercial | Yes | Yes | Yes |
-| **Polyglot Rust + Go + C++17 Native Kernels (`>72%`)** | **Yes (`>520–3670 MB/s`, ABI v950)** | Proprietary C/NASL | C / Rust / NASL | Go | Go |
+| **Polyglot Rust + Go + C++17 Native Kernels (`>73%`)** | **Yes (`>520–3670 MB/s`, ABI v1000)** | Proprietary C/NASL | C / Rust / NASL | Go | Go |
 | **AI/LLM, RAG Vector DB & MCP `tools/list` Audit** | **Built-in (`Ollama/vLLM/Qdrant/Chroma/Ray/MCP`)** | Partial | No | Community YAML | No |
 | **Active Read-Only Binary/Text Socket NVTs** | **50 Protocols** | Yes | Yes | Limited TCP | No |
 | **KB-Gated Declarative NVTs + Custom YAML SDK** | **2,000 Built-in (`250 Core + 1,750 KEV`) + YAML** | NASL Only | NASL Only | YAML | No |
-| **Offline Threat-Intel DB + MIT SecLists Wordlists** | **109k+ Records + 402k+ Wordlists (`SPDX Verified`)** | Proprietary Feed | Community Feed | Separate | Separate |
+| **Offline Threat-Intel DB + MIT SecLists Wordlists** | **253k+ Records + 402k+ Wordlists (`SPDX Verified`)** | Proprietary Feed | Community Feed | Separate | Separate |
 | **6-Language Multi-Line Taint-Flow SAST** | **Py / JS / TS / Go / Java / PHP / C#** | No | No | No | No |
 | **SourceMap (`.js.map`) Unpack -> White-Box SAST** | **Automatic** | No | No | No | No |
 | **Polyglot Lockfile SCA + CycloneDX 1.5 VEX SBOM** | **18 Formats (`90` Offline + OSV.dev)** | Basic | No | No | Yes |
@@ -57,7 +57,7 @@ Instead of chaining fragile shell scripts or running heavy browser-bound wrapper
 - **SPA, SourceMap & Runtime Analysis (`origin_and_spa.py`, `runtime_and_network.py`):** Deep JS bundle & Webpack lazy-chunk extraction, `.js.map` SourceMap reconstruction, Headless Chromium V8 DOM route interception, `postMessage` receiver analysis, and WebAssembly (`.wasm`) endpoint extraction.
 
 ### 3. Phase 2 — Polyglot Rust / Go / C++17 v5 & KB-Gated Vulnerability Assessment (`agents/vuln_agent.py`)
-- **Polyglot Native Kernels (`core/native/`, `core/native_bridge.py` — ABI v950):** Multi-module Rust FFI (`spectre_rust_core.rs`, `rust_cpe_advisory_engine.rs`, `rust_kev_cve_part1..3.rs` -> `libspectre_rust_core.so`: Kahn Topological Wave DAG planner, Debian Policy 5.6.12 / RPM LSC comparator, FIRST.org CVSS v3.1 engine, 6-lang SAST prefilter, `.rodata` O(log N) CVE/CPE lookup), multi-file Go concurrency engine (`spectre_intel_indexer.go`, `go_socket_verifiers.go`, `go_psl_registry.go`, `go_oui_registry.go` -> `spectre-intel-indexer`: 402k+ MIT SecLists stream indexer, 50-port goroutine TCP/Banner/SSH KEXINIT prober, `.rodata` PSL/OUI lookup), and C++17 v5 (`spectre_accel.cpp`, `spectre_nvt_part1..2.cpp` -> `libspectre_accel.so`: Linux `epoll`, OpenSSL `HMAC`, `spectre_structural_hash`, `.rodata` Favicon MMH3 & 2,000-NVT table).
+- **Polyglot Native Kernels (`core/native/`, `core/native_bridge.py` — ABI v1000):** Multi-module Rust FFI (`spectre_rust_core.rs`, `rust_attack_graph_scorer.rs`, `rust_k8s_posture_auditor.rs`, `rust_cpe_advisory_engine.rs`, `rust_kev_cve_part1..3.rs` -> `libspectre_rust_core.so`: Multi-Hop Attack Graph Scorer, 7-Gate Refuting Triage, Taint v2, K8s Admission/eBPF Auditor, Kahn Topological Wave DAG, Debian/RPM LSC, FIRST.org CVSS v3.1, `.rodata` O(log N) CVE/CPE lookup), multi-file Go concurrency engine (`spectre_intel_indexer.go`, `go_osint_pivot_graph.go`, `go_access_matrix_verifier.go`, `go_cloud_posture_auditor.go`, `go_http_rfc_framing_auditor.go`, `go_socket_verifiers.go` -> `spectre-intel-indexer`: Passive OSINT Pivot Graph, Cross-Role Access Matrix, Cloud IAM/Storage Posture, RFC 9112 Framing Auditor, 402k+ MIT SecLists stream indexer, 50-port socket verifier, local MCP server), and C++17 (`spectre_accel.cpp`, `spectre_concurrency_barrier.cpp`, `spectre_nvt_part1..2.cpp` -> `libspectre_accel.so`: Linux `epoll`, OpenSSL `HMAC`, Modified Z-Score Chronos Jitter Barrier, `spectre_structural_hash`, `.rodata` Favicon MMH3 & 2,000-NVT table).
 - **50-Port Active Socket Protocol NVTs (`core/protocol_verifiers.py`):** Direct read-only TCP & TLS protocol handshakes across 50 services (`RFC 4253 SSH_MSG_KEXINIT`, `MySQL/MariaDB`, `PostgreSQL`, `MongoDB`, `LDAP/LDAPS`, `Redis/Redis-TLS`, `Memcached`, `Elasticsearch`, `etcd`, `Consul`, `RabbitMQ`, `AMQP`, `MQTT/MQTTS`, `ZooKeeper`, `NATS`, `Kafka`, `InfluxDB`, `ClickHouse`, `Prometheus`, `Docker API`, `Docker Registry v2`, `Kubernetes Kubelet`, `VNC`, `RDP X.224 NLA`, `WinRM`, `Java RMI`, `JDWP`, `FastCGI`, `MSSQL`, `Cassandra`, `WebLogic T3`, `ActiveMQ OpenWire`, `SOCKS5`, `Hadoop HDFS`, `Oracle TNS`, `NFSv4 RPC`, `SIP`, `Zabbix`, `Rsync`, `FTP`, `POP3`, `IMAP`, and `SMTP`).
 - **AI/LLM, RAG Vector DB, Agent Config & MCP Security Auditor (`core/ai_llm_auditor.py`):** Read-only exposure verification across `Ollama` (`/api/tags`), `vLLM` / `LiteLLM` (`/v1/models`), `Qdrant` (`/collections`), `ChromaDB`, `Ray Dashboard`, and `Model Context Protocol (MCP)` JSON-RPC `tools/list` endpoints, plus `.claude/.gemini/.cursor` agent permission hardening and hidden indirect prompt-override detection.
 - **2,000-Rule KB-Gated Declarative, Custom YAML & CMS NVT Engine (`core/nvt_declarative_engine.py`, `config/nvt_catalog.json`, `core/threat_intel_pack.py`, `core/cms_enterprise_nvts.py`):** C++17 structural-hash calibrated checks across 250 core enterprise rules + 1,750 `key=regex` KB-gated CISA KEV exposure rules across enterprise gateways, AI/ML & Vector DB servers, Zero-Trust/VPN appliances, IAM providers, observability control planes, databases, and CMS platforms, plus user-extensible YAML / Nuclei-compatible rules (`plugins/`).
@@ -165,7 +165,7 @@ python3 spectre_cli.py --mcp-server
 python3 spectre_cli.py --target example.org --mode full --fail-on high --min-qod 90
 # Compare Attack-Surface & Vulnerability Drift vs Baseline Project #1:
 python3 spectre_cli.py --target example.org --diff-project 1 --fail-on-drift
-# Fast offline artifact re-export (HTML v9.5 SVG, SARIF 2.1.0, CycloneDX 1.5 VEX, 7-Framework Matrix):
+# Fast offline artifact re-export (HTML v10.0 SVG, SARIF 2.1.0, CycloneDX 1.5 VEX, 7-Framework Matrix):
 python3 spectre_cli.py --export-project 1
 ```
 
@@ -174,7 +174,7 @@ python3 spectre_cli.py --export-project 1
 ```bash
 chmod +x build_deb.sh
 ./build_deb.sh
-sudo dpkg -i dist/spectre-recon_9.5.0_amd64.deb
+sudo dpkg -i dist/spectre-recon_10.0.0_amd64.deb
 spectre-recon
 ```
 

@@ -14,7 +14,7 @@ mkdir -p "${DIST_DIR}"
 
 cat << 'EOF' > "${PKG_DIR}/DEBIAN/control"
 Package: spectre-recon
-Version: 9.5.0
+Version: 10.0.0
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -22,8 +22,8 @@ Depends: python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-gdkpixbuf
 Recommends: g++, rustc, golang-go, libssl-dev, nmap, whois, dnsutils
 Maintainer: AmaQi701 <67887617+AmaQi701@users.noreply.github.com>
 Description: SPECTRE Polyglot C++17/Rust/Go/Python ASM & Offline Threat Intelligence Studio
- Native Linux GTK3 & Headless CLI platform with C++17 v5, Rust FFI & Go Goroutine kernels,
- 2000 declarative NVTs, 109k+ Offline Threat Intel DB (CISA KEV, IEEE OUI, PSL, Favicon MMH3),
+ Native Linux GTK3 & Headless CLI platform with C++17, Rust FFI & Go Goroutine kernels (ABI 1000),
+ 2000 declarative NVTs, 253k+ Offline Threat Intel DB (CISA KEV, OSV, IEEE OUI, PSL, Favicon MMH3),
  402k+ MIT SecLists discovery wordlists, 50 socket verifiers, 6-lang SAST, and 7-Framework Compliance.
 EOF
 
@@ -58,7 +58,7 @@ Version=1.0
 Type=Application
 Name=SPECTRE Recon Studio
 GenericName=Cyber-Recon & Attack Surface Studio
-Comment=SPECTRE v9.5.0 Polyglot Rust/Go/C++17/Python ASM, Offline Threat Intel Pack, 2000-NVT, 50-Port Socket NVT & 7-Framework Studio
+Comment=SPECTRE v10.0.0 Polyglot Rust/Go/C++17/Python ASM, 253k+ Offline Threat Intel Pack, 2000-NVT, 50-Port Socket NVT & 7-Framework Studio
 Exec=/bin/bash /opt/apex-asm-studio/launch_apex.sh
 Path=/opt/apex-asm-studio
 Icon=/opt/apex-asm-studio/ui/apex-icon.svg
@@ -68,5 +68,5 @@ Keywords=pentest;recon;security;audit;spectre;scanner;
 StartupNotify=true
 EOF
 
-dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_9.5.0_amd64.deb"
-echo "[+] Built package: ${DIST_DIR}/spectre-recon_9.5.0_amd64.deb"
+dpkg-deb --root-owner-group --build "${PKG_DIR}" "${DIST_DIR}/spectre-recon_10.0.0_amd64.deb"
+echo "[+] Built package: ${DIST_DIR}/spectre-recon_10.0.0_amd64.deb"

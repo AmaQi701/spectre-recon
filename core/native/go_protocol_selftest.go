@@ -246,10 +246,89 @@ func runMcpJsonRpcCheckGo() (bool, string) {
 	_ = json.Unmarshal([]byte(lines[0]), &r0)
 	eMap, _ := r0["error"].(map[string]any)
 	code0, _ := eMap["code"].(float64)
-	if int(code0) == -32700 && (strings.Contains(lines[1], `"abi":950`) || strings.Contains(lines[1], `\"abi\":950`)) {
-		return true, "JSON-RPC -32700 + notification skip + ABI=950 OK"
+	if int(code0) == -32700 && (strings.Contains(lines[1], `"abi":1000`) || strings.Contains(lines[1], `\"abi\":1000`)) {
+		return true, "JSON-RPC -32700 + notification skip + ABI=1000 OK"
 	}
 	return false, "mcp json-rpc response mismatch"
+}
+
+func runOsintPivotGraphCheckGo() (bool, string) {
+	nodes := []OsintAssetNode{
+		{
+			Domain: "portal.example.org", IP: "104.21.10.5", CdnWaf: "Cloudflare",
+			CertSerial: "0a1b2c3d4e5f6789", FaviconMMH3: 981867722,
+		},
+		{
+			Domain: "origin-gw.example.org", IP: "198.51.100.44", CdnWaf: "",
+			CertSerial: "0a1b2c3d4e5f6789", FaviconMMH3: 981867722,
+		},
+		{
+			Domain: "cdn-only.example.org", IP: "172.67.12.9", CdnWaf: "Cloudflare",
+			CertSerial: "0a1b2c3d4e5f6789", FaviconMMH3: 981867722,
+		},
+	}
+	rep := BuildOsintPivotGraphGo(nodes)
+	if len(rep.UnmaskCandidates) == 2 && rep.UnmaskCandidates[0].CandidateOriginIP == "198.51.100.44" {
+		return true, "CDN isolated + Direct Origin 198.51.100.44 unmasked"
+	}
+	return false, "osint pivot graph correlation mismatch"
+}
+
+func runAccessMatrixCheckGo() (bool, string) {
+	probes := []AccessMatrixProbe{
+		{
+			Endpoint: "/api/v1/orders/4091", Method: "GET",
+			AnonStatus: 401, UserAStatus: 200, UserALen: 320, UserAHash: 0xabc123,
+			UserBStatus: 200, UserBLen: 320, UserBHash: 0xabc123, BaseJitter: 20,
+			BodySnippet: `{"order_id":4091,"owner":"alice","amount":199.95,"status":"paid","items":["pro"]}`,
+			HasOwnerMatch: true,
+		},
+		{
+			Endpoint: "/api/v1/admin/users", Method: "GET",
+			AnonStatus: 200, AnonLen: 180, AnonHash: 0x99, AdminStatus: 200, AdminLen: 180, AdminHash: 0x99,
+			BodySnippet: "<html><body>Welcome to nginx! default server stub page padding text here</body></html>",
+		},
+	}
+	hits := EvaluateAccessMatrixGo(probes)
+	if len(hits) == 1 && hits[0].CWE == "CWE-639" {
+		return true, "BOLA confirmed + nginx decoy stub suppressed"
+	}
+	return false, "access matrix evaluation mismatch"
+}
+
+func runCloudPostureCheckGo() (bool, string) {
+	items := []CloudPostureInput{
+		{
+			Asset: "iam/admin_policy.json", Kind: "iam_json",
+			Content: `{"Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		},
+		{
+			Asset: "https://s3.example.org/private", Kind: "bucket_xml",
+			Content: `<?xml version="1.0"?><Error><Code>AccessDenied</Code></Error>`,
+		},
+	}
+	hits := AuditCloudPostureGo(items)
+	if len(hits) == 1 && hits[0].CWE == "CWE-269" {
+		return true, "IAM wildcard detected + S3 AccessDenied suppressed"
+	}
+	return false, "cloud posture evaluation mismatch"
+}
+
+func runHttpFramingCheckGo() (bool, string) {
+	items := []HttpFramingInput{
+		{
+			Asset: "https://gw.example.org/api", StatusCode: 200,
+			RawHeaders: map[string][]string{
+				"Content-Length":    {"42"},
+				"Transfer-Encoding": {"chunked"},
+			},
+		},
+	}
+	hits := AuditHttpRfc9112FramingGo(items)
+	if len(hits) == 1 && hits[0].CWE == "CWE-444" {
+		return true, "RFC 9112 CL+TE framing ambiguity detected"
+	}
+	return false, "http framing check mismatch"
 }
 
 func RunAllGoProtocolSelfTests() GoProtocolSelfTestReport {
@@ -264,6 +343,10 @@ func RunAllGoProtocolSelfTests() GoProtocolSelfTestReport {
 		{"kafka_metadata_v0", runKafkaLoopbackCheckGo},
 		{"tls_sni_propagation", runTlsSniLoopbackCheckGo},
 		{"mcp_jsonrpc_2_0", runMcpJsonRpcCheckGo},
+		{"osint_pivot_graph", runOsintPivotGraphCheckGo},
+		{"cross_role_access_matrix", runAccessMatrixCheckGo},
+		{"cloud_iam_posture", runCloudPostureCheckGo},
+		{"rfc9112_http_framing", runHttpFramingCheckGo},
 	}
 	for _, c := range checks {
 		ok, msg := c.fn()
@@ -275,7 +358,7 @@ func RunAllGoProtocolSelfTests() GoProtocolSelfTestReport {
 		}
 	}
 	return GoProtocolSelfTestReport{
-		ABI:          950,
+		ABI:          1000,
 		AllPassed:    passed == len(checks),
 		ChecksPassed: passed,
 		ChecksTotal:  len(checks),

@@ -266,6 +266,27 @@ def audit_k8s_yaml(content: str) -> list[tuple[str, str, float, str, str]]:
                         "High", 8.4, "CWE-250",
                         "`securityContext.capabilities.drop: [\"ALL\"]` o'rnating va `SYS_ADMIN`/`ALL` imtiyozlarini olib tashlang.",
                     ))
+    from core.native_bridge import fast_rust_audit_k8s_posture
+    existing_rules = {it[0] for it in issues}
+    for r_hit in fast_rust_audit_k8s_posture(content):
+        rule_code = str(r_hit.get("rule") or "")
+        w_name = str(r_hit.get("name") or "workload")
+        if rule_code == "K8S_WEBHOOK_FAIL_OPEN":
+            t_str = f"Kubernetes Admission Webhook Configured Fail-Open ({w_name}: failurePolicy=Ignore)"
+            if t_str not in existing_rules:
+                existing_rules.add(t_str)
+                issues.append((
+                    t_str, "High", 8.0, "CWE-636",
+                    "Admission webhook konfiguratsiyasida `failurePolicy: Fail` o'rnating.",
+                ))
+        elif rule_code == "K8S_UNCONFINED_EBPF_CAPABILITY":
+            t_str = f"Kubernetes Workload Grants Unconfined eBPF/Kernel Capability ({w_name})"
+            if t_str not in existing_rules:
+                existing_rules.add(t_str)
+                issues.append((
+                    t_str, "High", 8.3, "CWE-250",
+                    "`seccompProfile.type: RuntimeDefault` yoqing yoki `CAP_BPF`/`CAP_PERFMON` imtiyozlarini olib tashlang.",
+                ))
     return issues
 
 
@@ -298,6 +319,14 @@ def audit_terraform_hcl(content: str) -> list[tuple[str, str, float, str, str]]:
                 "SSH/RDP va ma'lumotlar bazasi portlari uchun `0.0.0.0/0` o'rniga aniq VPN CIDR belgilang.",
             ))
             break
+    from core.native_bridge import fast_go_audit_cloud_posture
+    for c_hit in fast_go_audit_cloud_posture([{"asset": "terraform", "kind": "terraform", "content": clean}]):
+        if c_hit.get("rule_id") == "CLOUD_IMDSV1_TOKEN_OPTIONAL":
+            issues.append((
+                "Terraform Compute Instance Enables Unauthenticated IMDSv1 (http_tokens = optional)",
+                "Medium", 6.8, "CWE-918",
+                "`metadata_options` blokida `http_tokens = \"required\"` (IMDSv2) majburiy qiling.",
+            ))
     return issues
 
 

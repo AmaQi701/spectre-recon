@@ -248,6 +248,31 @@ class TriageAndChainSuperAgent:
                 )
                 log_fn(f"  [CHAIN] {host}: Web Surface + Exposed Data Store zanjiri tuzildi!")
 
+            try:
+                from core.native_bridge import fast_rust_score_attack_graph
+                max_cv = max([float(c.get("cvss_score") or 0.0) for c in g["cves"]] + [0.0])
+                has_kev = 1 if any("[CISA-KEV" in str(c.get("evidence") or "") for c in g["cves"]) else 0
+                tsv_row = (
+                    f"{host}\t{max_cv:.1f}\t{has_kev}\t50.0\t"
+                    f"{1 if g['bola_authz'] else 0}\t{1 if (g['cors'] or g['weak_cookies']) else 0}\t"
+                    f"{1 if g['xss_sinks'] else 0}\t0\t0\t{1 if sast_sinks else 0}\t{1 if g['data_stores'] else 0}\n"
+                )
+                scored = fast_rust_score_attack_graph(tsv_row)
+                if scored and int(scored[0].get("hop_count") or 0) >= 3 and int(scored[0].get("score") or 0) >= 88:
+                    top_c = scored[0]
+                    self.db.upsert_bug_chain(
+                        project_id,
+                        f"[{host}] Multi-Hop Compound Attack Path ({top_c['chain']})",
+                        str(top_c.get("severity") or "Critical"),
+                        round(min(9.9, float(top_c["score"]) / 10.0), 1),
+                        [f"Host: {host}", f"Path: {top_c['chain']}", f"MITRE v15: {top_c.get('mitre', '')}"],
+                        f"Rust Multi-Hop Attack Graph Scorer '{host}' xostida {top_c['hop_count']}-bosqichli zanjirni tasdiqladi (Score={top_c['score']}/100).",
+                        "Bir nechta zaifliklarning ketma-ket ulanishi orqali tizim xavfsizligining to'liq buzilishi.",
+                        "Zanjirdagi har bir bo'g'inni (Edge/Auth/Backend) mustaqil himoya qatlami bilan yoping.",
+                    )
+            except Exception:
+                pass
+
             if g["xfh_poison"] and (g["has_web"] or g["api_routes"]):
                 xf = g["xfh_poison"][0]
                 self.db.upsert_bug_chain(

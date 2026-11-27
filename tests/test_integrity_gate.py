@@ -462,6 +462,13 @@ def run_integrity_gate() -> list[str]:
         _ssh_issues = parse_sshd_posture("PermitRootLogin yes\nPermitEmptyPasswords yes\n")
         if len(_ssh_issues) < 2 or spectre_cli.build_parser() is None:
             errors.append(f"[CREDENTIALED SSH OR HEADLESS CLI BROKEN] {_ssh_issues}")
+        from core.native_bridge import fast_rust_score_attack_graph, get_rust_lib
+        _rlib_v10 = get_rust_lib()
+        if _rlib_v10 is None or int(_rlib_v10.spectre_rust_abi_version()) != 1000 or int(_rlib_v10.spectre_rust_kernel_selftest()) != 10:
+            errors.append("[RUST ABI=1000 OR 10/10 KERNEL SELFTEST BROKEN]")
+        _ag_sc = fast_rust_score_attack_graph("api.example.org\t9.8\t1\t90.0\t1\t1\t0\t1\t0\t1\t1\n")
+        if not _ag_sc or int(_ag_sc[0].get("score", 0)) < 90:
+            errors.append(f"[RUST MULTI-HOP ATTACK GRAPH SCORER BROKEN] {_ag_sc}")
 
     return errors
 

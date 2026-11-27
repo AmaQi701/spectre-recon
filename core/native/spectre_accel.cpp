@@ -626,7 +626,7 @@ uint32_t spectre_secret_prefilter_mask(const uint8_t* data, size_t len) {
 }
 
 uint32_t spectre_cpp_abi_version() {
-    return 950U;
+    return 1000U;
 }
 
 uint64_t spectre_fnv1a64_ci(const uint8_t* data, size_t len) {

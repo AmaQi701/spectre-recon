@@ -138,7 +138,7 @@ func main() {
 	probePorts := flag.String("probe-ports", "", "Comma-separated port or logical:connect specs")
 	timeoutMs := flag.Int("timeout-ms", 2400, "Socket/HTTP timeout in milliseconds")
 	syncFeeds := flag.String("sync-feeds", "", "Stream OSV + Clean-Room advisories into TSV path")
-	syncEcos := flag.String("ecosystems", "crates.io,NuGet,RubyGems,Go,Maven,Packagist,PyPI", "OSV ecosystems to sync")
+	syncEcos := flag.String("ecosystems", "PyPI,Go,Maven,NuGet,crates.io,Packagist,RubyGems,Alpine,Debian,Ubuntu,Rocky Linux,AlmaLinux,Bitnami,Wolfi,OSS-Fuzz,Linux,Hex,Pub,GitHub Actions", "OSV ecosystems to sync")
 	runPlugins := flag.String("run-plugins", "", "Target base URL to execute YAML plugins against")
 	pluginsDir := flag.String("plugins-dir", "", "Directory containing declarative *.yaml plugins")
 	kbHints := flag.String("kb-hints", "", "Semicolon-separated key=val KB facts for YAML plugin gating")
@@ -146,6 +146,10 @@ func main() {
 	mcpTsvPath := flag.String("intel-tsv", "", "Optional clean-room TSV advisory file for local MCP queries")
 	mcpDbPath := flag.String("intel-db", "", "Legacy alias for -intel-tsv advisory path")
 	selfTestSockets := flag.Bool("selftest-sockets", false, "Run ephemeral loopback binary socket & MCP JSON-RPC self-tests")
+	osintPivot := flag.String("osint-pivot", "", "JSON input path for Passive OSINT Pivot Graph unmasking")
+	accessMatrix := flag.String("verify-access-matrix", "", "JSON input path for Cross-Role Access Matrix verifier")
+	cloudPosture := flag.String("audit-cloud-posture", "", "JSON input path for Cloud IAM/Storage/IMDS posture auditor")
+	httpFraming := flag.String("audit-http-framing", "", "JSON input path for RFC 9112 HTTP/1.1 framing auditor")
 	flag.Parse()
 
 	if *selfTestSockets {
@@ -159,9 +163,45 @@ func main() {
 	}
 
 	if *showVer {
-		fmt.Printf("SPECTRE-Go-Security-Engine v9.5.0 ABI=950 PSL=%d OUI=%d SCA=%d CleanAdv=%d SocketPorts=%d\n",
+		fmt.Printf("SPECTRE-Go-Security-Engine v10.0.0 ABI=1000 PSL=%d OUI=%d SCA=%d CleanAdv=%d SocketPorts=%d\n",
 			len(CompiledPslTable), len(CompiledOuiTable), len(CompiledScaTable),
 			len(CompiledCleanroomAdvisories), len(SupportedSocketPorts))
+		return
+	}
+	if *osintPivot != "" {
+		rep, err := RunOsintPivotFromFileGo(*osintPivot)
+		if err != nil {
+			os.Exit(1)
+		}
+		b, _ := json.Marshal(rep)
+		fmt.Println(string(b))
+		return
+	}
+	if *accessMatrix != "" {
+		res, err := RunAccessMatrixFromFileGo(*accessMatrix)
+		if err != nil {
+			os.Exit(1)
+		}
+		b, _ := json.Marshal(res)
+		fmt.Println(string(b))
+		return
+	}
+	if *cloudPosture != "" {
+		res, err := RunCloudPostureFromFileGo(*cloudPosture)
+		if err != nil {
+			os.Exit(1)
+		}
+		b, _ := json.Marshal(res)
+		fmt.Println(string(b))
+		return
+	}
+	if *httpFraming != "" {
+		res, err := RunHttpFramingAuditFromFileGo(*httpFraming)
+		if err != nil {
+			os.Exit(1)
+		}
+		b, _ := json.Marshal(res)
+		fmt.Println(string(b))
 		return
 	}
 	if *mcpServer {
@@ -370,7 +410,7 @@ func main() {
 	}()
 
 	wg.Wait()
-	rep := IndexerReport{ABI: 950, Engine: "go-goroutine-indexer", Wordlists: results}
+	rep := IndexerReport{ABI: 1000, Engine: "go-goroutine-indexer", Wordlists: results}
 	enc, _ := json.Marshal(rep)
 	fmt.Println(string(enc))
 }

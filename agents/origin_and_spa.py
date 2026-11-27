@@ -108,6 +108,36 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
                 if m_ip not in primary_direct_ips:
                     candidate_ips.add(m_ip)
 
+    try:
+        from core.native_bridge import fast_go_osint_pivot_graph
+        svc_by_host = {
+            (urllib.parse.urlparse(s.get("url", "")).hostname or "").lower(): s
+            for s in bundle.get("http_services", [])
+        }
+        pivot_nodes = []
+        for d in domains:
+            dom_nm = str(d.get("domain") or "").lower()
+            svc = svc_by_host.get(dom_nm) or {}
+            tls_info = json.loads(svc.get("tls_json") or "{}") if isinstance(svc.get("tls_json"), str) else {}
+            hdr_info = json.loads(svc.get("headers_json") or "{}") if isinstance(svc.get("headers_json"), str) else {}
+            pivot_nodes.append({
+                "domain": dom_nm,
+                "ip": str(d.get("ip") or ""),
+                "cdn_waf": str(d.get("cdn_waf") or svc.get("waf") or ""),
+                "cert_serial": str(tls_info.get("serialNumber") or ""),
+                "cert_sans": list(tls_info.get("sans") or []),
+                "favicon_mmh3": 0,
+                "etag": str(hdr_info.get("ETag") or hdr_info.get("etag") or ""),
+                "title_hash": 0,
+            })
+        piv_rep = fast_go_osint_pivot_graph(pivot_nodes)
+        for cand in (piv_rep or {}).get("unmask_candidates") or []:
+            c_ip = str(cand.get("candidate_origin_ip") or "").strip()
+            if c_ip and c_ip not in primary_direct_ips:
+                candidate_ips.add(c_ip)
+    except Exception:
+        pass
+
     if not candidate_ips:
         return
 

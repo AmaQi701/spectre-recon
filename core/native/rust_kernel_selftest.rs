@@ -1,9 +1,14 @@
-// SPECTRE Native Rust Kernel Self-Test & Differential Invariant Verifier (ABI v950)
+// SPECTRE Native Rust Kernel Self-Test & Differential Invariant Verifier (ABI v1000)
 // Validates multi-branch SemVer/CVE range boundaries, Debian/RPM epoch-backport ordering,
 // 6-language SAST lexer keyword-regex/CRLF preservation, strict FIRST.org CVSS v3.1 vector
-// validation, cross-role access differential verification, and Trail of Bits 7-Brocards scoring.
+// validation, cross-role access differential verification, Trail of Bits 7-Brocards scoring,
+// Multi-Hop Attack Graph Scorer, 7-Gate Refuting Triage, Taint v2, and K8s/eBPF Posture Auditor.
 
+use crate::rust_attack_graph_scorer::{
+    analyze_taint_flow_v2_json, refute_triage_seven_gates_json, score_attack_graph_json,
+};
 use crate::rust_cpe_consolidator::{consolidate_cpe_and_audit_json, evaluate_seven_triage_brocards};
+use crate::rust_k8s_posture_auditor::audit_k8s_posture_json;
 use crate::rust_sast_lexer_engine::{lexical_scope_metrics, strip_comments_for_lang, SourceLang};
 use crate::{
     spectre_rust_compare_distro_versions, spectre_rust_cvss31_score, spectre_rust_is_valid_dns_label,
@@ -226,6 +231,103 @@ fn verify_wave_dag_and_dns_validators() -> bool {
         && spectre_rust_is_valid_dns_label(dns_bad2.as_ptr(), dns_bad2.len()) == 0
 }
 
+fn verify_attack_graph_scorer() -> bool {
+    let tsv = concat!(
+        "api.example.org\t9.8\t1\t92.5\t1\t1\t0\t1\t0\t1\t1\n",
+        "static.example.org\t0.0\t0\t0.0\t0\t1\t0\t0\t0\t0\t0\n",
+    );
+    let out = score_attack_graph_json(tsv);
+    out.contains("\"host\":\"api.example.org\"")
+        && out.contains("\"severity\":\"Critical\"")
+        && out.contains("KEV-Exploited-Surface -> Cross-Role-BOLA")
+}
+
+fn verify_refuting_triage_7gate() -> bool {
+    let fp_decoy = refute_triage_seven_gates_json(
+        "High\tCWE-200\thttps://a.example.org\tWelcome to nginx!\tRestrict endpoint access\t90\t",
+    );
+    let fp_test = refute_triage_seven_gates_json(
+        "High\tCWE-89\tsrc/__tests__/db.test.js:12\tdb.Query(raw)\tUse parameterized SQL\t90\t",
+    );
+    let backport = refute_triage_seven_gates_json(
+        "High\tCVE-2023-38408\t10.0.0.5:22\tSSH-2.0-OpenSSH_9.2p1 banner\tUpgrade OpenSSH package\t85\tdebian",
+    );
+    let tp_real = refute_triage_seven_gates_json(
+        "Critical\tCWE-89\thttps://api.example.org/items\tBoolean differential delta=1420B confirmed\tUse prepared statements\t95\t",
+    );
+    fp_decoy.contains("REFUTED_FALSE_POSITIVE")
+        && fp_test.contains("REFUTED_FALSE_POSITIVE")
+        && backport.contains("DOWNGRADED_BACKPORT")
+        && tp_real.contains("\"verdict\":\"VERIFIED\"")
+}
+
+fn verify_taint_flow_v2_engine() -> bool {
+    let vuln_py = concat!(
+        "def handler(request, cursor):\n",
+        "    raw_id = request.args.get('id')\n",
+        "    query_str = 'SELECT * FROM users WHERE id=' + raw_id\n",
+        "    cursor.execute(query_str)\n",
+    );
+    let safe_py = concat!(
+        "def handler(request):\n",
+        "    raw_arg = request.args.get('host')\n",
+        "    safe_arg = shlex.quote(raw_arg)\n",
+        "    os.system('ping -c 1 ' + safe_arg)\n",
+    );
+    let v_res = analyze_taint_flow_v2_json(vuln_py.as_bytes(), b"py");
+    let s_res = analyze_taint_flow_v2_json(safe_py.as_bytes(), b"py");
+    v_res.contains("\"cwe\":\"CWE-89\"") && v_res.contains("\"source_var\":\"raw_id\"") && s_res == "[]"
+}
+
+fn verify_k8s_posture_auditor() -> bool {
+    let bad_yaml = concat!(
+        "apiVersion: admissionregistration.k8s.io/v1\n",
+        "kind: ValidatingWebhookConfiguration\n",
+        "metadata:\n",
+        "  name: policy-gate\n",
+        "webhooks:\n",
+        "  - name: check.example.io\n",
+        "    failurePolicy: Ignore\n",
+        "---\n",
+        "apiVersion: apps/v1\n",
+        "kind: DaemonSet\n",
+        "metadata:\n",
+        "  name: node-agent\n",
+        "spec:\n",
+        "  template:\n",
+        "    spec:\n",
+        "      containers:\n",
+        "        - name: agent\n",
+        "          securityContext:\n",
+        "            capabilities:\n",
+        "              add:\n",
+        "                - BPF\n",
+    );
+    let good_yaml = concat!(
+        "apiVersion: apps/v1\n",
+        "kind: Deployment\n",
+        "metadata:\n",
+        "  name: hardened-agent\n",
+        "spec:\n",
+        "  template:\n",
+        "    spec:\n",
+        "      securityContext:\n",
+        "        seccompProfile:\n",
+        "          type: RuntimeDefault\n",
+        "      containers:\n",
+        "        - name: agent\n",
+        "          securityContext:\n",
+        "            capabilities:\n",
+        "              add:\n",
+        "                - BPF\n",
+    );
+    let bad_out = audit_k8s_posture_json(bad_yaml);
+    let good_out = audit_k8s_posture_json(good_yaml);
+    bad_out.contains("K8S_WEBHOOK_FAIL_OPEN")
+        && bad_out.contains("K8S_UNCONFINED_EBPF_CAPABILITY")
+        && good_out == "[]"
+}
+
 pub fn run_all_rust_kernel_selftests() -> i32 {
     let mut passed = 0i32;
     if verify_multibranch_cve_invariants() {
@@ -246,7 +348,19 @@ pub fn run_all_rust_kernel_selftests() -> i32 {
     if verify_wave_dag_and_dns_validators() {
         passed += 1;
     }
-    if passed == 6 { 6 } else { -passed }
+    if verify_attack_graph_scorer() {
+        passed += 1;
+    }
+    if verify_refuting_triage_7gate() {
+        passed += 1;
+    }
+    if verify_taint_flow_v2_engine() {
+        passed += 1;
+    }
+    if verify_k8s_posture_auditor() {
+        passed += 1;
+    }
+    if passed == 10 { 10 } else { -passed }
 }
 
 

@@ -1,4 +1,4 @@
-// SPECTRE Polyglot Rust Security Kernel (`libspectre_rust_core.so` — ABI v950)
+// SPECTRE Polyglot Rust Security Kernel (`libspectre_rust_core.so` — ABI v1000)
 // Compiled with: rustc -O --crate-type cdylib spectre_rust_core.rs -o libspectre_rust_core.so
 // Memory-safe, zero-dependency Rust FFI kernel accelerating:
 //   1. Debian Policy 5.6.12 & RPM Epoch-Upstream-Revision Distro LSC Comparator
@@ -6,10 +6,13 @@
 //   3. Single-Pass 6-Language SAST Byte Automaton Pre-Filter (Sharp-Edges / Entry-Point / TOCTOU)
 //   4. Official FIRST.org CVSS v3.1 Vector Base Score Engine
 //   5. HTTP/Cookie/DOM Clean-Room Technology Fingerprint Automaton & RFC-1123 DNS Validator
+//   6. Multi-Hop Attack Graph Scorer, 7-Gate Refuting Triage, Taint v2 & K8s/eBPF Posture Auditor
 
+pub mod rust_attack_graph_scorer;
 pub mod rust_cleanroom_nvd_cpe_pack;
 pub mod rust_cpe_advisory_engine;
 pub mod rust_cpe_consolidator;
+pub mod rust_k8s_posture_auditor;
 pub mod rust_kernel_selftest;
 pub mod rust_kev_cve_part1;
 pub mod rust_kev_cve_part2;
@@ -22,7 +25,7 @@ use std::slice;
 
 #[no_mangle]
 pub extern "C" fn spectre_rust_abi_version() -> u32 {
-    950
+    1000
 }
 
 #[inline]
@@ -845,6 +848,122 @@ pub extern "C" fn spectre_rust_verify_access_diff(
         if ta.len() >= 32 && ta == tb { 1 } else { 0 }
     }))
     .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_score_attack_graph(
+    tsv_ptr: *const u8,
+    tsv_len: usize,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> i32 {
+    if out_ptr.is_null() || out_cap < 4 {
+        return -2;
+    }
+    unsafe { *out_ptr = 0; }
+    if tsv_ptr.is_null() || tsv_len == 0 {
+        return if write_c_buf(b"[]", out_ptr, out_cap) { 0 } else { -2 };
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let raw = unsafe { slice::from_raw_parts(tsv_ptr, tsv_len) };
+        let Ok(tsv_s) = std::str::from_utf8(raw) else {
+            return -2;
+        };
+        let json_s = rust_attack_graph_scorer::score_attack_graph_json(tsv_s);
+        if write_c_buf(json_s.as_bytes(), out_ptr, out_cap) {
+            return 1;
+        }
+        -2
+    }))
+    .unwrap_or(-2)
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_refute_triage_7gate(
+    tsv_ptr: *const u8,
+    tsv_len: usize,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> i32 {
+    if out_ptr.is_null() || out_cap < 4 {
+        return -2;
+    }
+    unsafe { *out_ptr = 0; }
+    if tsv_ptr.is_null() || tsv_len == 0 {
+        return 0;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let raw = unsafe { slice::from_raw_parts(tsv_ptr, tsv_len) };
+        let Ok(tsv_s) = std::str::from_utf8(raw) else {
+            return -2;
+        };
+        let json_s = rust_attack_graph_scorer::refute_triage_seven_gates_json(tsv_s);
+        if write_c_buf(json_s.as_bytes(), out_ptr, out_cap) {
+            return 1;
+        }
+        -2
+    }))
+    .unwrap_or(-2)
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_taint_flow_v2(
+    src_ptr: *const u8,
+    src_len: usize,
+    lang_ptr: *const u8,
+    lang_len: usize,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> i32 {
+    if out_ptr.is_null() || out_cap < 4 {
+        return -2;
+    }
+    unsafe { *out_ptr = 0; }
+    if src_ptr.is_null() || src_len == 0 {
+        return if write_c_buf(b"[]", out_ptr, out_cap) { 0 } else { -2 };
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let src_raw = unsafe { slice::from_raw_parts(src_ptr, src_len) };
+        let ltag = if lang_ptr.is_null() || lang_len == 0 {
+            &[][..]
+        } else {
+            unsafe { slice::from_raw_parts(lang_ptr, lang_len) }
+        };
+        let json_s = rust_attack_graph_scorer::analyze_taint_flow_v2_json(src_raw, ltag);
+        if write_c_buf(json_s.as_bytes(), out_ptr, out_cap) {
+            return 1;
+        }
+        -2
+    }))
+    .unwrap_or(-2)
+}
+
+#[no_mangle]
+pub extern "C" fn spectre_rust_audit_k8s_posture(
+    yaml_ptr: *const u8,
+    yaml_len: usize,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> i32 {
+    if out_ptr.is_null() || out_cap < 4 {
+        return -2;
+    }
+    unsafe { *out_ptr = 0; }
+    if yaml_ptr.is_null() || yaml_len == 0 {
+        return if write_c_buf(b"[]", out_ptr, out_cap) { 0 } else { -2 };
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let raw = unsafe { slice::from_raw_parts(yaml_ptr, yaml_len) };
+        let Ok(yaml_s) = std::str::from_utf8(raw) else {
+            return -2;
+        };
+        let json_s = rust_k8s_posture_auditor::audit_k8s_posture_json(yaml_s);
+        if write_c_buf(json_s.as_bytes(), out_ptr, out_cap) {
+            return 1;
+        }
+        -2
+    }))
+    .unwrap_or(-2)
 }
 
 #[no_mangle]

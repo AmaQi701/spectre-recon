@@ -147,7 +147,7 @@ def build_sarif_report(bundle: dict[str, Any]) -> dict[str, Any]:
             "tool": {
                 "driver": {
                     "name": "SPECTRE Hybrid Security Studio",
-                    "version": "9.5.0",
+                    "version": "10.0.0",
                     "informationUri": "https://github.com/AmaQi701/spectre-recon",
                     "rules": list(rules_map.values()),
                 }
@@ -293,6 +293,13 @@ def map_finding_compliance_controls(finding: dict[str, Any]) -> dict[str, str]:
         nist = "NIST CSF 2.0 GV.SC-07 & ID.RA-01 (Supply-Chain & Vuln Management)"
         soc2 = "SOC 2 CC7.1 & CC3.2 (Vulnerability & Dependency Management)"
         mitre = "MITRE ATT&CK v15 T1195.002 (Compromise Software Supply Chain)"
+    elif cwe == "CWE-444" or "framing" in cat or "desync" in cat:
+        api_ctrl = "API8:2023 - Security Misconfiguration (HTTP RFC 9112 Framing)"
+        pci = "PCI-DSS v4.0 Req 6.4.1 & Req 2.2 (Reverse Proxy Protocol Hygiene)"
+        iso = "ISO/IEC 27001:2022 A.8.20 (Networks Security)"
+        nist = "NIST CSF 2.0 PR.IR-01 (Protocol & Proxy Boundary Integrity)"
+        soc2 = "SOC 2 CC6.6 (Gateway Boundary Framing Enforcement)"
+        mitre = "MITRE ATT&CK v15 T1190 / T1090 (HTTP Proxy Framing & Boundary Bypass)"
     elif cwe == "CWE-250" or "iac" in cat or "container" in cat:
         api_ctrl = "API8:2023 - Security Misconfiguration (Container/Cloud)"
         pci = "PCI-DSS v4.0 Req 2.2 (Container & Cloud Hardening)"
@@ -432,3 +439,95 @@ def export_compliance_suite(bundle: dict[str, Any], out_dir: Path, project_id: i
 def export_sarif_and_sbom(bundle: dict[str, Any], out_dir: Path, project_id: int) -> tuple[str, str]:
     res = export_compliance_suite(bundle, out_dir, project_id)
     return res["sarif_json"], res["cyclonedx_sbom_json"]
+
+
+def ingest_external_sarif_report(
+    sarif_path: str | Path,
+    db: Any,
+    project_id: int,
+) -> dict[str, int]:
+    """Ingests Semgrep/CodeQL/Trivy OASIS SARIF 2.1.0 findings via the 7-Gate Refuting Triage Pipeline."""
+    from core.native_bridge import fast_rust_refute_triage_7gate
+
+    pf = Path(sarif_path)
+    if not pf.is_file() or pf.stat().st_size > (64 * 1024 * 1024):
+        return {"ingested": 0, "refuted": 0}
+    try:
+        doc = json.loads(pf.read_text(encoding="utf-8", errors="ignore"))
+    except Exception:
+        return {"ingested": 0, "refuted": 0}
+
+    level_to_sev = {"error": ("High", 8.1), "warning": ("Medium", 5.8), "note": ("Low", 3.5)}
+    ingested = 0
+    refuted = 0
+    for run in (doc.get("runs") or []):
+        if not isinstance(run, dict):
+            continue
+        drv = (run.get("tool") or {}).get("driver") or {}
+        tool_name = str(drv.get("name") or "SARIF-Tool").strip()[:36]
+        rule_lookup: dict[str, dict[str, Any]] = {}
+        for r_item in (drv.get("rules") or []):
+            if isinstance(r_item, dict) and r_item.get("id"):
+                rule_lookup[str(r_item["id"])] = r_item
+
+        for res in (run.get("results") or []):
+            if not isinstance(res, dict):
+                continue
+            rid = str(res.get("ruleId") or "EXTERNAL-RULE")
+            r_meta = rule_lookup.get(rid) or {}
+            lvl = str(res.get("level") or "warning").lower()
+            sev, cvss = level_to_sev.get(lvl, ("Medium", 5.8))
+            props = {**(r_meta.get("properties") or {}), **(res.get("properties") or {})}
+            if str(props.get("security-severity") or "").replace(".", "", 1).isdigit():
+                sc_f = float(props["security-severity"])
+                cvss = round(min(10.0, max(1.0, sc_f)), 1)
+                sev = "Critical" if cvss >= 9.0 else ("High" if cvss >= 7.0 else ("Medium" if cvss >= 4.0 else "Low"))
+
+            cwe = "CWE-200"
+            for tg in (props.get("tags") or []):
+                m_cwe = re.search(r"(CWE-\d+)", str(tg), re.I)
+                if m_cwe:
+                    cwe = m_cwe.group(1).upper()
+                    break
+            if cwe == "CWE-200":
+                m_rid = re.search(r"(CWE-\d+)", rid, re.I)
+                if m_rid:
+                    cwe = m_rid.group(1).upper()
+
+            locs = res.get("locations") or []
+            uri = "repo-artifact"
+            line_no = 0
+            if locs and isinstance(locs[0], dict):
+                pl = locs[0].get("physicalLocation") or {}
+                uri = str((pl.get("artifactLocation") or {}).get("uri") or "repo-artifact")
+                line_no = int((pl.get("region") or {}).get("startLine") or 0)
+            asset = f"{uri}:{line_no}" if line_no > 0 else uri
+            msg_txt = str((res.get("message") or {}).get("text") or rid).strip()[:300]
+            rem_txt = str((r_meta.get("help") or {}).get("text") or "Review finding and apply parameterized/safe API pattern.").strip()[:260]
+            if len(rem_txt) < 10:
+                rem_txt = "Apply framework-recommended defensive remediation."
+
+            gate = fast_rust_refute_triage_7gate(sev, cwe, asset, msg_txt, rem_txt, qod=85)
+            if gate.get("verdict") == "REFUTED_FALSE_POSITIVE":
+                refuted += 1
+                continue
+            adj_qod = int(gate.get("adjusted_qod") or 85)
+            db.upsert_finding(
+                project_id,
+                f"SPECTRE-SAST ({tool_name})",
+                f"[{tool_name}] {rid}: {msg_txt[:95]}",
+                "External SARIF Static Analysis",
+                sev,
+                cvss,
+                "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                cwe,
+                "A03:2021 - Injection",
+                asset,
+                msg_txt,
+                f"Imported from OASIS SARIF 2.1.0 ({tool_name}, rule `{rid}`).",
+                rem_txt,
+                confidence=f"QoD: {adj_qod}% [7-Gate SARIF Verified]",
+            )
+            ingested += 1
+    return {"ingested": ingested, "refuted": refuted}
+

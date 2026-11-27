@@ -168,9 +168,8 @@ func resolvePrimaryAdvIDGo(ent *osvEntry) string {
 	return idUp
 }
 
-func extractOsvRowGo(ent *osvEntry) (string, bool) {
-	advID := resolvePrimaryAdvIDGo(ent)
-	if advID == "" || len(ent.Affected) == 0 {
+func extractOsvRowWithIDGo(ent *osvEntry, chosenID string) (string, bool) {
+	if chosenID == "" || len(ent.Affected) == 0 {
 		return "", false
 	}
 	aff := ent.Affected[0]
@@ -206,14 +205,14 @@ func extractOsvRowGo(ent *osvEntry) (string, bool) {
 		summ = ent.Details
 	}
 	if summ == "" {
-		summ = fmt.Sprintf("%s %s security advisory (%s)", eco, pkg, advID)
+		summ = fmt.Sprintf("%s %s security advisory (%s)", eco, pkg, chosenID)
 	}
 	rem := fmt.Sprintf("Upgrade %s (%s) to patched version >= %s", pkg, eco, maxV)
 	if maxV == "*" {
-		rem = fmt.Sprintf("Apply official %s security update for %s (%s)", eco, pkg, advID)
+		rem = fmt.Sprintf("Apply official %s security update for %s (%s)", eco, pkg, chosenID)
 	}
 	line := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%.1f\t%s\t%s\t0\tUnknown\t0.15\t%s\t%s\tCC-BY-4.0",
-		cleanTsvFieldGo(advID, 40),
+		cleanTsvFieldGo(chosenID, 40),
 		cleanTsvFieldGo(eco, 40),
 		cleanTsvFieldGo(pkg, 80),
 		cleanTsvFieldGo(cpe, 140),
@@ -229,6 +228,7 @@ func extractOsvRowGo(ent *osvEntry) (string, bool) {
 }
 
 func StreamSyncCleanroomFeedsGo(outTsvPath string, ecosystems []string) (*SyncFeedsReport, error) {
+	const maxTotalAdvisories = 215000
 	if err := os.MkdirAll(filepath.Dir(outTsvPath), 0o755); err != nil {
 		return nil, err
 	}
@@ -238,16 +238,15 @@ func StreamSyncCleanroomFeedsGo(outTsvPath string, ecosystems []string) (*SyncFe
 	}
 	defer outF.Close()
 	bw := bufio.NewWriterSize(outF, 262144)
-	seen := make(map[string]struct{}, 90000)
+	seenIDs := make(map[string]struct{}, 220000)
 	ecoCounts := make(map[string]int)
 	total := 0
 
 	for _, r := range CompiledCleanroomAdvisories {
-		dedupKey := r.ID + "|" + r.Vendor + "|" + r.Product + "|" + r.MinVer + "|" + r.MaxVer
-		if _, dup := seen[dedupKey]; dup {
+		if _, dup := seenIDs[r.ID]; dup {
 			continue
 		}
-		seen[dedupKey] = struct{}{}
+		seenIDs[r.ID] = struct{}{}
 		_, _ = fmt.Fprintf(bw, "%s\t%s\t%s\t%s\t%s\t%s\t%.1f\t%s\t%s\t%d\tUnknown\t0.65\t%s\t%s\t%s\n",
 			r.ID, r.Vendor, r.Product, r.CPE23, r.MinVer, r.MaxVer, r.CVSS, r.Severity, r.CWE, r.IsKEV,
 			cleanTsvFieldGo(r.Summary, 240), cleanTsvFieldGo(r.Remediation, 200), r.SPDX)
@@ -256,6 +255,9 @@ func StreamSyncCleanroomFeedsGo(outTsvPath string, ecosystems []string) (*SyncFe
 	}
 
 	for _, eco := range ecosystems {
+		if total >= maxTotalAdvisories {
+			break
+		}
 		escEco := url.PathEscape(strings.TrimSpace(eco))
 		if escEco == "" {
 			continue
@@ -269,6 +271,9 @@ func StreamSyncCleanroomFeedsGo(outTsvPath string, ecosystems []string) (*SyncFe
 		zr, zerr := zip.NewReader(tmpF, zipSz)
 		if zerr == nil {
 			for _, zf := range zr.File {
+				if total >= maxTotalAdvisories {
+					break
+				}
 				if !strings.HasSuffix(zf.Name, ".json") || zf.UncompressedSize64 > maxEntryJsonBytes {
 					continue
 				}
@@ -283,15 +288,16 @@ func StreamSyncCleanroomFeedsGo(outTsvPath string, ecosystems []string) (*SyncFe
 				}
 				var ent osvEntry
 				if json.Unmarshal(rawJSON, &ent) == nil {
-					advID := resolvePrimaryAdvIDGo(&ent)
-					pkgName := ""
-					if len(ent.Affected) > 0 {
-						pkgName = strings.TrimSpace(ent.Affected[0].Package.Name)
+					candID := resolvePrimaryAdvIDGo(&ent)
+					if _, dup := seenIDs[candID]; dup {
+						altID := strings.ToUpper(strings.TrimSpace(ent.ID))
+						if altID != "" && altID != candID {
+							candID = altID
+						}
 					}
-					dedupKey := advID + "|" + eco + "|" + pkgName
-					if _, dup := seen[dedupKey]; !dup {
-						if row, ok := extractOsvRowGo(&ent); ok {
-							seen[dedupKey] = struct{}{}
+					if _, dup := seenIDs[candID]; !dup {
+						if row, ok := extractOsvRowWithIDGo(&ent, candID); ok {
+							seenIDs[candID] = struct{}{}
 							_, _ = bw.WriteString(row)
 							_ = bw.WriteByte('\n')
 							ecoCounts[eco]++
@@ -307,5 +313,5 @@ func StreamSyncCleanroomFeedsGo(outTsvPath string, ecosystems []string) (*SyncFe
 	if err := bw.Flush(); err != nil {
 		return nil, err
 	}
-	return &SyncFeedsReport{ABI: 950, TotalSynced: total, Ecosystems: ecoCounts, OutputPath: outTsvPath}, nil
+	return &SyncFeedsReport{ABI: 1000, TotalSynced: total, Ecosystems: ecoCounts, OutputPath: outTsvPath}, nil
 }

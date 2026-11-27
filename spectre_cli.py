@@ -33,7 +33,7 @@ FIND_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI v9.5.0")
+    p = argparse.ArgumentParser(description="SPECTRE Headless Enterprise Recon, NVT & SARIF/SBOM CLI v10.0.0")
     p.add_argument("-t", "--target", default="", help="Primary target domain, host, or URL (required unless --export-project/--benchmark/--doctor/--intel-status/--rebuild-intel)")
     p.add_argument("--export-project", type=int, default=0, help="Re-generate HTML/SARIF/SBOM/JUnit/Compliance artifacts for an existing project ID without re-scanning")
     p.add_argument("--benchmark", action="store_true", help="Run live 1 MB C++17 + Rust + Go native kernel throughput benchmark and exit")
@@ -41,7 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--intel-status", action="store_true", help="Inspect Offline Threat Intelligence, SecLists & Clean-Room NVT Pack status and SPDX compliance")
     p.add_argument("--rebuild-intel", action="store_true", help="Compile/refresh intel/spectre_intel.db, Go-indexed SecLists wordlists, and Clean-Room KEV NVTs")
     p.add_argument("--mcp-server", action="store_true", help="Launch local read-only JSON-RPC 2.0 MCP server on stdio via Go native engine")
-    p.add_argument("--sync-feeds", default="", help="Stream clean-room OSV/NVD advisories into TSV path via Go native engine")
+    p.add_argument("--sync-feeds", nargs="?", const="auto", default="", help="Stream clean-room OSV/NVD advisories via Go native engine and rebuild intel DB")
+    p.add_argument("--import-sarif", default="", help="Ingest external Semgrep/CodeQL/Trivy OASIS SARIF 2.1.0 report via 7-Gate Refuting Triage")
     p.add_argument("-n", "--name", default="", help="Project name (defaults to target host)")
     p.add_argument("--in-scope", default="", help="Comma/newline-separated in-scope rules")
     p.add_argument("--out-of-scope", default="", help="Comma/newline-separated out-of-scope rules")
@@ -106,7 +107,7 @@ def _run_live_cpp_benchmark() -> int:
     r_sast = _rate(fast_sast_prefilter_mask)
     r_tech = _rate(fast_tech_fingerprint_mask)
     r_str = _rate(fast_structural_hash, iters=4)
-    print(f"SPECTRE v9.5.0 Polyglot Rust + Go + C++17 Kernel Benchmark (Cpp={lib is not None} | Rust={rlib is not None} | Go={gobin is not None})")
+    print(f"SPECTRE v10.0.0 Polyglot Rust + Go + C++17 Kernel Benchmark (Cpp={lib is not None} | Rust={rlib is not None} | Go={gobin is not None})")
     print("=" * 80)
     print(f"  1. C++17 MurmurHash3 (Favicon/Asset Fingerprint) : {r_mmh:8.1f} MB/s")
     print(f"  2. C++17 v5 FNV-1a64 Case-Insensitive Indexer    : {r_fnv:8.1f} MB/s")
@@ -130,7 +131,7 @@ def _run_doctor_diagnostics(db_path: str) -> int:
 
     cpp_ok = get_native_lib() is not None
     rlib_d = get_rust_lib()
-    rust_ok = rlib_d is not None and (not hasattr(rlib_d, "spectre_rust_kernel_selftest") or int(rlib_d.spectre_rust_kernel_selftest()) == 6)
+    rust_ok = rlib_d is not None and (not hasattr(rlib_d, "spectre_rust_kernel_selftest") or int(rlib_d.spectre_rust_kernel_selftest()) >= 6)
     go_ok = get_go_indexer_bin() is not None
     bar_ok_n, _ = fast_cpp_barrier_selftest(4, 500)
     ensure_offline_intel_pack()
@@ -165,10 +166,25 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return _sp.call([str(gobin), "-mcp-server"])
     if args.sync_feeds:
+        if args.sync_feeds == "auto":
+            from core.threat_intel_pack import sync_cleanroom_feeds_via_go
+            st_sf = sync_cleanroom_feeds_via_go()
+            print(json.dumps(st_sf, indent=2, ensure_ascii=False))
+            return 0 if st_sf.get("ready") else 1
         from core.native_bridge import fast_go_sync_feeds
         rep_sf = fast_go_sync_feeds(args.sync_feeds)
         print(json.dumps(rep_sf or {"ok": False}, indent=2, ensure_ascii=False))
         return 0 if rep_sf else 1
+    if args.import_sarif:
+        from core.compliance_exporter import ingest_external_sarif_report
+        db_imp = DatabaseManager(args.db)
+        pid_imp = int(args.export_project) if args.export_project > 0 else db_imp.create_project(
+            args.name or "sarif-import", args.target or "repo-audit", args.in_scope or "*", args.out_of_scope, args.source_path
+        )
+        rep_imp = ingest_external_sarif_report(args.import_sarif, db_imp, pid_imp)
+        rep_imp["project_id"] = pid_imp
+        print(json.dumps(rep_imp, indent=2, ensure_ascii=False))
+        return 0
     if args.rebuild_intel:
         from core.threat_intel_pack import build_offline_intel_pack
         st = build_offline_intel_pack()

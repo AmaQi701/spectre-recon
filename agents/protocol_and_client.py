@@ -89,6 +89,24 @@ def audit_static_routing_headers(db, session, project_id: int, base_url: str, lo
                 log_fn(f"  [DIR-LISTING] {u} katalogida fayllar ro'yxati ochiq ({len(files_listed)} ta fayl)!")
         except Exception:
             pass
+    try:
+        from core.native_bridge import fast_go_audit_http_framing
+        r_root = session.get(base_url, timeout=4.5, verify=False, allow_redirects=False)
+        raw_h = {k: [v] for k, v in r_root.headers.items()}
+        for f_hit in fast_go_audit_http_framing([{"asset": base_url, "status_code": r_root.status_code, "raw_headers": raw_h}]):
+            issues += 1
+            db.upsert_finding(
+                project_id, "SPECTRE-Protocol (RFC9112-Framing)",
+                f"[CONFIRMED] RFC 9112 HTTP/1.1 Framing Ambiguity ({f_hit.get('rule_id')})",
+                "HTTP Proxy Framing Hygiene", str(f_hit.get("severity") or "High"), 7.5,
+                "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:N", "CWE-444",
+                "A05:2021 - Security Misconfiguration", base_url,
+                str(f_hit.get("detail") or ""),
+                "HTTP javob sarlavhalarida RFC 9112 §6.3 framing qoidabuzarligi (CL+TE yoki h2c) aniqlandi.",
+                "Reverse-proxy da `ignore_invalid_headers on; proxy_http_version 1.1;` o'rnating.",
+            )
+    except Exception:
+        pass
     return issues
 
 
