@@ -45,16 +45,22 @@ def probe_nonstandard_web_ports(db, session, project_id: int, log_fn):
         key=lambda d: (1 if str(d.get("domain") or "").lower().startswith("www.") else 0, len(str(d.get("domain") or ""))),
     )
     ip_to_canon_host: dict[str, str] = {}
+    cdn_ips: set[str] = set()
     for d in sorted_doms:
         dip = str(d.get("ip") or "").strip()
         dom = str(d.get("domain") or "").strip()
-        if dip and dom and not str(d.get("cdn_waf") or "").strip():
+        cw = str(d.get("cdn_waf") or "").strip()
+        if dip and cw:
+            cdn_ips.add(dip)
+        if dip and dom and not cw:
             ip_to_canon_host.setdefault(dip, dom)
 
     for pt in ports:
         pnum = int(pt.get("port", 0))
         host = (pt.get("host") or pt.get("ip") or "").strip()
         ip_key = (pt.get("ip") or host).strip()
+        if ip_key in cdn_ips and pnum in (2053, 2082, 2083, 2086, 2087, 2095, 2096, 8080, 8443, 8880):
+            continue
         if pnum in WEB_CANDIDATE_PORTS and host and (ip_key, pnum) not in seen_ip_port:
             seen_ip_port.add((ip_key, pnum))
             targets.append((host, pnum))
@@ -98,8 +104,11 @@ def probe_nonstandard_web_ports(db, session, project_id: int, log_fn):
                 soup = BeautifulSoup(text_sample, "html.parser")
                 title = soup.title.string.strip() if (soup.title and soup.title.string) else ""
                 srv = r.headers.get("Server", "")
+                srv_l = srv.lower()
                 t_low = title.lower()
                 if any(ch_kw in t_low for ch_kw in ("one moment, please", "just a moment", "attention required", "ddos-guard", "security check")):
+                    break
+                if any(w_kw in srv_l for w_kw in ("cloudflare", "ddos-guard", "qrator", "akamai", "cloudfront")) and pnum in (2053, 2082, 2083, 2086, 2087, 2095, 2096, 8080, 8443, 8880):
                     break
                 db.upsert_http_service(
                     project_id, url, code, title=title[:120], server=srv,

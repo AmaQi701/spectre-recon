@@ -346,6 +346,9 @@ class VulnAssessmentSuperAgent:
             analytics_ck_prefixes = (
                 "_ym_", "_ga", "_gid", "_gat", "_fbp", "_fbc", "_gcl_", "__utm", "_pk_",
                 "mp_", "amplitude_", "cf_clearance", "__cf_bm", "intercom-", "_hj", "_clck", "_clsk",
+                "__ddg", "qrator_", "incap_ses_", "visid_incap_", "ak_bmsc", "bm_sz",
+                "cachestatus", "x-cache", "lang", "locale", "theme", "currency", "timezone",
+                "cookie_consent", "cookieconsent",
             )
             is_https = url.lower().startswith("https://")
             for ck in cookies:
@@ -1209,13 +1212,20 @@ class VulnAssessmentSuperAgent:
         cand_eps = sorted(
             [
                 e for e in endpoints
-                if json.loads(e.get("params_json") or "[]") or "{param}" in str(e.get("url") or "")
+                if (json.loads(e.get("params_json") or "[]") or "{param}" in str(e.get("url") or ""))
+                and not any(
+                    seg in str(e.get("url") or "").lower()
+                    for seg in (".m3u8", ".mp4", ".mp3", ".jpg", ".png", ".gif", ".svg", ".woff", "/thumbnail/", "key-pair-id")
+                )
             ],
             key=_ep_prio,
         )
 
         form_defaults_by_host: dict[str, dict[str, str]] = {}
-        for ep in cand_eps[:45]:
+        per_host_counts: dict[str, int] = {}
+        for ep in cand_eps[:35]:
+            if self._is_aborted(project_id):
+                return
             raw_u = ep["url"]
             u = raw_u.replace("{param}", "1")
             if self.http_engine.is_host_dead(u):
@@ -1229,6 +1239,9 @@ class VulnAssessmentSuperAgent:
             is_api_ep = str(ep.get("category") or "") == "api_endpoint"
             p_parsed = urllib.parse.urlparse(u)
             host_k = (p_parsed.hostname or "").lower()
+            if per_host_counts.get(host_k, 0) >= 8:
+                continue
+            per_host_counts[host_k] = per_host_counts.get(host_k, 0) + 1
             origin_u = f"{p_parsed.scheme}://{p_parsed.netloc}/"
 
             form_defaults: dict[str, str] = {}
@@ -1534,7 +1547,18 @@ class VulnAssessmentSuperAgent:
                         obj_b = r_b.json()
                         keys_b = sorted(obj_b.keys()) if isinstance(obj_b, dict) else ["_list"]
                         raw_path = urllib.parse.urlparse(raw_ep_url).path
-                        if keys_a == keys_b and fast_rust_verify_access_diff(raw_path, r_a.text, r_b.text):
+                        from core.native_bridge import fast_go_verify_access_matrix
+                        go_mat = fast_go_verify_access_matrix([{
+                            "endpoint": raw_path or u,
+                            "method": "GET",
+                            "admin_status": r_a.status_code,
+                            "admin_body": r_a.text[:4096],
+                            "user_status": r_b.status_code,
+                            "user_body": r_b.text[:4096],
+                            "anon_status": r_guest.status_code,
+                            "anon_body": r_guest.text[:2048],
+                        }])
+                        if (keys_a == keys_b and fast_rust_verify_access_diff(raw_path, r_a.text, r_b.text)) or bool(go_mat):
                             self.db.upsert_finding(
                                 project_id, "Agent-2 (BOLA-Matrix)", f"[CONFIRMED] Cross-Role BOLA / IDOR Data Exposure ({u})",
                                 "Broken Object Level Authorization (BOLA)", "High", 8.6, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",

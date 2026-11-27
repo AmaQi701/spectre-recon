@@ -4,9 +4,11 @@ SPECTRE — Protocol, Cache, VCS & Client-State Analysis Modules
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import pathlib
 import re
+import threading
 import urllib.parse
 from typing import Any
 
@@ -533,7 +535,26 @@ ARCHIVE_SIGNATURES: list[tuple[bytes, str]] = [
 ]
 
 
+_ARCHIVE_DEDUP_LOCK = threading.RLock()
+_SEEN_ARCHIVE_ORIGINS: dict[int, set[str]] = {}
+
+
 def verify_archive_magic_bytes_range(db, session, project_id: int, apex_domain: str, base_url: str, log_fn) -> int:
+    parsed_b = urllib.parse.urlparse(base_url)
+    host_b = (parsed_b.hostname or "").lower()
+    bundle = db.get_project_bundle(project_id)
+    host_ip = ""
+    for d in bundle.get("domains", []):
+        if str(d.get("domain") or "").lower() == host_b:
+            host_ip = str(d.get("ip") or "").strip()
+            break
+    cluster_key = host_ip or host_b
+    seen_set = _SEEN_ARCHIVE_ORIGINS.setdefault(project_id, set())
+    if cluster_key and cluster_key in seen_set and host_b != apex_domain:
+        return 0
+    if cluster_key:
+        seen_set.add(cluster_key)
+
     brand = apex_domain.split(".")[0].lower()
     candidates = [
         ("/backup.zip", b"PK\x03\x04", "ZIP Archive"),
@@ -547,15 +568,15 @@ def verify_archive_magic_bytes_range(db, session, project_id: int, apex_domain: 
         ("/site.zip", b"PK\x03\x04", "ZIP Archive"),
         ("/dump.sql", b"-- PostgreSQL database dump", "PostgreSQL Database Dump"),
     ]
-    verified = 0
-    for path, exp_sig, fmt_name in candidates:
+
+    def _probe_archive_candidate(item: tuple[str, bytes, str]):
+        path, exp_sig, fmt_name = item
         u = urllib.parse.urljoin(base_url, path)
         try:
-            # Accept-Encoding: identity majburiy + stream=True (OOM himoyasi, HIGH-21)
             with session.get(
                 u,
                 headers={"Range": "bytes=0-63", "Accept-Encoding": "identity"},
-                timeout=4,
+                timeout=3.5,
                 verify=False,
                 allow_redirects=False,
                 stream=True,
@@ -565,26 +586,42 @@ def verify_archive_magic_bytes_range(db, session, project_id: int, apex_domain: 
                 cenc = r.headers.get("Content-Encoding", "").lower()
                 head_bytes = next(r.iter_content(chunk_size=64), b"") if status_c in (200, 206) else b""
             if status_c not in (200, 206) or len(head_bytes) < 8:
-                continue
+                return None
             if "text/html" in ctype or "application/json" in ctype or cenc == "gzip":
-                continue
+                return None
             head_bytes = head_bytes[:64]
             if head_bytes.lstrip()[:15].lower().startswith((b"<!doctype", b"<html", b"<head", b"<body", b"<script", b"{")):
-                continue
+                return None
             if head_bytes.startswith(exp_sig) or (exp_sig.startswith(b"--") and exp_sig in head_bytes[:48]):
-                verified += 1
-                db.upsert_finding(
-                    project_id, "SPECTRE-Protocol (MagicByte-Verifier)",
-                    f"[CONFIRMED] Binary-Verified Exposed Archive / DB ({path} — {fmt_name})",
-                    "Sensitive Backup Exposure", "Critical", 9.1,
-                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-530", "A05:2021 - Security Misconfiguration",
-                    u, f"HTTP {status_c} | Content-Type: {ctype} | Verified Magic Bytes: {head_bytes[:16]!r} ({fmt_name})",
-                    "HTTP Range (0-63 bayt, identity encoding) tekshiruvi orqali veb-serverda haqiqiy arxiv yoki ma'lumotlar bazasi fayli ochiq qolgani matematik tasdiqlandi.",
-                    "Zaxira nusxalarini (.zip, .sql, .gz, .sqlite) veb-serverning ommaviy katalogidan darhol o'chiring.",
-                )
-                log_fn(f"  [MAGIC-BYTE-VERIFIED] {u} -> Haqiqiy {fmt_name} fayli tasdiqlandi!")
+                return (path, fmt_name, u, status_c, ctype, head_bytes[:16])
         except Exception:
             pass
+        return None
+
+    verified = 0
+    ex_ar = concurrent.futures.ThreadPoolExecutor(max_workers=5)
+    futs_ar = [ex_ar.submit(_probe_archive_candidate, c_it) for c_it in candidates]
+    concurrent.futures.wait(futs_ar, timeout=6.0)
+    for ft in futs_ar:
+        if ft.done() and not ft.cancelled():
+            try:
+                hit = ft.result()
+                if hit:
+                    path, fmt_name, u, status_c, ctype, magic_sample = hit
+                    verified += 1
+                    db.upsert_finding(
+                        project_id, "SPECTRE-Protocol (MagicByte-Verifier)",
+                        f"[CONFIRMED] Binary-Verified Exposed Archive / DB ({path} — {fmt_name})",
+                        "Sensitive Backup Exposure", "Critical", 9.1,
+                        "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-530", "A05:2021 - Security Misconfiguration",
+                        u, f"HTTP {status_c} | Content-Type: {ctype} | Verified Magic Bytes: {magic_sample!r} ({fmt_name})",
+                        "HTTP Range (0-63 bayt, identity encoding) tekshiruvi orqali veb-serverda haqiqiy arxiv yoki ma'lumotlar bazasi fayli ochiq qolgani matematik tasdiqlandi.",
+                        "Zaxira nusxalarini (.zip, .sql, .gz, .sqlite) veb-serverning ommaviy katalogidan darhol o'chiring.",
+                    )
+                    log_fn(f"  [MAGIC-BYTE-VERIFIED] {u} -> Haqiqiy {fmt_name} fayli tasdiqlandi!")
+            except Exception:
+                pass
+    ex_ar.shutdown(wait=False, cancel_futures=True)
     return verified
 
 

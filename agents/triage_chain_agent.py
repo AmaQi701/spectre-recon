@@ -52,26 +52,65 @@ class TriageAndChainSuperAgent:
 
         log_fn(f"--- [PHASE 3] ASSET-BOUND GRAPH CORRELATION & CHAINING ({proj.get('name', '')}) ---")
 
+        from core.native_bridge import fast_rust_refute_triage_7gate
+
         verified_count = 0
         manual_count = 0
+        active_findings: list[dict] = []
         for f in findings:
             conf_val = str(f.get("confidence", ""))
-            if "[CONFIRMED]" in str(f.get("title", "")) or "Confirmed-PoC" in conf_val:
+            title_s = str(f.get("title", ""))
+            m_qod = re.search(r"QoD:\s*(\d+)%", conf_val)
+            qod_num = int(m_qod.group(1)) if m_qod else (95 if "[CONFIRMED]" in title_s else 80)
+            distro_hint = "debian" if "OS Distro Backport" in conf_val else ""
+            t_gate = fast_rust_refute_triage_7gate(
+                str(f.get("severity") or "Medium"),
+                str(f.get("cwe_id") or "CWE-200"),
+                str(f.get("asset") or ""),
+                str(f.get("evidence") or ""),
+                str(f.get("remediation") or ""),
+                qod_num,
+                distro_hint,
+            )
+            if t_gate.get("verdict") == "REFUTED" and "[CONFIRMED]" not in title_s and "Confirmed-PoC" not in conf_val:
+                self.db.update_finding_triage(int(f["id"]), "False-Positive")
+                continue
+            active_findings.append(f)
+            if "[CONFIRMED]" in title_s or "Confirmed-PoC" in conf_val:
                 if f.get("triage_status") != "Verified":
                     self.db.update_finding_triage(int(f["id"]), "Verified")
                 verified_count += 1
-            elif "Manual-Review" in conf_val:
+            elif "Manual-Review" in conf_val or t_gate.get("verdict") == "DOWNGRADED_QOD":
                 manual_count += 1
             else:
                 verified_count += 1
-        log_fn(f"  [+] Triage: {verified_count} ta Verified, {manual_count} ta Manual-Review topilma saralandi.")
+        findings = active_findings
+        log_fn(f"  [+] Triage (Rust 7-Gate): {verified_count} ta Verified, {manual_count} ta Manual-Review topilma saralandi.")
 
         pt_host = str(proj.get("primary_target") or "").strip().lower()
-        known_hosts = {d["domain"].lower() for d in domains if d.get("domain")}
+        parking_hosts: set[str] = set()
+        parking_ips: set[str] = set()
+        for svc in http_svcs:
+            st_title = str(svc.get("title") or "").lower()
+            if st_title.startswith("external redirect") and any(pk in st_title for pk in ("/parking", "sedoparking", "parked")):
+                sh = (urllib.parse.urlparse(svc.get("url", "")).hostname or "").lower()
+                if sh:
+                    parking_hosts.add(sh)
+        for d in domains:
+            dom_l = str(d.get("domain") or "").strip().lower()
+            dip_s = str(d.get("ip") or "").strip()
+            if "external-parking" in str(d.get("cdn_waf") or "").lower() or dom_l in parking_hosts:
+                if dom_l:
+                    parking_hosts.add(dom_l)
+                if dip_s:
+                    parking_ips.add(dip_s)
+        known_hosts = {d["domain"].lower() for d in domains if d.get("domain") and d["domain"].lower() not in parking_hosts}
         ip_to_host: dict[str, str] = {}
         for d in sorted(domains, key=lambda x: (0 if str(x.get("domain", "")).lower() == pt_host else 1, len(str(x.get("domain", ""))))):
-            if d.get("ip") and d.get("domain") and not d.get("cdn_waf"):
-                ip_to_host.setdefault(str(d["ip"]).strip(), str(d["domain"]).strip().lower())
+            dom_l = str(d.get("domain") or "").strip().lower()
+            dip_s = str(d.get("ip") or "").strip()
+            if dip_s and dom_l and not d.get("cdn_waf") and dom_l not in parking_hosts and dip_s not in parking_ips:
+                ip_to_host.setdefault(dip_s, dom_l)
 
         def _node() -> dict:
             return {
@@ -88,10 +127,13 @@ class TriageAndChainSuperAgent:
         analytics_ck_prefixes = (
             "_ym_", "_ga", "_gid", "_gat", "_fbp", "_fbc", "_gcl_", "__utm", "_pk_",
             "mp_", "amplitude_", "cf_clearance", "__cf_bm", "intercom-", "_hj", "_clck", "_clsk",
+            "__ddg", "qrator_", "incap_ses_", "visid_incap_", "ak_bmsc", "bm_sz",
+            "cachestatus", "x-cache", "lang", "locale", "theme", "currency", "timezone",
+            "cookie_consent", "cookieconsent",
         )
         for svc in http_svcs:
             h = self._extract_asset_host(svc.get("url", ""), known_hosts, ip_to_host)
-            if not h:
+            if not h or h in parking_hosts:
                 continue
             g = graph.setdefault(h, _node())
             g["has_web"] = True
@@ -106,8 +148,10 @@ class TriageAndChainSuperAgent:
         for pt in ports:
             raw_pt_h = (pt.get("host") or pt.get("ip") or "").strip().lower()
             pt_ip = str(pt.get("ip") or "").strip()
+            if raw_pt_h in parking_hosts or pt_ip in parking_ips:
+                continue
             h = ip_to_host.get(raw_pt_h) or ip_to_host.get(pt_ip) or raw_pt_h
-            if h:
+            if h and h not in parking_hosts:
                 graph.setdefault(h, _node())["open_ports"].append(f"{pt['port']}/{pt['protocol']} ({pt.get('service', '')})")
 
         for ep in endpoints:
@@ -157,7 +201,7 @@ class TriageAndChainSuperAgent:
                 g["redirects"].append(f)
             if "cve" in tl or "nuclei:" in tl or "advisory" in tl or "end-of-life" in tl:
                 conf_s = str(f.get("confidence") or "")
-                if "Passive Shodan Cache" not in conf_s:
+                if not any(skip_c in conf_s for skip_c in ("Passive Shodan Cache", "OS Distro Backport Possible", "QoD: 60%", "Manual-Review")):
                     g["cves"].append(f)
             if "data store" in tl or any(k in cat_l for k in ("database / cache", "message broker", "streaming / queue", "cluster coordination")):
                 g["data_stores"].append(f)
@@ -300,7 +344,10 @@ class TriageAndChainSuperAgent:
                 log_fn(f"  [CHAIN] {host}: Protocol/Debug + Web Surface zanjiri tuzildi!")
 
         pt_host = proj.get("primary_target", "").lower()
-        cdn_tokens = ("cloudflare", "cloudfront", "akamai", "fastly", "imperva", "incapsula", "sucuri", "ddos-guard", "qrator")
+        cdn_tokens = (
+            "cloudflare", "cloudfront", "akamai", "fastly", "imperva", "incapsula",
+            "sucuri", "ddos-guard", "servicepipe", "stormwall", "variti", "gcore", "qrator", "external-parking",
+        )
         cf_hosts = sorted(
             [d["domain"] for d in domains if "cloudflare" in str(d.get("cdn_waf", "")).lower()],
             key=lambda x: (0 if x.lower() == pt_host else 1, len(x), x),

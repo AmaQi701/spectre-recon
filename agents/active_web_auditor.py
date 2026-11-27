@@ -121,58 +121,76 @@ def fingerprint_favicon_hash_and_tech(db, session, project_id: int, base_url: st
     if matched_tech:
         db.merge_http_tech_stack(project_id, base_url, [f"Favicon:{matched_tech}"])
 
-    bundle = db.get_project_bundle(project_id)
-    cdn_keywords = ("cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "ddos-guard")
-    domains_rows = bundle.get("domains", [])
-    has_any_cdn = any(any(k in (d.get("cdn_waf") or "").lower() for k in cdn_keywords) for d in domains_rows)
-    candidate_ips = {
-        (d.get("ip") or "").strip()
-        for d in domains_rows
-        if has_any_cdn and (d.get("ip") or "").strip() and "." in (d.get("ip") or "") and not any(k in (d.get("cdn_waf") or "").lower() for k in cdn_keywords)
-    }
-
-    matched_origins = []
-    fav_path = urllib.parse.urlparse(used_fav_url).path or "/favicon.ico"
-    for ip in list(candidate_ips)[:8]:
-        for scheme in ("https", "http"):
-            try:
-                rip = session.get(f"{scheme}://{ip}{fav_path}", timeout=3.5, verify=False)
-                if rip.status_code == 200 and len(rip.content) > 32 and compute_shodan_favicon_hash(rip.content) == fav_hash:
-                    matched_origins.append(ip)
-                    break
-            except Exception:
-                pass
-
-    from core.scope_guard import ScopeGuard
     with _DEDUP_LOCK:
         seen_favs = _SEEN_FAVICONS_BY_PROJ.setdefault(project_id, set())
         is_new_fav = str(fav_hash) not in seen_favs
         if is_new_fav:
             seen_favs.add(str(fav_hash))
-    if is_new_fav:
-        apex_asset = ScopeGuard.extract_apex_domain(urllib.parse.urlparse(base_url).hostname or base_url)
-        desc_extra = f" | Origin IP Match: {', '.join(matched_origins)}" if matched_origins else ""
-        if matched_origins:
-            db.upsert_finding(
-                project_id, "SPECTRE-Web (Favicon-MMH3)",
-                f"Favicon MurmurHash3 Origin Match ({fav_hash})" + (f" — {matched_tech}" if matched_tech else ""),
-                "Reconnaissance & Shadow Asset Intelligence",
-                "Medium", 5.3,
-                "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
-                used_fav_url,
-                f"Sample Favicon: {used_fav_url} | Shodan: {shodan_dork} | Censys: services.http.response.favicons.shodan_hash:{fav_hash}{desc_extra}",
-                "Favicon MurmurHash3 xeshi orqali CDN ortidagi to'g'ridan-to'g'ri origin IP manzil tasdiqlandi.",
-                "Origin serverlarda asosiy domen favicon faylini ochiq qoldirmang va IP kirishni faqat CDN subnetlariga cheklang.",
-            )
-        else:
-            db.log_task(
-                project_id,
-                "SPECTRE-Intel",
-                "favicon_mmh3",
-                "COMPLETED",
-                base_url,
-                f"Favicon MMH3 ({fav_hash}){' [' + matched_tech + ']' if matched_tech else ''} | {shodan_dork}",
-            )
+    if not is_new_fav:
+        return {"hash": fav_hash, "tech": matched_tech, "matched_origins": []}
+
+    bundle = db.get_project_bundle(project_id)
+    cdn_keywords = (
+        "cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "imperva",
+        "ddos-guard", "servicepipe", "stormwall", "variti", "gcore", "sucuri", "qrator", "external-parking",
+    )
+    domains_rows = bundle.get("domains", [])
+    has_any_cdn = any(any(k in (d.get("cdn_waf") or "").lower() for k in cdn_keywords) for d in domains_rows)
+    candidate_ips = sorted({
+        (d.get("ip") or "").strip()
+        for d in domains_rows
+        if has_any_cdn and (d.get("ip") or "").strip() and "." in (d.get("ip") or "") and not any(k in (d.get("cdn_waf") or "").lower() for k in cdn_keywords)
+    })[:8]
+
+    matched_origins: list[str] = []
+    fav_path = urllib.parse.urlparse(used_fav_url).path or "/favicon.ico"
+
+    def _probe_fav_ip(ip_addr: str) -> str:
+        for scheme in ("https", "http"):
+            try:
+                rip = ext_sess.get(f"{scheme}://{ip_addr}{fav_path}", timeout=2.5, verify=False, allow_redirects=False)
+                if rip.status_code == 200 and len(rip.content) > 32 and compute_shodan_favicon_hash(rip.content) == fav_hash:
+                    return ip_addr
+            except Exception:
+                pass
+        return ""
+
+    if candidate_ips:
+        ex_fav = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+        futs_fav = [ex_fav.submit(_probe_fav_ip, ip_c) for ip_c in candidate_ips]
+        concurrent.futures.wait(futs_fav, timeout=4.0)
+        for ft in futs_fav:
+            if ft.done() and not ft.cancelled():
+                try:
+                    res_ip = ft.result()
+                    if res_ip:
+                        matched_origins.append(res_ip)
+                except Exception:
+                    pass
+        ex_fav.shutdown(wait=False, cancel_futures=True)
+
+    desc_extra = f" | Origin IP Match: {', '.join(matched_origins)}" if matched_origins else ""
+    if matched_origins:
+        db.upsert_finding(
+            project_id, "SPECTRE-Web (Favicon-MMH3)",
+            f"Favicon MurmurHash3 Origin Match ({fav_hash})" + (f" — {matched_tech}" if matched_tech else ""),
+            "Reconnaissance & Shadow Asset Intelligence",
+            "Medium", 5.3,
+            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "CWE-200", "A05:2021 - Security Misconfiguration",
+            used_fav_url,
+            f"Sample Favicon: {used_fav_url} | Shodan: {shodan_dork} | Censys: services.http.response.favicons.shodan_hash:{fav_hash}{desc_extra}",
+            "Favicon MurmurHash3 xeshi orqali CDN ortidagi to'g'ridan-to'g'ri origin IP manzil tasdiqlandi.",
+            "Origin serverlarda asosiy domen favicon faylini ochiq qoldirmang va IP kirishni faqat CDN subnetlariga cheklang.",
+        )
+    else:
+        db.log_task(
+            project_id,
+            "SPECTRE-Intel",
+            "favicon_mmh3",
+            "COMPLETED",
+            base_url,
+            f"Favicon MMH3 ({fav_hash}){' [' + matched_tech + ']' if matched_tech else ''} | {shodan_dork}",
+        )
     return {"hash": fav_hash, "tech": matched_origins and matched_tech or matched_tech, "matched_origins": matched_origins}
 
 
@@ -207,13 +225,15 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
         "axios", "fontawesome", "tailwind", "owl.carousel", "select2", "fancybox", "aos.", "gsap",
         "uwnd.min", "/.s/src/", "require.min", "polyfill", "modernizr",
     )
+    pnpm_pkg_re = re.compile(r"(?:\.pnpm|node_modules)/(@?[a-zA-Z0-9._\-]+(?:/[a-zA-Z0-9._\-]+)?)@(\d+\.\d+\.\d+(?:-[a-zA-Z0-9._\-]+)?)")
+    candidate_jobs: list[list[str]] = []
     for js_u in js_urls[:25]:
         js_fname = js_u.split("/")[-1].split("?")[0].lower()
         if any(vk in js_fname or vk in js_u.lower() for vk in vendor_skip):
             continue
         map_candidates = [js_u + ".map"]
         try:
-            j_txt = fetch_cached_text(session, project_id, js_u, timeout=6.0)
+            j_txt = fetch_cached_text(session, project_id, js_u, timeout=5.0)
             if j_txt and (fast_js_token_mask(j_txt[-2000:]) & JS_TOK_SOURCEMAP):
                 m_dir = re.search(r"//#\s*sourceMappingURL=([^\s'\"`]+)", j_txt[-2000:])
                 if m_dir:
@@ -222,69 +242,131 @@ def unpack_js_sourcemaps(db, session, project_id: int, js_urls: list[str], base_
                         map_candidates.insert(0, urllib.parse.urljoin(js_u, ref_map))
         except Exception:
             pass
+        candidate_jobs.append(map_candidates[:2])
 
-        for map_u in map_candidates[:2]:
+    def _fetch_map_candidate(cands: list[str]):
+        for map_u in cands:
             try:
-                rm = session.get(map_u, timeout=8, verify=False)
+                rm = session.get(map_u, timeout=5.5, verify=False)
                 if rm.status_code == 200 and '"version"' in rm.text[:300] and '"sources"' in rm.text[:2000]:
-                    map_fname = urllib.parse.urlparse(map_u).path.split("/")[-1]
-                    map_sig = f"{map_fname}:{hashlib.sha256(rm.content[:65536]).hexdigest()[:16]}"
-                    with _DEDUP_LOCK:
-                        seen_maps = _SEEN_SOURCEMAPS_BY_PROJ.setdefault(project_id, set())
-                        if map_sig in seen_maps:
-                            break
-                        seen_maps.add(map_sig)
-                    data = rm.json()
-                    sources = [str(s) for s in (data.get("sources") or []) if s]
-                    contents = [str(c) for c in (data.get("sourcesContent") or []) if c]
-                    extracted_routes = set()
-                    saved_files = 0
-                    out_root.mkdir(parents=True, exist_ok=True)
-
-                    for idx_s, src_code in enumerate(contents[:60]):
-                        if not src_code or not isinstance(src_code, str):
-                            continue
-                        raw_name = sources[idx_s] if idx_s < len(sources) else f"module_{idx_s}.ts"
-                        raw_clean = raw_name.replace("webpack://", "").replace("\\", "/")
-                        parts = [
-                            re.sub(r"[^a-zA-Z0-9_\-.]", "_", seg).strip(".")
-                            for seg in raw_clean.split("/")
-                            if seg and seg not in (".", "..")
-                        ]
-                        parts = [p for p in parts if p and p not in (".", "..")]
-                        if not parts:
-                            parts = [f"unpacked_{idx_s}.ts"]
-                        dest_f = out_root.joinpath(*parts).resolve()
-                        if not dest_f.is_relative_to(out_root) or dest_f.is_symlink():
-                            continue
-                        try:
-                            dest_f.parent.mkdir(parents=True, exist_ok=True)
-                            if not dest_f.parent.is_symlink() and not dest_f.is_symlink():
-                                dest_f.write_text(src_code[:400000], encoding="utf-8", errors="ignore")
-                                saved_files += 1
-                        except Exception:
-                            pass
-                        if fast_js_token_mask(src_code) & JS_TOK_ROUTE:
-                            for rt in route_re.findall(src_code):
-                                extracted_routes.add(rt)
-                                db.upsert_endpoint(project_id, urllib.parse.urljoin(base_url, rt), method="GET", params=[], category="api_endpoint", source="sourcemap_unpacked")
-
-                    unpacked_count += 1
-                    sample_files = ", ".join(sources[:8])
-                    db.upsert_finding(
-                        project_id, "SPECTRE-Web (SourceMap-Unpacker)",
-                        f"[CONFIRMED] Exposed JavaScript SourceMap ({urllib.parse.urlparse(map_u).path.split('/')[-1]})",
-                        "Source Code Exposure", "High", 7.5,
-                        "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-540", "A05:2021 - Security Misconfiguration",
-                        map_u,
-                        f"Original Source Files ({len(sources)}): {sample_files} | Disk Reconstructed: {saved_files} files in {out_dir} | Hidden Routes: {len(extracted_routes)}",
-                        "Production serverda .js.map (SourceMap) fayli ochiq qolgan — dasturning asl TypeScript/JSX manba kodini 100% tiklash va SAST orqali tahlil qilish mumkin.",
-                        "Build jarayonida 'productionSourceMap: false' o'rnating yoki Nginx'da *.map fayllariga kirishni bloklang.",
-                    )
-                    log_fn(f"  [SOURCEMAP-UNPACKED] {map_u} -> {saved_files} ta asl fayl '{out_dir.name}' ga tiklandi ({len(extracted_routes)} ta ichki route)!")
-                    break
+                    return (map_u, rm.content, rm.text)
             except Exception:
                 pass
+        return None
+
+    fetched_maps = []
+    if candidate_jobs:
+        ex_sm = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+        futs_sm = [ex_sm.submit(_fetch_map_candidate, cj) for cj in candidate_jobs]
+        concurrent.futures.wait(futs_sm, timeout=12.0)
+        for ft in futs_sm:
+            if ft.done() and not ft.cancelled():
+                try:
+                    r_item = ft.result()
+                    if r_item:
+                        fetched_maps.append(r_item)
+                except Exception:
+                    pass
+        ex_sm.shutdown(wait=False, cancel_futures=True)
+
+    unpacked_summaries: list[tuple[str, int, int]] = []
+    all_sample_sources: list[str] = []
+    all_extracted_routes: set[str] = set()
+    discovered_pnpm_pkgs: set[tuple[str, str]] = set()
+    total_saved_files = 0
+
+    for map_u, rm_content, rm_text in fetched_maps:
+        try:
+            map_fname = urllib.parse.urlparse(map_u).path.split("/")[-1]
+            map_sig = f"{map_fname}:{hashlib.sha256(rm_content[:65536]).hexdigest()[:16]}"
+            with _DEDUP_LOCK:
+                seen_maps = _SEEN_SOURCEMAPS_BY_PROJ.setdefault(project_id, set())
+                if map_sig in seen_maps:
+                    continue
+                seen_maps.add(map_sig)
+            data = json.loads(rm_text)
+            sources = [str(s) for s in (data.get("sources") or []) if s]
+            contents = [str(c) for c in (data.get("sourcesContent") or []) if c]
+            for s_path in sources:
+                for m_pkg, m_ver in pnpm_pkg_re.findall(s_path.replace("+", "/")):
+                    pkg_clean = m_pkg.strip("/").lower()
+                    if pkg_clean and m_ver:
+                        discovered_pnpm_pkgs.add((pkg_clean, m_ver))
+                if len(all_sample_sources) < 10 and s_path not in all_sample_sources:
+                    all_sample_sources.append(s_path)
+            saved_files = 0
+            out_root.mkdir(parents=True, exist_ok=True)
+
+            for idx_s, src_code in enumerate(contents[:60]):
+                if not src_code or not isinstance(src_code, str):
+                    continue
+                raw_name = sources[idx_s] if idx_s < len(sources) else f"module_{idx_s}.ts"
+                raw_clean = raw_name.replace("webpack://", "").replace("\\", "/")
+                parts = [
+                    re.sub(r"[^a-zA-Z0-9_\-.]", "_", seg).strip(".")
+                    for seg in raw_clean.split("/")
+                    if seg and seg not in (".", "..")
+                ]
+                parts = [p for p in parts if p and p not in (".", "..")]
+                if not parts:
+                    parts = [f"unpacked_{idx_s}.ts"]
+                dest_f = out_root.joinpath(*parts).resolve()
+                if not dest_f.is_relative_to(out_root) or dest_f.is_symlink():
+                    continue
+                try:
+                    dest_f.parent.mkdir(parents=True, exist_ok=True)
+                    if not dest_f.parent.is_symlink() and not dest_f.is_symlink():
+                        dest_f.write_text(src_code[:400000], encoding="utf-8", errors="ignore")
+                        saved_files += 1
+                except Exception:
+                    pass
+                if fast_js_token_mask(src_code) & JS_TOK_ROUTE:
+                    for rt in route_re.findall(src_code):
+                        all_extracted_routes.add(rt)
+                        db.upsert_endpoint(project_id, urllib.parse.urljoin(base_url, rt), method="GET", params=[], category="api_endpoint", source="sourcemap_unpacked")
+
+            unpacked_count += 1
+            total_saved_files += saved_files
+            unpacked_summaries.append((map_u, len(sources), saved_files))
+            log_fn(f"  [SOURCEMAP-UNPACKED] {map_u} -> {saved_files} ta asl fayl '{out_dir.name}' ga tiklandi!")
+        except Exception:
+            pass
+
+    if discovered_pnpm_pkgs and out_root.is_dir() and not out_root.is_symlink():
+        try:
+            meta_f = out_root / "_spectre_sourcemap_deps.json"
+            existing_pkgs: list[dict[str, str]] = []
+            if meta_f.is_file() and not meta_f.is_symlink():
+                existing_pkgs = json.loads(meta_f.read_text(encoding="utf-8", errors="ignore") or "[]")
+            merged_map = {(d.get("pkg", ""), d.get("ver", "")) for d in existing_pkgs if isinstance(d, dict)}
+            merged_map |= discovered_pnpm_pkgs
+            meta_f.write_text(
+                json.dumps([{"eco": "npm", "pkg": p, "ver": v} for p, v in sorted(merged_map) if p and v], indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    if unpacked_summaries:
+        first_map_u, _, _ = unpacked_summaries[0]
+        first_fname = urllib.parse.urlparse(first_map_u).path.split("/")[-1]
+        base_host = urllib.parse.urlparse(base_url).hostname or base_url
+        if len(unpacked_summaries) == 1:
+            sm_title = f"[CONFIRMED] Exposed JavaScript SourceMap ({first_fname})"
+        else:
+            sm_title = f"[CONFIRMED] Exposed JavaScript SourceMaps ({len(unpacked_summaries)} Bundles on {base_host})"
+        map_names = ", ".join(urllib.parse.urlparse(u).path.split("/")[-1] for u, _, _ in unpacked_summaries[:6])
+        pkg_note = f" | Extracted npm Packages: {len(discovered_pnpm_pkgs)}" if discovered_pnpm_pkgs else ""
+        db.upsert_finding(
+            project_id, "SPECTRE-Web (SourceMap-Unpacker)",
+            sm_title,
+            "Source Code Exposure", "High", 7.5,
+            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "CWE-540", "A05:2021 - Security Misconfiguration",
+            first_map_u,
+            f"Maps ({len(unpacked_summaries)}): {map_names} | Sample Sources: {', '.join(all_sample_sources[:6])} | Disk Reconstructed: {total_saved_files} files in {out_dir} | Hidden Routes: {len(all_extracted_routes)}{pkg_note}",
+            "Production serverda .js.map (SourceMap) fayllari ochiq qolgan — dasturning asl TypeScript/JSX manba kodini 100% tiklash va SAST/SCA orqali tahlil qilish mumkin.",
+            "Build jarayonida 'productionSourceMap: false' o'rnating yoki Nginx'da *.map fayllariga kirishni bloklang.",
+        )
     return unpacked_count
 
 
@@ -384,13 +466,35 @@ def mine_hidden_query_parameters(db, session, project_id: int, base_url: str, lo
     discovered_total = 0
     param_hits: list[tuple[str, list[str]]] = []
 
-    def _response_differs(r_test, base_status: int, base_len: int, max_jitter: int, canaries: dict[str, str], reflects_query_url: bool) -> bool:
-        if r_test.status_code != base_status:
-            return True
+    from core.native_bridge import fast_cpp_chronos_jitter_zscore, fast_dual_baseline_threshold
+
+    def _extract_title_norm(html_s: str) -> str:
+        m_t = re.search(r"<title[^>]*>(.*?)</title>", (html_s or "")[:40000], re.I | re.S)
+        return m_t.group(1).strip().lower() if m_t else ""
+
+    def _response_differs(
+        r_test,
+        base_status: int,
+        base_len: int,
+        max_jitter: int,
+        base_title: str,
+        base_samples: list[int],
+        canaries: dict[str, str],
+        reflects_query_url: bool,
+    ) -> bool:
+        if r_test.status_code in (403, 429, 500, 502, 503, 504):
+            return False
         if not reflects_query_url and any(cv in r_test.text for cv in canaries.values()):
             return True
-        if abs(len(r_test.text) - base_len) > max(180, max_jitter * 4):
-            return True
+        # Law 2: Dual-Baseline Jitter Calibration max(500, base_jitter * 4, int(base_len * 0.12))
+        thresh = max(500, max_jitter * 4, int(base_len * 0.12), fast_dual_baseline_threshold(base_len, max_jitter))
+        len_diff = abs(len(r_test.text) - base_len)
+        if r_test.status_code != base_status:
+            t_cur = _extract_title_norm(r_test.text)
+            return bool(t_cur != base_title or len_diff > thresh)
+        if len_diff > thresh:
+            z_score = fast_cpp_chronos_jitter_zscore(base_samples, int(len(r_test.text)))
+            return bool(z_score >= 3.0 or len_diff > thresh)
         return False
 
     for target_u in candidates[:5]:
@@ -402,6 +506,8 @@ def mine_hidden_query_parameters(db, session, project_id: int, base_url: str, lo
             r_cal = session.get(f"{target_u}?spectre_cal_991=spcal991v", timeout=5, verify=False, allow_redirects=False)
             base_status = r1.status_code
             base_len = len(r1.text)
+            base_title = _extract_title_norm(r1.text)
+            base_samples = [int(len(r1.text)), int(len(r2.text)), int(len(r_cal.text))]
             reflects_query_url = "spcal991v" in r_cal.text
             jitter = max(abs(len(r1.text) - len(r2.text)), abs(len(r1.text) - len(r_cal.text)))
 
@@ -411,7 +517,7 @@ def mine_hidden_query_parameters(db, session, project_id: int, base_url: str, lo
                 canaries = {p: f"sp7{i}x" for i, p in enumerate(chunk)}
                 q_str = urllib.parse.urlencode(canaries)
                 r_chunk = session.get(f"{target_u}?{q_str}", timeout=5, verify=False, allow_redirects=False)
-                if not _response_differs(r_chunk, base_status, base_len, jitter, canaries, reflects_query_url):
+                if not _response_differs(r_chunk, base_status, base_len, jitter, base_title, base_samples, canaries, reflects_query_url):
                     continue
 
                 # Binary search to isolate the exact reactive parameter(s)
@@ -424,14 +530,14 @@ def mine_hidden_query_parameters(db, session, project_id: int, base_url: str, lo
                         p_one = sub[0]
                         c_one = {p_one: "sp99z"}
                         r_one = session.get(f"{target_u}?{urllib.parse.urlencode(c_one)}", timeout=5, verify=False, allow_redirects=False)
-                        if _response_differs(r_one, base_status, base_len, jitter, c_one, reflects_query_url):
+                        if _response_differs(r_one, base_status, base_len, jitter, base_title, base_samples, c_one, reflects_query_url):
                             found_for_url.append(p_one)
                         continue
                     mid = len(sub) // 2
                     for half in (sub[:mid], sub[mid:]):
                         c_half = {p: f"sp8{i}y" for i, p in enumerate(half)}
                         r_half = session.get(f"{target_u}?{urllib.parse.urlencode(c_half)}", timeout=5, verify=False, allow_redirects=False)
-                        if _response_differs(r_half, base_status, base_len, jitter, c_half, reflects_query_url):
+                        if _response_differs(r_half, base_status, base_len, jitter, base_title, base_samples, c_half, reflects_query_url):
                             queue.append(half)
 
             if 0 < len(found_for_url) <= 5:
@@ -579,6 +685,26 @@ def enumerate_multicloud_and_containers(db, session, project_id: int, apex_domai
                 log_fn(f"  [INFRA-EXPOSED] {title}: {u}")
         except Exception:
             pass
+
+    try:
+        from core.native_bridge import fast_go_audit_cloud_posture
+        r_root_c = session.get(base_url, timeout=4.0, verify=False, allow_redirects=False)
+        if "<ListBucketResult" in r_root_c.text or "<EnumerationResults" in r_root_c.text:
+            cp_list = fast_go_audit_cloud_posture([{"asset": base_url, "kind": "bucket_xml", "content": r_root_c.text}])
+            for cp_res in cp_list:
+                hits += 1
+                db.upsert_finding(
+                    project_id, "SPECTRE-Web (Cloud-Enum)",
+                    f"[CONFIRMED] {cp_res.get('title') or 'Public Cloud Object Storage Listing'}",
+                    "Cloud Storage Misconfiguration", str(cp_res.get("severity") or "High"), float(cp_res.get("cvss") or 8.2),
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", str(cp_res.get("cwe") or "CWE-285"),
+                    "A05:2021 - Security Misconfiguration", base_url,
+                    str(cp_res.get("evidence") or r_root_c.text[:160]),
+                    "Bulutli obyekt ombori (S3/GCS/Azure Blob) autentifikatsiyasiz fayllar ro'yxatini qaytarmoqda.",
+                    "Public bucket listing va Anonymous ACL huquqlarini o'chiring.",
+                )
+    except Exception:
+        pass
     return hits
 
 

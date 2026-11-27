@@ -225,6 +225,27 @@ def analyze_js_ts_taint_flow(src_text: str) -> tuple[list[dict[str, Any]], set[i
                 "remediation": "Chiquvchi domenlar uchun allowlist va ichki IP bloklovchi qo'llang.",
             })
 
+    try:
+        from core.native_bridge import fast_rust_taint_flow_v2
+        for rf in fast_rust_taint_flow_v2(src_text, "js"):
+            r_ln = int(rf.get("line") or 0)
+            r_cwe = str(rf.get("cwe") or "")
+            if r_ln > 0 and r_cwe and r_ln not in safe_lines and (r_ln, r_cwe) not in seen:
+                seen.add((r_ln, r_cwe))
+                findings.append({
+                    "lineno": r_ln,
+                    "title": str(rf.get("title") or f"Rust Taint-Flow v2 Sink ({r_cwe})"),
+                    "category": "Injection / Data-Flow (SAST)",
+                    "severity": str(rf.get("severity") or "High"),
+                    "cvss": float(rf.get("cvss") or 8.2),
+                    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+                    "cwe": r_cwe,
+                    "owasp": "A03:2021 - Injection",
+                    "remediation": "Kiruvchi o'zgaruvchilarni sinkka uzatishdan oldin qat'iy sanitizatsiya yoki parametrlash qo'llang.",
+                })
+    except Exception:
+        pass
+
     return findings, safe_lines
 
 

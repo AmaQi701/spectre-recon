@@ -57,7 +57,10 @@ def enrich_asn_and_isp_intel(db, project_id: int, log_fn, session: requests.Sess
     except Exception as e:
         log_fn(f"  [!] ASN lookup ogohlantirish: {e}")
 
-    cdn_isp_keywords = ("cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "imperva", "ddos-guard", "sucuri", "qrator")
+    cdn_isp_keywords = (
+        "cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "imperva",
+        "ddos-guard", "servicepipe", "stormwall", "variti", "gcore", "sucuri", "qrator",
+    )
     for d in domains:
         ip = d.get("ip", "")
         if ip and ip in ip_info_map:

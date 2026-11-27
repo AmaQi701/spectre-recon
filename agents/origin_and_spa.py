@@ -84,13 +84,23 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
             pass
 
     candidate_ips = set()
-    cdn_keywords = ("cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "imperva", "ddos-guard", "sucuri", "qrator")
+    cdn_keywords = (
+        "cloudflare", "akamai", "fastly", "cloudfront", "incapsula", "imperva",
+        "ddos-guard", "servicepipe", "stormwall", "variti", "gcore", "sucuri", "qrator",
+    )
+    svc_by_host = {
+        (urllib.parse.urlparse(s.get("url", "")).hostname or "").lower(): s
+        for s in bundle.get("http_services", [])
+    }
     primary_direct_ips = {
         d.get("ip", "") for d in domains
         if d.get("domain") in (primary_host, apex_domain, f"www.{apex_domain}") and d.get("ip")
     }
     primary_is_behind_cdn = any(
-        any(k in str(d.get("cdn_waf", "")).lower() for k in cdn_keywords)
+        any(
+            k in (str(d.get("cdn_waf", "")) + " " + str((svc_by_host.get(str(d.get("domain", "")).lower()) or {}).get("waf", ""))).lower()
+            for k in cdn_keywords
+        )
         for d in domains
         if d.get("domain") in (primary_host, apex_domain, f"www.{apex_domain}")
     )
@@ -100,7 +110,7 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
     for d in domains:
         ip = d.get("ip", "")
         cdn = str(d.get("cdn_waf", "")).lower()
-        if ip and ip not in primary_direct_ips and not any(k in cdn for k in cdn_keywords):
+        if ip and ip not in primary_direct_ips and not any(k in cdn for k in cdn_keywords) and "external-parking" not in cdn:
             candidate_ips.add(ip)
         recs = json.loads(d.get("records_json") or "{}")
         for txt_val in recs.get("TXT", []):
@@ -109,17 +119,15 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
                     candidate_ips.add(m_ip)
 
     try:
-        from core.native_bridge import fast_go_osint_pivot_graph
-        svc_by_host = {
-            (urllib.parse.urlparse(s.get("url", "")).hostname or "").lower(): s
-            for s in bundle.get("http_services", [])
-        }
+        from core.native_bridge import fast_go_osint_pivot_graph, fast_mmh3_signed
         pivot_nodes = []
         for d in domains:
             dom_nm = str(d.get("domain") or "").lower()
             svc = svc_by_host.get(dom_nm) or {}
             tls_info = json.loads(svc.get("tls_json") or "{}") if isinstance(svc.get("tls_json"), str) else {}
             hdr_info = json.loads(svc.get("headers_json") or "{}") if isinstance(svc.get("headers_json"), str) else {}
+            raw_t = str(svc.get("title") or "").strip().lower()
+            t_hash = int(fast_mmh3_signed(raw_t.encode("utf-8"), 0)) if raw_t and not raw_t.startswith(("redirect (", "external redirect")) else 0
             pivot_nodes.append({
                 "domain": dom_nm,
                 "ip": str(d.get("ip") or ""),
@@ -128,7 +136,7 @@ def unmask_cloudflare_origin_ips(db, session: requests.Session, project_id: int,
                 "cert_sans": list(tls_info.get("sans") or []),
                 "favicon_mmh3": 0,
                 "etag": str(hdr_info.get("ETag") or hdr_info.get("etag") or ""),
-                "title_hash": 0,
+                "title_hash": t_hash,
             })
         piv_rep = fast_go_osint_pivot_graph(pivot_nodes)
         for cand in (piv_rep or {}).get("unmask_candidates") or []:

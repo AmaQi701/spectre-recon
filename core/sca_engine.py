@@ -400,6 +400,33 @@ def run_sca_dependency_audit(
             total_written += 1
             if log_fn:
                 log_fn(f"  [SCA-ENGINE] {mf.name} -> {len(vuln_deps)} ta zaif kutubxona aniqlandi: {', '.join(ev_items[:4])}")
+        sm_deps = extract_sourcemap_tree_dependencies(root)
+        if sm_deps:
+            sm_vulns = match_dependencies_advisories(sm_deps, allow_online_osv=allow_online_osv)
+            if sm_vulns:
+                top_c = max(x["cvss"] for x in sm_vulns)
+                top_s = "Critical" if top_c >= 9.0 else ("High" if top_c >= 7.0 else "Medium")
+                ev_sm = [
+                    f"{build_purl(x['eco'], x['pkg'], x['ver'])} ({', '.join(x['cves'][:2])})"
+                    for x in sm_vulns[:8]
+                ]
+                db.upsert_finding(
+                    project_id,
+                    "Agent-2 (SCA-Engine)",
+                    f"Vulnerable Open-Source Dependencies in Unpacked SourceMaps ({len(sm_vulns)} packages)",
+                    "Software Composition Analysis (SCA)",
+                    top_s,
+                    top_c,
+                    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+                    "CWE-1395",
+                    "A06:2021 - Vulnerable and Outdated Components",
+                    str(root),
+                    f"SourceMap Tree ({len(sm_deps)} packages inspected) | Vulnerable: {' | '.join(ev_sm)}",
+                    "SourceMap (.js.map) orqali tiklangan node_modules/.pnpm paketlarida ma'lum CVE zaifliklariga ega versiyalar aniqlandi.",
+                    "Ushbu npm paketlarni xavfsiz relizlarga yangilang (`pnpm update` / `npm audit fix`).",
+                    confidence=QoD.HEADER_CONFIG,
+                )
+                total_written += 1
     return total_written
 
 
@@ -414,6 +441,47 @@ _JS_BANNER_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("angular", re.compile(r"(?i)angularjs\s+v?(1\.\d+\.\d+)")),
     ("axios", re.compile(r"(?i)axios\s+v?(0\.\d+\.\d+|1\.[0-5]\.\d+)")),
 )
+
+
+_PNPM_SEG_PKG_RE = re.compile(
+    r"(?:^|[_/])([a-zA-Z][a-zA-Z0-9\-]{1,45})[@_](\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?)(?=[_/]|$)"
+)
+
+
+def extract_sourcemap_tree_dependencies(sm_root: Path) -> list[tuple[str, str, str]]:
+    if not sm_root.is_dir() or sm_root.is_symlink():
+        return []
+    found: list[tuple[str, str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    meta_f = sm_root / "_spectre_sourcemap_deps.json"
+    if meta_f.is_file() and not meta_f.is_symlink():
+        try:
+            items = json.loads(meta_f.read_text(encoding="utf-8", errors="ignore") or "[]")
+            for it in items:
+                if isinstance(it, dict):
+                    p = str(it.get("pkg") or "").strip().lower()
+                    v = str(it.get("ver") or "").strip()
+                    if p and v and (p, v) not in seen:
+                        seen.add((p, v))
+                        found.append(("npm", p, v))
+        except Exception:
+            pass
+    inspected = 0
+    for p_item in sm_root.rglob("*"):
+        if inspected >= 400:
+            break
+        if p_item.is_symlink():
+            continue
+        inspected += 1
+        rel_s = str(p_item.relative_to(sm_root)).replace("\\", "/")
+        if "pnpm/" not in rel_s and "node_modules/" not in rel_s:
+            continue
+        for m in _PNPM_SEG_PKG_RE.finditer(rel_s):
+            pkg_n, ver_n = m.group(1).lower(), m.group(2)
+            if pkg_n not in ("node_modules", "pnpm") and (pkg_n, ver_n) not in seen:
+                seen.add((pkg_n, ver_n))
+                found.append(("npm", pkg_n, ver_n))
+    return found
 
 
 def extract_js_bundle_libraries(js_text: str) -> list[tuple[str, str, str]]:
@@ -450,6 +518,9 @@ def run_web_and_js_sca_audit(
                 js_deps.extend(extract_js_bundle_libraries(jf.read_text(encoding="utf-8", errors="ignore")[:16384]))
             except Exception:
                 pass
+    sm_dir = js_cache.parent.parent / "sourcemaps" / f"project_{project_id}"
+    if sm_dir.is_dir() and not sm_dir.is_symlink():
+        js_deps.extend(extract_sourcemap_tree_dependencies(sm_dir))
     dedup_js_deps = list(dict.fromkeys(js_deps))
     if dedup_js_deps:
         js_vulns = match_dependencies_advisories(dedup_js_deps, allow_online_osv=allow_online_osv)

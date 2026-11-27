@@ -1108,27 +1108,33 @@ class ReconSuperAgent:
 
             waf = ""
             t_low_probe = title.lower()
+            ck_names_l = {str(c.get("name") or "").lower() for c in cookies_list}
             is_isp_or_fw_block = any(
                 blk in t_low_probe
                 for blk in ("fortinet secure dns", "fortiguard", "web page blocked", "cisco umbrella", "opendns")
             )
+            is_ext_parking = redirect_note.startswith("External Redirect") and any(
+                pk in redirect_note.lower() for pk in ("/parking", "sedoparking", "parked", "domainparking")
+            )
             if is_isp_or_fw_block:
                 waf = "FortiGuard / DNS Filter"
-            elif "cf-ray" in headers_l or "cloudflare" in server.lower():
+            elif is_ext_parking:
+                waf = "External-Parking-Redirect"
+            elif "cf-ray" in headers_l or "cloudflare" in server.lower() or any(cn.startswith(("__cf_bm", "cf_clearance")) for cn in ck_names_l):
                 waf = "Cloudflare"
             elif "x-amz-cf-id" in headers_l or "cloudfront" in server.lower() or "cloudfront" in headers_l.get("via", "").lower():
                 waf = "Amazon CloudFront"
             elif "x-sucuri-id" in headers_l or "sucuri" in server.lower():
                 waf = "Sucuri"
-            elif "x-iinfo" in headers_l or "imperva" in server.lower() or "incapsula" in server.lower():
+            elif "x-iinfo" in headers_l or "imperva" in server.lower() or "incapsula" in server.lower() or any(cn.startswith(("incap_ses_", "visid_incap_")) for cn in ck_names_l):
                 waf = "Imperva Incapsula"
-            elif "akamai" in server.lower() or "x-akamai-transformed" in headers_l:
+            elif "akamai" in server.lower() or "x-akamai-transformed" in headers_l or bool({"ak_bmsc", "bm_sz"} & ck_names_l):
                 waf = "Akamai"
             elif "x-fastly-request-id" in headers_l or "fastly" in headers_l.get("via", "").lower():
                 waf = "Fastly"
-            elif "ddos-guard" in server.lower():
+            elif "ddos-guard" in server.lower() or any(cn.startswith("__ddg") for cn in ck_names_l):
                 waf = "DDoS-Guard"
-            elif "qrator" in server.lower():
+            elif "qrator" in server.lower() or any(cn.startswith("qrator_") for cn in ck_names_l):
                 waf = "Qrator"
 
             if waf and not is_isp_or_fw_block and orig_host:
@@ -1799,7 +1805,7 @@ class ReconSuperAgent:
             self._host_to_ip.clear()
         if hasattr(self, "_ran_apex_suites"):
             self._ran_apex_suites.pop(project_id, None)
-        shutil.rmtree(get_project_js_cache_dir(project_id), ignore_errors=True)
+        get_project_js_cache_dir(project_id).mkdir(parents=True, exist_ok=True)
         before_snap = surface_prober.take_recon_snapshot(self.db, project_id)
         collected_html: list[str] = []
         apex_domain = ScopeGuard.extract_apex_domain(primary_host)
@@ -1841,7 +1847,7 @@ class ReconSuperAgent:
                     _prog(0.0, f"NXDOMAIN: {apex_domain} topilmadi")
                     return
 
-        log_fn(f"--- [PHASE 1] SPECTRE v9.5.0 AUTONOMOUS RECON [{recon_mode.upper()}] (Target: {primary_host} | Apex: {apex_domain}) ---")
+        log_fn(f"--- [PHASE 1] SPECTRE v10.0.0 AUTONOMOUS RECON [{recon_mode.upper()}] (Target: {primary_host} | Apex: {apex_domain}) ---")
         self.db.upsert_domain(project_id, primary_host, source="primary_target")
         if apex_domain != primary_host and scope.is_in_scope(apex_domain)[0]:
             self.db.upsert_domain(project_id, apex_domain, source="apex_domain")
@@ -1869,7 +1875,6 @@ class ReconSuperAgent:
             from core.plugin_runner import ScanPhase, run_plugin_safely
             cli_orchestrator.run_deep_network_and_ad_tools(self, project_id, primary_host, active_ids, log_fn)
             run_plugin_safely(self.db, project_id, "r1_subnet_ptr", origin_and_spa.sweep_subnet_neighbors_and_ptr, self.db, project_id, apex_domain, scope, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
-            run_plugin_safely(self.db, project_id, "r1_origin_unmask", origin_and_spa.unmask_cloudflare_origin_ips, self.db, self.session, project_id, apex_domain, primary_host, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_VERIFY)
             run_plugin_safely(self.db, project_id, "r1_custom_web_ports", surface_prober.probe_nonstandard_web_ports, self.db, self.session, project_id, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_SCANNER)
             run_plugin_safely(self.db, project_id, "r1_vhost_hunter", surface_prober.hunt_virtual_hosts, self.db, self.session, project_id, apex_domain, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_SCANNER)
             run_plugin_safely(self.db, project_id, "r1_ipv6_dual_stack", runtime_and_network.resolve_and_probe_ipv6_dual_stack, self.db, self.session, project_id, apex_domain, primary_host, log_fn, log_fn=log_fn, phase=ScanPhase.ACT_GATHER_INFO)
@@ -1976,6 +1981,15 @@ class ReconSuperAgent:
                 futs_p = [ex_p.submit(_fast_probe_host, d_i) for d_i in batch_to_probe]
                 concurrent.futures.wait(futs_p, timeout=35)
                 ex_p.shutdown(wait=False, cancel_futures=True)
+
+                if pass_num == 1:
+                    from core.plugin_runner import ScanPhase, run_plugin_safely
+                    run_plugin_safely(
+                        self.db, project_id, "r1_origin_unmask",
+                        origin_and_spa.unmask_cloudflare_origin_ips,
+                        self.db, self.session, project_id, apex_domain, primary_host, log_fn,
+                        log_fn=log_fn, phase=ScanPhase.ACT_VERIFY,
+                    )
 
                 # Phase B: Deep Inspection on top-priority unique live web services (with Smart Clone Deduplication & Tarpit Circuit-Breaker)
                 live_sorted = sorted(probe_results.keys(), key=lambda x: (-_dom_priority(x), x))

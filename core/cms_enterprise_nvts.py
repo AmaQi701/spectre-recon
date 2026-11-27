@@ -262,14 +262,20 @@ def run_cms_and_enterprise_nvts(
         sc = int(svc.get("status_code") or 0)
         if sc not in (200, 401, 403):
             continue
+        title_s = str(svc.get("title") or "").strip()
+        clen = int(svc.get("content_length") or 0)
+        if title_s.startswith(("Redirect (", "External Redirect", "Meta-Refresh ->")):
+            continue
+        if sc == 200 and clen < 200 and ("nginx" in title_s.lower() or not title_s):
+            continue
         url = str(svc.get("url") or "").rstrip("/")
         if not url or http_engine.is_host_dead(url):
             continue
-        tpl = (str(svc.get("server") or ""), str(svc.get("title") or "")[:50], int(svc.get("content_length") or 0) // 2048)
+        tpl = (str(svc.get("server") or ""), title_s[:50], clen // 2048)
         if tpl in seen_tpl and len(candidates) >= 1:
             continue
         seen_tpl.add(tpl)
-        t_blob = f"{svc.get('title', '')} {svc.get('server', '')} {svc.get('tech_stack', '')}".lower()
+        t_blob = f"{title_s} {svc.get('server', '')} {svc.get('tech_stack', '')}".lower()
         candidates.append((url, t_blob))
 
     if not candidates:
